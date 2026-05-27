@@ -1,0 +1,1087 @@
+{
+  "$schema": "https://yshengliao.github.io/aiecsjs/api-schema.json",
+  "name": "aiecsjs",
+  "version": "0.1.0",
+  "generated": "2026-05-27",
+  "stability": "experimental",
+  "license": "MIT",
+  "repository": "https://github.com/yshengliao/aiecsjs",
+  "runtime": ["browser", "node>=18"],
+  "modules": [
+    {
+      "name": "aiecsjs",
+      "description": "Core entry point — world, entity, component, query, system, utilities.",
+      "exports": [
+        "createWorld", "destroyWorld", "resetWorld", "getWorldSize", "getWorldCapacity",
+        "createEntity", "destroyEntity", "entityExists", "getEntityIndex", "getEntityGeneration", "packEntity",
+        "defineComponent", "defineTag", "defineObjectComponent",
+        "addComponent", "removeComponent", "hasComponent", "getComponent", "setComponent",
+        "Types",
+        "defineQuery", "runQuery", "forEachEntity", "iterQuery", "enterQuery", "exitQuery", "queryArchetypes",
+        "pipe",
+        "VERSION", "IS_SAB_SUPPORTED", "isWorld", "isEntity"
+      ]
+    },
+    {
+      "name": "aiecsjs/loop",
+      "description": "Fixed-timestep accumulator loop helper.",
+      "exports": ["createLoop"]
+    },
+    {
+      "name": "aiecsjs/commands",
+      "description": "Command buffer for deferred structural mutation during iteration.",
+      "exports": ["createCommandBuffer", "flush", "withCommandBuffer"]
+    },
+    {
+      "name": "aiecsjs/observers",
+      "description": "Reactive observers for component add/remove/set events.",
+      "exports": ["observe", "onAdd", "onRemove", "onSet"]
+    },
+    {
+      "name": "aiecsjs/serialize",
+      "description": "Binary, JSON, and delta serialization.",
+      "exports": ["serializeWorld", "deserializeWorld", "toJSON", "fromJSON", "createDeltaSerializer"]
+    },
+    {
+      "name": "aiecsjs/worker",
+      "description": "SharedArrayBuffer multi-threading helpers (experimental).",
+      "exports": ["transferableSnapshot", "adoptSnapshot", "attachWorld", "detachWorld"]
+    },
+    {
+      "name": "aiecsjs/relations",
+      "description": "Entity relations and hierarchies (experimental, target 0.2).",
+      "exports": ["defineRelation", "addRelation", "removeRelation", "getRelationTargets", "ChildOf"]
+    }
+  ],
+  "exports": [
+    {
+      "name": "createWorld",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function createWorld(options?: WorldOptions): World",
+      "summary": "Create a new ECS world.",
+      "params": [
+        {
+          "name": "options",
+          "type": "WorldOptions",
+          "optional": true,
+          "description": "Configuration; all fields have defaults. See WorldOptions type."
+        }
+      ],
+      "returns": { "type": "World", "description": "Opaque world handle passed to all other API calls." },
+      "examples": [
+        { "title": "Minimal world", "code": "const world = createWorld()" },
+        { "title": "Pre-allocated capacity", "code": "const world = createWorld({ initialCapacity: 16384 })" },
+        { "title": "SAB-backed world", "code": "const world = createWorld({ buffer: new SharedArrayBuffer(64*1024*1024) })" }
+      ],
+      "seeAlso": ["destroyWorld", "resetWorld", "WorldOptions"]
+    },
+    {
+      "name": "destroyWorld",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function destroyWorld(world: World): void",
+      "summary": "Release all internal buffers; the world reference becomes invalid.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "World to destroy." }],
+      "returns": { "type": "void", "description": "" },
+      "examples": [{ "title": "Cleanup", "code": "destroyWorld(world)" }],
+      "seeAlso": ["createWorld", "resetWorld"]
+    },
+    {
+      "name": "resetWorld",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function resetWorld(world: World): void",
+      "summary": "Wipe entities and components but keep the world allocated. Useful for hot module reload.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "World to reset." }],
+      "returns": { "type": "void", "description": "" },
+      "examples": [{ "title": "Reset for HMR", "code": "if (import.meta.hot) import.meta.hot.dispose(() => resetWorld(world))" }],
+      "seeAlso": ["createWorld", "destroyWorld"]
+    },
+    {
+      "name": "getWorldSize",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getWorldSize(world: World): number",
+      "summary": "Number of alive entities in the world.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Target world." }],
+      "returns": { "type": "number", "description": "Alive entity count." },
+      "examples": [{ "title": "Status print", "code": "console.log('alive:', getWorldSize(world))" }],
+      "seeAlso": ["getWorldCapacity"]
+    },
+    {
+      "name": "getWorldCapacity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getWorldCapacity(world: World): number",
+      "summary": "Current upper bound on entity slot count. May grow if maxEntities allows.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Target world." }],
+      "returns": { "type": "number", "description": "Capacity." },
+      "examples": [],
+      "seeAlso": ["getWorldSize", "WorldOptions"]
+    },
+    {
+      "name": "createEntity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function createEntity(world: World): EntityId",
+      "summary": "Allocate a fresh entity. Returns a versioned 32-bit ID.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Target world." }],
+      "returns": { "type": "EntityId", "description": "Branded number containing index + generation." },
+      "throws": [{ "type": "Error", "when": "world has reached maxEntities cap." }],
+      "examples": [{ "title": "Spawn one entity", "code": "const e = createEntity(world)" }],
+      "seeAlso": ["destroyEntity", "entityExists", "packEntity"]
+    },
+    {
+      "name": "destroyEntity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function destroyEntity(world: World, eid: EntityId): void",
+      "summary": "Remove all components, bump generation, free slot.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to destroy." }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "examples": [{ "title": "Cleanup dead entity", "code": "if (entityExists(world, e)) destroyEntity(world, e)" }],
+      "seeAlso": ["createEntity", "entityExists"]
+    },
+    {
+      "name": "entityExists",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function entityExists(world: World, eid: EntityId): boolean",
+      "summary": "True iff the entity's index is allocated AND its generation matches.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to check." }
+      ],
+      "returns": { "type": "boolean", "description": "Liveness." },
+      "examples": [],
+      "seeAlso": ["destroyEntity"]
+    },
+    {
+      "name": "getEntityIndex",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getEntityIndex(eid: EntityId): number",
+      "summary": "Extract the index portion of a packed entity ID.",
+      "params": [{ "name": "eid", "type": "EntityId", "optional": false, "description": "Packed entity ID." }],
+      "returns": { "type": "number", "description": "Index in [0, 2^indexBits)." },
+      "examples": [],
+      "seeAlso": ["getEntityGeneration", "packEntity"]
+    },
+    {
+      "name": "getEntityGeneration",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getEntityGeneration(eid: EntityId): number",
+      "summary": "Extract the generation portion of a packed entity ID.",
+      "params": [{ "name": "eid", "type": "EntityId", "optional": false, "description": "Packed entity ID." }],
+      "returns": { "type": "number", "description": "Generation in [0, 2^generationBits)." },
+      "examples": [],
+      "seeAlso": ["getEntityIndex", "packEntity"]
+    },
+    {
+      "name": "packEntity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function packEntity(index: number, generation: number): EntityId",
+      "summary": "Compose an entity ID from its parts. Rarely needed.",
+      "params": [
+        { "name": "index", "type": "number", "optional": false, "description": "Entity index." },
+        { "name": "generation", "type": "number", "optional": false, "description": "Entity generation." }
+      ],
+      "returns": { "type": "EntityId", "description": "Branded composed ID." },
+      "examples": [],
+      "seeAlso": ["getEntityIndex", "getEntityGeneration"]
+    },
+    {
+      "name": "defineComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>",
+      "summary": "Declare a Structure-of-Arrays component. Each field becomes a TypedArray column indexed by entity ID.",
+      "params": [
+        {
+          "name": "schema",
+          "type": "SoASchema",
+          "optional": false,
+          "description": "Map of field name → field type. Field type is a member of Types, or [type, vectorLength] for fixed-size vectors."
+        }
+      ],
+      "returns": { "type": "SoAComponent<S>", "description": "Component handle used in addComponent/getComponent/etc." },
+      "examples": [
+        { "title": "Position with two scalars", "code": "const Position = defineComponent({ x: Types.f32, y: Types.f32 })" },
+        { "title": "Transform with vector field", "code": "const Transform = defineComponent({ pos: [Types.f32, 3], scale: Types.f32 })" }
+      ],
+      "seeAlso": ["defineTag", "defineObjectComponent", "Types", "addComponent"]
+    },
+    {
+      "name": "defineTag",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function defineTag(): TagComponent",
+      "summary": "Declare a zero-byte tag component. No fields.",
+      "params": [],
+      "returns": { "type": "TagComponent", "description": "Tag component handle." },
+      "examples": [{ "title": "Player tag", "code": "const Player = defineTag()" }],
+      "seeAlso": ["defineComponent"]
+    },
+    {
+      "name": "defineObjectComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function defineObjectComponent<T>(factory?: () => T): AoSComponent<T>",
+      "summary": "Declare an Array-of-Structures component. Each entity stores a separate JS object. Main-thread only.",
+      "params": [
+        {
+          "name": "factory",
+          "type": "() => T",
+          "optional": true,
+          "description": "Default value factory invoked ONCE at definition time. Mutate per-entity instances via setComponent/getComponent."
+        }
+      ],
+      "returns": { "type": "AoSComponent<T>", "description": "AoS component handle." },
+      "examples": [
+        { "title": "Reference to a Three.js mesh", "code": "const MeshRef = defineObjectComponent<{ mesh: any }>(() => ({ mesh: null }))" }
+      ],
+      "seeAlso": ["defineComponent", "setComponent", "getComponent"]
+    },
+    {
+      "name": "addComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function addComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C, initial?: unknown): void",
+      "summary": "Attach a component to an entity. Argument order is (world, eid, component, init) — different from bitECS.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to attach to." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." },
+        { "name": "initial", "type": "Partial<...> | undefined", "optional": true, "description": "Initial values; shape depends on component kind." }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "throws": [
+        { "type": "TypeError", "when": "component is not a ComponentLike." },
+        { "type": "Error", "when": "eid does not exist (dev mode only)." }
+      ],
+      "examples": [
+        { "title": "Add SoA component with init", "code": "addComponent(world, e, Position, { x: 10, y: 20 })" },
+        { "title": "Add tag", "code": "addComponent(world, e, Player)" }
+      ],
+      "seeAlso": ["removeComponent", "hasComponent", "getComponent", "setComponent"]
+    },
+    {
+      "name": "removeComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function removeComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): void",
+      "summary": "Detach a component from an entity. Triggers archetype migration.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to detach from." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "examples": [],
+      "seeAlso": ["addComponent", "hasComponent"]
+    },
+    {
+      "name": "hasComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function hasComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): boolean",
+      "summary": "Test whether an entity has a component.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to test." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." }
+      ],
+      "returns": { "type": "boolean", "description": "Presence flag." },
+      "examples": [],
+      "seeAlso": ["addComponent", "removeComponent"]
+    },
+    {
+      "name": "getComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): ComponentView<C>",
+      "summary": "Retrieve a component view. For SoA, returns the archetype's column map; index by eid. For AoS, returns the per-entity object.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to read." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." }
+      ],
+      "returns": { "type": "ComponentView<C>", "description": "Column map (SoA) or per-entity object (AoS)." },
+      "examples": [
+        { "title": "Read SoA value", "code": "const pos = getComponent(world, e, Position); console.log(pos.x[e], pos.y[e])" }
+      ],
+      "seeAlso": ["setComponent", "hasComponent"]
+    },
+    {
+      "name": "setComponent",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function setComponent<C extends ComponentLike, V>(world: World, eid: EntityId, component: C, value: V): void",
+      "summary": "Bulk-write component fields. For SoA, value is Partial<{field: value}>. For AoS, replaces the per-entity object's fields.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "eid", "type": "EntityId", "optional": false, "description": "Entity to write." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." },
+        { "name": "value", "type": "V", "optional": false, "description": "New values." }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "examples": [
+        { "title": "Set SoA", "code": "setComponent(world, e, Position, { x: 5, y: 10 })" }
+      ],
+      "seeAlso": ["getComponent", "addComponent"]
+    },
+    {
+      "name": "defineQuery",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function defineQuery(descriptor: ComponentLike[] | QueryDescriptor): Query",
+      "summary": "Create a reusable query selector. The same component set always returns the same Query reference within a module.",
+      "params": [
+        {
+          "name": "descriptor",
+          "type": "ComponentLike[] | QueryDescriptor",
+          "optional": false,
+          "description": "Shorthand component list (treated as { all: [...] }) or a full QueryDescriptor with all/any/none arrays."
+        }
+      ],
+      "returns": { "type": "Query", "description": "Cached query handle." },
+      "throws": [{ "type": "TypeError", "when": "any descriptor argument is not a Component." }],
+      "examples": [
+        { "title": "Shorthand all-of", "code": "const movers = defineQuery([Position, Velocity])" },
+        { "title": "Full descriptor with exclusions", "code": "const visibleEnemies = defineQuery({ all: [Position, Sprite, Enemy], none: [Hidden] })" }
+      ],
+      "seeAlso": ["runQuery", "forEachEntity", "iterQuery", "enterQuery", "exitQuery"]
+    },
+    {
+      "name": "runQuery",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function runQuery(world: World, query: Query): readonly EntityId[]",
+      "summary": "Return matching entities as a frozen array. Allocates each call; not for hot loops.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." }
+      ],
+      "returns": { "type": "readonly EntityId[]", "description": "Frozen array of entity IDs." },
+      "examples": [],
+      "seeAlso": ["forEachEntity", "iterQuery"]
+    },
+    {
+      "name": "forEachEntity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function forEachEntity<Q extends Query>(world: World, query: Q, fn: (eid: EntityId, ...columns: any[]) => void): void",
+      "summary": "Hot iteration path. Component column views are passed in declaration order after the entity ID.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." },
+        { "name": "fn", "type": "(eid, ...columns) => void", "optional": false, "description": "Per-entity callback. Receives eid then component column views in declaration order." }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "examples": [
+        {
+          "title": "Update positions",
+          "code": "forEachEntity(world, movers, (e, pos, vel) => { pos.x[e] += vel.x[e]; pos.y[e] += vel.y[e] })"
+        }
+      ],
+      "seeAlso": ["defineQuery", "runQuery", "iterQuery"]
+    },
+    {
+      "name": "iterQuery",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function iterQuery(world: World, query: Query): IterableIterator<EntityId>",
+      "summary": "Iterator over matching entity IDs. Allocates an iterator; use forEachEntity in hot loops.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." }
+      ],
+      "returns": { "type": "IterableIterator<EntityId>", "description": "Iterator." },
+      "examples": [{ "title": "for...of usage", "code": "for (const e of iterQuery(world, q)) { /* ... */ }" }],
+      "seeAlso": ["forEachEntity"]
+    },
+    {
+      "name": "enterQuery",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function enterQuery(query: Query): Query",
+      "summary": "Reactive query that yields only entities newly matching this frame.",
+      "params": [{ "name": "query", "type": "Query", "optional": false, "description": "Source query." }],
+      "returns": { "type": "Query", "description": "Reactive query handle." },
+      "examples": [{ "title": "Mount-on-enter", "code": "const becameVisible = enterQuery(visibleQ)" }],
+      "seeAlso": ["exitQuery", "defineQuery"]
+    },
+    {
+      "name": "exitQuery",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function exitQuery(query: Query): Query",
+      "summary": "Reactive query that yields only entities that left the match this frame.",
+      "params": [{ "name": "query", "type": "Query", "optional": false, "description": "Source query." }],
+      "returns": { "type": "Query", "description": "Reactive query handle." },
+      "examples": [],
+      "seeAlso": ["enterQuery", "defineQuery"]
+    },
+    {
+      "name": "queryArchetypes",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function queryArchetypes(world: World, query: Query): readonly Archetype[]",
+      "summary": "Power-user access to matching archetype tables. For custom iteration, GPU upload, or profiling.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." }
+      ],
+      "returns": { "type": "readonly Archetype[]", "description": "Archetype handles." },
+      "examples": [{ "title": "Per-archetype upload", "code": "for (const a of queryArchetypes(world, q)) { /* a.size, a.mask */ }" }],
+      "seeAlso": ["defineQuery"]
+    },
+    {
+      "name": "pipe",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function pipe<W extends World, Ctx>(...systems: System<W, Ctx>[]): System<W, Ctx>",
+      "summary": "Compose systems left-to-right. Associative; always returns the same World reference.",
+      "params": [{ "name": "systems", "type": "System<W, Ctx>[]", "optional": false, "description": "Systems to compose." }],
+      "returns": { "type": "System<W, Ctx>", "description": "Composed system." },
+      "examples": [
+        { "title": "Frame tick", "code": "const tick = pipe(input, physics, render); tick(world, dt)" }
+      ],
+      "seeAlso": ["createLoop"]
+    },
+    {
+      "name": "createLoop",
+      "kind": "function",
+      "module": "aiecsjs/loop",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function createLoop(options: LoopOptions): { start(): void; stop(): void }",
+      "summary": "Fixed-timestep accumulator loop. Calls onUpdate with constant dt; onRender once per animation frame with an interpolation alpha.",
+      "params": [{ "name": "options", "type": "LoopOptions", "optional": false, "description": "Loop configuration." }],
+      "returns": { "type": "{ start(), stop() }", "description": "Loop control handle." },
+      "examples": [
+        { "title": "60Hz loop", "code": "const loop = createLoop({ fixed: 1/60, onUpdate: dt => tick(world, dt) }); loop.start()" }
+      ],
+      "seeAlso": ["pipe"]
+    },
+    {
+      "name": "createCommandBuffer",
+      "kind": "function",
+      "module": "aiecsjs/commands",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function createCommandBuffer(world: World): CommandBuffer",
+      "summary": "Create a buffer that queues structural mutations until flushed.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Target world." }],
+      "returns": { "type": "CommandBuffer", "description": "Buffer with add/remove/destroy/create methods." },
+      "examples": [],
+      "seeAlso": ["flush", "withCommandBuffer"]
+    },
+    {
+      "name": "flush",
+      "kind": "function",
+      "module": "aiecsjs/commands",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function flush(cb: CommandBuffer): void",
+      "summary": "Apply all queued operations to the world.",
+      "params": [{ "name": "cb", "type": "CommandBuffer", "optional": false, "description": "Buffer to flush." }],
+      "returns": { "type": "void", "description": "" },
+      "examples": [],
+      "seeAlso": ["createCommandBuffer", "withCommandBuffer"]
+    },
+    {
+      "name": "withCommandBuffer",
+      "kind": "function",
+      "module": "aiecsjs/commands",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function withCommandBuffer<R>(world: World, fn: (cb: CommandBuffer) => R): R",
+      "summary": "Scoped command buffer; auto-flushes at end of callback. Forwards the return value.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "fn", "type": "(cb: CommandBuffer) => R", "optional": false, "description": "Callback receiving the buffer." }
+      ],
+      "returns": { "type": "R", "description": "Whatever the callback returned." },
+      "examples": [
+        { "title": "Safe destroy in iter", "code": "withCommandBuffer(world, cb => { forEachEntity(world, dying, e => cb.destroy(e)) })" }
+      ],
+      "seeAlso": ["createCommandBuffer"]
+    },
+    {
+      "name": "observe",
+      "kind": "function",
+      "module": "aiecsjs/observers",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function observe(world: World, query: Query, event: 'add' | 'remove' | 'set', handler: (eid: EntityId) => void): () => void",
+      "summary": "General-purpose query observer. Returns a disposer.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." },
+        { "name": "event", "type": "'add'|'remove'|'set'", "optional": false, "description": "Event kind." },
+        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." }
+      ],
+      "returns": { "type": "() => void", "description": "Disposer." },
+      "examples": [],
+      "seeAlso": ["onAdd", "onRemove", "onSet"]
+    },
+    {
+      "name": "onAdd",
+      "kind": "function",
+      "module": "aiecsjs/observers",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function onAdd(world: World, component: ComponentLike, handler: (eid: EntityId) => void): () => void",
+      "summary": "Listen for component-add events on a specific component.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." },
+        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." }
+      ],
+      "returns": { "type": "() => void", "description": "Disposer." },
+      "examples": [],
+      "seeAlso": ["onRemove", "onSet", "observe"]
+    },
+    {
+      "name": "onRemove",
+      "kind": "function",
+      "module": "aiecsjs/observers",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function onRemove(world: World, component: ComponentLike, handler: (eid: EntityId) => void): () => void",
+      "summary": "Listen for component-remove events.",
+      "params": [],
+      "returns": { "type": "() => void", "description": "Disposer." },
+      "examples": [],
+      "seeAlso": ["onAdd", "onSet"]
+    },
+    {
+      "name": "onSet",
+      "kind": "function",
+      "module": "aiecsjs/observers",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function onSet<C extends ComponentLike>(world: World, component: C, handler: (eid: EntityId, value: unknown) => void): () => void",
+      "summary": "Listen for setComponent calls.",
+      "params": [],
+      "returns": { "type": "() => void", "description": "Disposer." },
+      "examples": [],
+      "seeAlso": ["onAdd", "onRemove"]
+    },
+    {
+      "name": "serializeWorld",
+      "kind": "function",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function serializeWorld(world: World, options?: SerializeOptions): Uint8Array",
+      "summary": "Produce a versioned binary snapshot of the world.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "options", "type": "SerializeOptions", "optional": true, "description": "Restrict to a component subset." }
+      ],
+      "returns": { "type": "Uint8Array", "description": "Binary snapshot." },
+      "examples": [{ "title": "Save", "code": "const bytes = serializeWorld(world)" }],
+      "seeAlso": ["deserializeWorld", "toJSON", "createDeltaSerializer"]
+    },
+    {
+      "name": "deserializeWorld",
+      "kind": "function",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions): World",
+      "summary": "Restore a world from binary bytes.",
+      "params": [
+        { "name": "bytes", "type": "Uint8Array", "optional": false, "description": "Bytes from serializeWorld." },
+        { "name": "options", "type": "DeserializeOptions", "optional": true, "description": "Migration behaviour for unknown versions." }
+      ],
+      "returns": { "type": "World", "description": "Restored world." },
+      "throws": [{ "type": "Error", "when": "version mismatch and onUnknownVersion is 'throw'." }],
+      "examples": [],
+      "seeAlso": ["serializeWorld"]
+    },
+    {
+      "name": "toJSON",
+      "kind": "function",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function toJSON(world: World): WorldSnapshot",
+      "summary": "Produce a human-readable JSON snapshot. Slower than serializeWorld; inspectable in DevTools.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Target world." }],
+      "returns": { "type": "WorldSnapshot", "description": "JSON-serializable object." },
+      "examples": [],
+      "seeAlso": ["fromJSON", "serializeWorld"]
+    },
+    {
+      "name": "fromJSON",
+      "kind": "function",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function fromJSON(snapshot: WorldSnapshot): World",
+      "summary": "Restore from a JSON snapshot.",
+      "params": [{ "name": "snapshot", "type": "WorldSnapshot", "optional": false, "description": "Snapshot from toJSON." }],
+      "returns": { "type": "World", "description": "Restored world." },
+      "examples": [],
+      "seeAlso": ["toJSON"]
+    },
+    {
+      "name": "createDeltaSerializer",
+      "kind": "function",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer",
+      "summary": "Capture only changes since the previous capture. For network replication. Wire format may change before 1.0.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "options", "type": "SerializeOptions", "optional": true, "description": "Restrict to a component subset." }
+      ],
+      "returns": { "type": "DeltaSerializer", "description": "Object with capture/apply/reset methods." },
+      "examples": [
+        { "title": "Send delta over WS", "code": "const tx = createDeltaSerializer(world, { components: [Position] }); setInterval(() => ws.send(tx.capture()), 50)" }
+      ],
+      "seeAlso": ["serializeWorld"]
+    },
+    {
+      "name": "transferableSnapshot",
+      "kind": "function",
+      "module": "aiecsjs/worker",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function transferableSnapshot(world: World): { buffer: SharedArrayBuffer; meta: WorldMeta }",
+      "summary": "Package a SAB-backed world for postMessage to a Worker.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "SAB-backed world." }],
+      "returns": { "type": "TransferableSnapshot", "description": "buffer + meta to send." },
+      "examples": [{ "title": "Send to worker", "code": "worker.postMessage(transferableSnapshot(world))" }],
+      "seeAlso": ["adoptSnapshot", "attachWorld"]
+    },
+    {
+      "name": "adoptSnapshot",
+      "kind": "function",
+      "module": "aiecsjs/worker",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function adoptSnapshot(snap: { buffer: SharedArrayBuffer; meta: WorldMeta }): World",
+      "summary": "On the Worker side, materialise a world from a snapshot sent over postMessage.",
+      "params": [{ "name": "snap", "type": "TransferableSnapshot", "optional": false, "description": "Snapshot received via onmessage." }],
+      "returns": { "type": "World", "description": "Worker-side world view backed by the same SAB." },
+      "examples": [],
+      "seeAlso": ["transferableSnapshot"]
+    },
+    {
+      "name": "attachWorld",
+      "kind": "function",
+      "module": "aiecsjs/worker",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function attachWorld(buffer: SharedArrayBuffer, options?: { readOnly?: boolean }): World",
+      "summary": "Attach to a SAB that was set up by another thread. Use readOnly when this thread should only read.",
+      "params": [
+        { "name": "buffer", "type": "SharedArrayBuffer", "optional": false, "description": "Shared buffer." },
+        { "name": "options", "type": "{ readOnly?: boolean }", "optional": true, "description": "Attach flags." }
+      ],
+      "returns": { "type": "World", "description": "Attached world view." },
+      "examples": [],
+      "seeAlso": ["detachWorld", "adoptSnapshot"]
+    },
+    {
+      "name": "detachWorld",
+      "kind": "function",
+      "module": "aiecsjs/worker",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function detachWorld(world: World): void",
+      "summary": "Release this thread's view of a shared world. Does NOT free the SAB.",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "Attached world." }],
+      "returns": { "type": "void", "description": "" },
+      "examples": [],
+      "seeAlso": ["attachWorld"]
+    },
+    {
+      "name": "defineRelation",
+      "kind": "function",
+      "module": "aiecsjs/relations",
+      "since": "0.2.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function defineRelation<T = void>(options?: { exclusive?: boolean }): Relation<T>",
+      "summary": "Declare a relation type between two entities. Documented for early feedback; implemented in 0.2.",
+      "params": [{ "name": "options", "type": "{ exclusive?: boolean }", "optional": true, "description": "If exclusive, each source may relate to at most one target." }],
+      "returns": { "type": "Relation<T>", "description": "Relation handle." },
+      "examples": [
+        { "title": "Likes relation with data", "code": "const Likes = defineRelation<{ since: number }>()" }
+      ],
+      "seeAlso": ["addRelation", "removeRelation", "getRelationTargets", "ChildOf"]
+    },
+    {
+      "name": "addRelation",
+      "kind": "function",
+      "module": "aiecsjs/relations",
+      "since": "0.2.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function addRelation<T>(world: World, source: EntityId, rel: Relation<T>, target: EntityId, data?: T): void",
+      "summary": "Add a relation edge from source to target.",
+      "params": [],
+      "returns": { "type": "void", "description": "" },
+      "examples": [{ "title": "Mark Alice as child of Parent", "code": "addRelation(world, alice, ChildOf, parent)" }],
+      "seeAlso": ["defineRelation"]
+    },
+    {
+      "name": "removeRelation",
+      "kind": "function",
+      "module": "aiecsjs/relations",
+      "since": "0.2.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function removeRelation(world: World, source: EntityId, rel: Relation, target: EntityId): void",
+      "summary": "Remove a single relation edge.",
+      "params": [],
+      "returns": { "type": "void", "description": "" },
+      "examples": [],
+      "seeAlso": ["defineRelation", "addRelation"]
+    },
+    {
+      "name": "getRelationTargets",
+      "kind": "function",
+      "module": "aiecsjs/relations",
+      "since": "0.2.0",
+      "stability": "experimental",
+      "deprecated": false,
+      "signature": "function getRelationTargets(world: World, source: EntityId, rel: Relation): readonly EntityId[]",
+      "summary": "Enumerate targets reachable from source by this relation.",
+      "params": [],
+      "returns": { "type": "readonly EntityId[]", "description": "Target entity IDs." },
+      "examples": [],
+      "seeAlso": ["defineRelation"]
+    },
+    {
+      "name": "isWorld",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function isWorld(x: unknown): x is World",
+      "summary": "Type guard for World values.",
+      "params": [],
+      "returns": { "type": "boolean", "description": "Type guard." },
+      "examples": [],
+      "seeAlso": ["isEntity"]
+    },
+    {
+      "name": "isEntity",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function isEntity(world: World, x: unknown): x is EntityId",
+      "summary": "Type guard for live EntityId in the given world.",
+      "params": [],
+      "returns": { "type": "boolean", "description": "Type guard." },
+      "examples": [],
+      "seeAlso": ["isWorld", "entityExists"]
+    }
+  ],
+  "types": [
+    {
+      "name": "WorldOptions",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type WorldOptions = { initialCapacity?: number; maxEntities?: number; indexBits?: 20 | 24; generationBits?: 8 | 12 | 16; buffer?: SharedArrayBuffer; bufferByteOffset?: number }"
+    },
+    {
+      "name": "World",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface World { readonly id: number; readonly capacity: number; readonly version: string }"
+    },
+    {
+      "name": "EntityId",
+      "kind": "type",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type EntityId = number & { readonly __brand: 'EntityId' }"
+    },
+    {
+      "name": "SoASchema",
+      "kind": "type",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type SoASchema = Record<string, SoAFieldDecl>"
+    },
+    {
+      "name": "SoAComponent",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface SoAComponent<S extends SoASchema> { readonly __schema: S; readonly __soa: true }"
+    },
+    {
+      "name": "AoSComponent",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface AoSComponent<T> { readonly __aos: true }"
+    },
+    {
+      "name": "TagComponent",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface TagComponent { readonly __tag: true }"
+    },
+    {
+      "name": "ComponentLike",
+      "kind": "type",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type ComponentLike = SoAComponent<any> | AoSComponent<any> | TagComponent"
+    },
+    {
+      "name": "QueryDescriptor",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type QueryDescriptor = { all?: ComponentLike[]; any?: ComponentLike[]; none?: ComponentLike[] }"
+    },
+    {
+      "name": "Query",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface Query { readonly id: number; readonly mask: ReadonlyArray<number> }"
+    },
+    {
+      "name": "System",
+      "kind": "type",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type System<W extends World = World, Ctx = unknown> = (world: W, ctx: Ctx) => W"
+    },
+    {
+      "name": "LoopOptions",
+      "kind": "interface",
+      "module": "aiecsjs/loop",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type LoopOptions = { fixed?: number; maxSubSteps?: number; onUpdate: (dt: number) => void; onRender?: (alpha: number) => void }"
+    },
+    {
+      "name": "CommandBuffer",
+      "kind": "interface",
+      "module": "aiecsjs/commands",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface CommandBuffer { add<C>(eid: EntityId, c: C, init?: unknown): void; remove<C>(eid: EntityId, c: C): void; destroy(eid: EntityId): void; create(): EntityId }"
+    },
+    {
+      "name": "SerializeOptions",
+      "kind": "interface",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type SerializeOptions = { components?: ComponentLike[] }"
+    },
+    {
+      "name": "DeserializeOptions",
+      "kind": "interface",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "type DeserializeOptions = { onUnknownVersion?: 'throw' | 'best-effort' }"
+    },
+    {
+      "name": "WorldSnapshot",
+      "kind": "interface",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "stable",
+      "definition": "interface WorldSnapshot { /* opaque, JSON-serializable */ }"
+    },
+    {
+      "name": "DeltaSerializer",
+      "kind": "interface",
+      "module": "aiecsjs/serialize",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "definition": "interface DeltaSerializer { capture(): Uint8Array; apply(world: World, delta: Uint8Array): void; reset(): void }"
+    },
+    {
+      "name": "Archetype",
+      "kind": "interface",
+      "module": "aiecsjs",
+      "since": "0.1.0",
+      "stability": "experimental",
+      "definition": "interface Archetype { readonly id: number; readonly mask: ReadonlyArray<number>; readonly size: number }"
+    },
+    {
+      "name": "Relation",
+      "kind": "interface",
+      "module": "aiecsjs/relations",
+      "since": "0.2.0",
+      "stability": "experimental",
+      "definition": "interface Relation<T = void> { readonly __relation: true }"
+    }
+  ],
+  "constants": [
+    {
+      "name": "VERSION",
+      "kind": "constant",
+      "module": "aiecsjs",
+      "type": "string",
+      "stability": "stable",
+      "since": "0.1.0",
+      "description": "Equals the published npm package version."
+    },
+    {
+      "name": "IS_SAB_SUPPORTED",
+      "kind": "constant",
+      "module": "aiecsjs",
+      "type": "boolean",
+      "stability": "stable",
+      "since": "0.1.0",
+      "description": "True iff SharedArrayBuffer is available in the current runtime."
+    },
+    {
+      "name": "Types",
+      "kind": "constant",
+      "module": "aiecsjs",
+      "type": "Readonly<Record<string, string>>",
+      "stability": "stable",
+      "since": "0.1.0",
+      "description": "Map of SoA field type identifiers: i8 u8 i16 u16 i32 u32 f32 f64 eid bool."
+    },
+    {
+      "name": "ChildOf",
+      "kind": "constant",
+      "module": "aiecsjs/relations",
+      "type": "Relation",
+      "stability": "experimental",
+      "since": "0.2.0",
+      "description": "Built-in parent-child relation. Available when aiecsjs/relations is implemented (target 0.2)."
+    }
+  ]
+}

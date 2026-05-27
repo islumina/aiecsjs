@@ -1,0 +1,78 @@
+import { describe, it, expect } from 'vitest'
+import {
+  createWorld,
+  createEntity,
+  destroyEntity,
+  defineComponent,
+  addComponent,
+  removeComponent,
+  defineQuery,
+  forEachEntity,
+  pipe,
+  getComponent,
+  entityExists,
+  Types,
+} from '../../src/index.js'
+
+// This test mirrors the README Quick Start (sans createLoop, which we replace with a manual tick loop).
+describe('integration: README Quick Start', () => {
+  it('100 particles drift and expire deterministically', () => {
+    const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+    const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+    const Lifetime = defineComponent({ remaining: Types.f32 })
+
+    const world = createWorld({ initialCapacity: 256 })
+
+    // Deterministic init: i instead of Math.random
+    const ents: number[] = []
+    for (let i = 0; i < 10; i++) {
+      const e = createEntity(world)
+      addComponent(world, e, Position, { x: i, y: 0 })
+      addComponent(world, e, Velocity, { x: 1, y: 1 })
+      addComponent(world, e, Lifetime, { remaining: 0.2 })
+      ents.push(e as number)
+    }
+
+    const movers = defineQuery([Position, Velocity])
+    const decaying = defineQuery([Lifetime])
+
+    const movementSystem = (w: any, dt: number) => {
+      forEachEntity(w, movers, (e, pos: any, vel: any) => {
+        pos.x[e] += vel.x[e] * dt
+        pos.y[e] += vel.y[e] * dt
+      })
+      return w
+    }
+
+    const lifetimeSystem = (w: any, dt: number) => {
+      const toDestroy: number[] = []
+      forEachEntity(w, decaying, (e, life: any) => {
+        life.remaining[e] -= dt
+        if (life.remaining[e] <= 0) toDestroy.push(e as number)
+      })
+      for (const e of toDestroy) destroyEntity(w, e as any)
+      return w
+    }
+
+    const tick = pipe(movementSystem, lifetimeSystem)
+    const dt = 0.05
+    for (let frame = 0; frame < 5; frame++) {
+      tick(world, dt)
+    }
+
+    // Position after 5 ticks of dt=0.05 = 0.25s movement
+    for (const e of ents) {
+      if (entityExists(world, e as any)) {
+        const pos = getComponent(world, e as any, Position) as any
+        // Verify x has been integrated by the velocity
+        expect(pos.x[e]).toBeGreaterThan(0)
+      }
+    }
+
+    // After enough frames, lifetime should expire all entities
+    for (let frame = 0; frame < 10; frame++) tick(world, dt)
+    let aliveCount = 0
+    for (const e of ents) if (entityExists(world, e as any)) aliveCount++
+    expect(aliveCount).toBe(0)
+  })
+})

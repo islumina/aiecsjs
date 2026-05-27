@@ -1,0 +1,91 @@
+{
+  "name": "aiecsjs",
+  "version": "0.1.0",
+  "description": "TypeScript-first archetype ECS with TypedArray SoA, SharedArrayBuffer multi-threading, and AI-readable docs.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./loop": {
+      "types": "./dist/loop.d.ts",
+      "import": "./dist/loop.js",
+      "require": "./dist/loop.cjs"
+    },
+    "./commands": {
+      "types": "./dist/commands.d.ts",
+      "import": "./dist/commands.js",
+      "require": "./dist/commands.cjs"
+    },
+    "./observers": {
+      "types": "./dist/observers.d.ts",
+      "import": "./dist/observers.js",
+      "require": "./dist/observers.cjs"
+    },
+    "./serialize": {
+      "types": "./dist/serialize.d.ts",
+      "import": "./dist/serialize.js",
+      "require": "./dist/serialize.cjs"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js",
+      "require": "./dist/worker.cjs"
+    },
+    "./relations": {
+      "types": "./dist/relations.d.ts",
+      "import": "./dist/relations.js",
+      "require": "./dist/relations.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-TW.md",
+    "STABILITY.md",
+    "STABILITY.zh-TW.md",
+    "CHANGELOG.md",
+    "llms.txt",
+    "llms-full.txt",
+    "api.json",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "yshengliao",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yshengliao/aiecsjs.git"
+  },
+  "keywords": [
+    "ecs",
+    "entity-component-system",
+    "typescript",
+    "archetype",
+    "soa",
+    "sharedarraybuffer",
+    "game",
+    "simulation"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  }
+}

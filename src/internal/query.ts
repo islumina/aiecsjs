@@ -1,0 +1,396 @@
+import type {
+  Archetype,
+  ComponentInfo,
+  ComponentLike,
+  EntityId,
+  Query,
+  QueryDescriptor,
+  QueryInternal,
+  ReactiveBuffer,
+  World,
+  WorldState,
+} from './types.js'
+import { createMask, matches, setBit, testBit, isMaskZero, listBits } from './bitmask.js'
+import {
+  getOrRegisterComponentBit,
+  getWorldState,
+  readEntityMask,
+  tryGetComponentBit,
+} from './world.js'
+import { getComponentInfo } from './component.js'
+
+let nextQueryId = 1
+const moduleQueryCache = new Map<string, QueryInternal>()
+
+function descKey(d: QueryDescriptor): string {
+  const all = (d.all ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
+  const any = (d.any ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
+  const none = (d.none ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
+  return `A${all}|Y${any}|N${none}`
+}
+
+export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
+  const desc: QueryDescriptor = Array.isArray(arg) ? { all: arg } : arg
+
+  // Validate all members are components
+  for (const c of [...(desc.all ?? []), ...(desc.any ?? []), ...(desc.none ?? [])]) {
+    if (!c || typeof c !== 'object' || typeof (c as any).__id !== 'number') {
+      throw new TypeError('aiecsjs: defineQuery received a non-component value')
+    }
+  }
+
+  const key = descKey(desc)
+  const cached = moduleQueryCache.get(key)
+  if (cached) return cached
+
+  const q: QueryInternal = {
+    id: nextQueryId++,
+    mask: [],
+    all: (desc.all ?? []).map(c => c.__id),
+    any: (desc.any ?? []).map(c => c.__id),
+    none: (desc.none ?? []).map(c => c.__id),
+    withMask: createMask(8),
+    anyMask: createMask(8),
+    noneMask: createMask(8),
+    anyHasBits: (desc.any ?? []).length > 0,
+    columnViewCache: [...(desc.all ?? []), ...(desc.any ?? [])],
+    reactiveKind: 'normal',
+    sourceQueryId: -1,
+    sourceQuery: null,
+  }
+  moduleQueryCache.set(key, q)
+  return q
+}
+
+export function enterQuery(query: Query): Query {
+  const q = query as QueryInternal
+  const key = `enter:${q.id}`
+  const cached = moduleQueryCache.get(key)
+  if (cached) return cached
+  const reactive: QueryInternal = {
+    id: nextQueryId++,
+    mask: [],
+    all: q.all,
+    any: q.any,
+    none: q.none,
+    withMask: createMask(8),
+    anyMask: createMask(8),
+    noneMask: createMask(8),
+    anyHasBits: q.anyHasBits,
+    columnViewCache: q.columnViewCache,
+    reactiveKind: 'enter',
+    sourceQueryId: q.id,
+    sourceQuery: q,
+  }
+  moduleQueryCache.set(key, reactive)
+  return reactive
+}
+
+export function exitQuery(query: Query): Query {
+  const q = query as QueryInternal
+  const key = `exit:${q.id}`
+  const cached = moduleQueryCache.get(key)
+  if (cached) return cached
+  const reactive: QueryInternal = {
+    id: nextQueryId++,
+    mask: [],
+    all: q.all,
+    any: q.any,
+    none: q.none,
+    withMask: createMask(8),
+    anyMask: createMask(8),
+    noneMask: createMask(8),
+    anyHasBits: q.anyHasBits,
+    columnViewCache: q.columnViewCache,
+    reactiveKind: 'exit',
+    sourceQueryId: q.id,
+    sourceQuery: q,
+  }
+  moduleQueryCache.set(key, reactive)
+  return reactive
+}
+
+// --- Per-world query setup ---
+
+function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
+  if (state.queries[q.id] === q) return
+
+  // Build per-world bitmasks (this may register new bits)
+  const ww = state.options.maskWordCount
+  const withMask = createMask(ww)
+  const anyMask = createMask(ww)
+  const noneMask = createMask(ww)
+  for (const compId of q.all) {
+    const info = getComponentInfoById(compId)
+    const bit = getOrRegisterComponentBit(state, info)
+    setBit(withMask, bit)
+  }
+  for (const compId of q.any) {
+    const info = getComponentInfoById(compId)
+    const bit = getOrRegisterComponentBit(state, info)
+    setBit(anyMask, bit)
+  }
+  for (const compId of q.none) {
+    const info = getComponentInfoById(compId)
+    const bit = getOrRegisterComponentBit(state, info)
+    setBit(noneMask, bit)
+  }
+
+  q.withMask = withMask
+  q.anyMask = anyMask
+  q.noneMask = noneMask
+  q.anyHasBits = !isMaskZero(anyMask)
+
+  state.queries[q.id] = q
+  state.queryArchetypeCache[q.id] = null
+  state.queryArchetypeStamp[q.id] = -1
+
+  // Build bit → queries index for fast reactive lookup
+  const involvedBits: number[] = [...listBits(withMask), ...listBits(anyMask), ...listBits(noneMask)]
+  for (const b of involvedBits) {
+    let s = state.bitToQueries.get(b)
+    if (!s) {
+      s = new Set<number>()
+      state.bitToQueries.set(b, s)
+    }
+    s.add(q.id)
+  }
+
+  // Initialize reactive buffer for enter/exit queries
+  if (q.reactiveKind !== 'normal') {
+    if (!state.reactiveBuffers.has(q.id)) {
+      state.reactiveBuffers.set(q.id, { entered: [], exited: [] })
+    }
+    // Also register the source query so recordEntityMaskChange will see it
+    if (q.sourceQuery) ensureQueryRegistered(state, q.sourceQuery)
+  }
+}
+
+function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
+  ensureQueryRegistered(state, q)
+  if (
+    state.queryArchetypeCache[q.id] &&
+    state.queryArchetypeStamp[q.id] === state.queryVersion
+  ) {
+    return state.queryArchetypeCache[q.id]!
+  }
+  const words = state.options.maskWordCount
+  const list: number[] = []
+  for (let i = 0; i < state.archetypes.length; i++) {
+    const arch = state.archetypes[i]!
+    if (matches(arch.mask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)) {
+      list.push(i)
+    }
+  }
+  state.queryArchetypeCache[q.id] = list
+  state.queryArchetypeStamp[q.id] = state.queryVersion
+  return list
+}
+
+export function queryArchetypes(world: World, query: Query): readonly Archetype[] {
+  const state = getWorldState(world)
+  const q = query as QueryInternal
+  const ids = getQueryArchetypes(state, q)
+  const out: Archetype[] = []
+  for (const id of ids) {
+    const arch = state.archetypes[id]!
+    out.push({ id: arch.id, mask: Array.from(arch.mask), size: arch.size })
+  }
+  return out
+}
+
+export function runQuery(world: World, query: Query): readonly EntityId[] {
+  const state = getWorldState(world)
+  const q = query as QueryInternal
+  const out: EntityId[] = []
+  if (q.reactiveKind === 'enter') {
+    const buf = state.reactiveBuffers.get(q.id)
+    if (buf) {
+      for (const e of buf.entered) out.push(e as EntityId)
+      buf.entered.length = 0
+    }
+    return out
+  }
+  if (q.reactiveKind === 'exit') {
+    const buf = state.reactiveBuffers.get(q.id)
+    if (buf) {
+      for (const e of buf.exited) out.push(e as EntityId)
+      buf.exited.length = 0
+    }
+    return out
+  }
+  const archIds = getQueryArchetypes(state, q)
+  for (const id of archIds) {
+    const arch = state.archetypes[id]!
+    for (let r = 0; r < arch.size; r++) {
+      out.push(arch.entities[r] as EntityId)
+    }
+  }
+  return out
+}
+
+export function* iterQuery(world: World, query: Query): IterableIterator<EntityId> {
+  const state = getWorldState(world)
+  const q = query as QueryInternal
+  if (q.reactiveKind !== 'normal') {
+    const buf = state.reactiveBuffers.get(q.id)
+    if (!buf) return
+    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    for (const e of src) yield e as EntityId
+    src.length = 0
+    return
+  }
+  const archIds = getQueryArchetypes(state, q)
+  for (const id of archIds) {
+    const arch = state.archetypes[id]!
+    for (let r = 0; r < arch.size; r++) {
+      yield arch.entities[r] as EntityId
+    }
+  }
+}
+
+export function forEachEntity(
+  world: World,
+  query: Query,
+  fn: (eid: EntityId, ...cols: any[]) => void,
+): void {
+  const state = getWorldState(world)
+  const q = query as QueryInternal
+
+  if (q.reactiveKind !== 'normal') {
+    const buf = state.reactiveBuffers.get(q.id)
+    if (!buf) return
+    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    if (src.length === 0) return
+    const cols = buildColumnViews(state, q)
+    for (let i = 0; i < src.length; i++) {
+      const e = src[i] as EntityId
+      callWithCols(fn, e, cols)
+    }
+    src.length = 0
+    return
+  }
+
+  ensureQueryRegistered(state, q)
+  const archIds = getQueryArchetypes(state, q)
+  const cols = buildColumnViews(state, q)
+  for (const id of archIds) {
+    const arch = state.archetypes[id]!
+    const ents = arch.entities
+    const n = arch.size
+    for (let r = 0; r < n; r++) {
+      callWithCols(fn, ents[r] as EntityId, cols)
+    }
+  }
+}
+
+function callWithCols(fn: (eid: EntityId, ...cols: any[]) => void, eid: EntityId, cols: any[]): void {
+  // Specialise for low arities to avoid spread allocation.
+  switch (cols.length) {
+    case 0: fn(eid); break
+    case 1: fn(eid, cols[0]); break
+    case 2: fn(eid, cols[0], cols[1]); break
+    case 3: fn(eid, cols[0], cols[1], cols[2]); break
+    case 4: fn(eid, cols[0], cols[1], cols[2], cols[3]); break
+    case 5: fn(eid, cols[0], cols[1], cols[2], cols[3], cols[4]); break
+    default: fn(eid, ...cols)
+  }
+}
+
+function buildColumnViews(state: WorldState, q: QueryInternal): any[] {
+  const out: any[] = []
+  for (const comp of q.columnViewCache) {
+    const info = getComponentInfo(comp)
+    const bit = state.componentBitFor.get(info.id)
+    if (bit === undefined) {
+      out.push(undefined)
+      continue
+    }
+    const storage = state.componentStorageByBit[bit]
+    if (!storage) { out.push(undefined); continue }
+    if (storage.kind === 'soa') out.push(storage.soa)
+    else if (storage.kind === 'aos') out.push(storage.aos)
+    else out.push(true) // tag
+  }
+  return out
+}
+
+// --- Reactive query updates (called from migration code) ---
+
+export function recordEntityMaskChange(
+  state: WorldState,
+  eid: EntityId,
+  changedBit: number,
+  prevMask: Uint32Array,
+  nextMask: Uint32Array,
+): void {
+  // Lazy-register any reactive queries (and their sources) so we can correctly
+  // determine match transitions even if the user only ever called enterQuery/exitQuery.
+  for (const q of moduleQueryCache.values()) {
+    if (q.reactiveKind === 'normal') continue
+    if (q.sourceQuery && state.queries[q.sourceQuery.id] !== q.sourceQuery) {
+      ensureQueryRegistered(state, q.sourceQuery)
+    }
+  }
+
+  const involved = state.bitToQueries.get(changedBit)
+  if (!involved) return
+  const words = state.options.maskWordCount
+  for (const qid of involved) {
+    const q = state.queries[qid]
+    if (!q) continue
+    if (q.reactiveKind !== 'normal') continue
+    const wasMatch = matches(prevMask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)
+    const isMatch = matches(nextMask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)
+    if (!wasMatch && isMatch) {
+      pushReactive(state, qid, 'enter', eid)
+    } else if (wasMatch && !isMatch) {
+      pushReactive(state, qid, 'exit', eid)
+    }
+  }
+}
+
+function pushReactive(state: WorldState, queryId: number, kind: 'enter' | 'exit', eid: EntityId): void {
+  // Walk the module cache (not just state.queries) so reactive variants that
+  // haven't been registered with this world yet still receive events.
+  for (const r of moduleQueryCache.values()) {
+    if (r.sourceQueryId !== queryId) continue
+    if (r.reactiveKind !== kind) continue
+    // Lazily register the reactive query in this world so subsequent reads can find it
+    ensureQueryRegistered(state, r)
+    const buf = ensureReactiveBuffer(state, r.id)
+    if (kind === 'enter') buf.entered.push(eid as number)
+    else buf.exited.push(eid as number)
+  }
+}
+
+function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
+  let buf = state.reactiveBuffers.get(qid)
+  if (!buf) {
+    buf = { entered: [], exited: [] }
+    state.reactiveBuffers.set(qid, buf)
+  }
+  return buf
+}
+
+// --- Helpers ---
+
+function getComponentInfoById(componentId: number): ComponentInfo {
+  // We need access to the component registry's lookup by id. Re-import dynamically to avoid cycles.
+  const info = lazyGetComponentInfo(componentId)
+  if (!info) throw new Error(`aiecsjs: component id ${componentId} not registered`)
+  return info
+}
+
+let _getComponentInfoFn: ((id: number) => ComponentInfo | undefined) | null = null
+export function registerComponentLookup(fn: (id: number) => ComponentInfo | undefined): void {
+  _getComponentInfoFn = fn
+}
+function lazyGetComponentInfo(id: number): ComponentInfo | undefined {
+  return _getComponentInfoFn ? _getComponentInfoFn(id) : undefined
+}
+
+export function _resetQueryRegistry_FOR_TESTS_ONLY(): void {
+  moduleQueryCache.clear()
+  nextQueryId = 1
+}

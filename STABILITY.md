@@ -1,0 +1,137 @@
+# Stability Contract
+
+🌐 [English](STABILITY.md) | [繁體中文](STABILITY.zh-TW.md)
+
+This document is the per-export stability promise for `aiecsjs`. It is the contract AI tools and human users can rely on when pinning versions and writing import paths.
+
+## Policy
+
+aiecsjs follows [semver](https://semver.org/). Within the **0.x** series:
+- **`stable`** exports do not change in breaking ways across minor versions (e.g. 0.1 → 0.2).
+- **`experimental`** exports may change shape, name, or behaviour in any minor release. Pin the exact version if you depend on them.
+- **`internal`** is not part of the API. May change in any patch release. Do not import.
+- **`deprecated`** still works as documented but is scheduled for removal. The deprecation notice states the target version.
+
+At **1.0**, the `stable` surface freezes for the entire 1.x series.
+
+The full machine-readable export list lives in [`api.json`](./api.json), with the `stability` and `since` fields on every entry.
+
+## By module
+
+### `aiecsjs` (root)
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `createWorld` | stable | 0.1.0 | |
+| `destroyWorld` | stable | 0.1.0 | |
+| `resetWorld` | stable | 0.1.0 | |
+| `getWorldSize` | stable | 0.1.0 | |
+| `getWorldCapacity` | stable | 0.1.0 | |
+| `createEntity` | stable | 0.1.0 | |
+| `destroyEntity` | stable | 0.1.0 | |
+| `entityExists` | stable | 0.1.0 | |
+| `getEntityIndex` | stable | 0.1.0 | |
+| `getEntityGeneration` | stable | 0.1.0 | |
+| `packEntity` | stable | 0.1.0 | |
+| `defineComponent` | stable | 0.1.0 | |
+| `defineTag` | stable | 0.1.0 | |
+| `defineObjectComponent` | stable | 0.1.0 | AoS components are main-thread only; not SAB-shareable. |
+| `addComponent` | stable | 0.1.0 | Argument order `(world, eid, component, init?)` is final. |
+| `removeComponent` | stable | 0.1.0 | |
+| `hasComponent` | stable | 0.1.0 | |
+| `getComponent` | stable | 0.1.0 | |
+| `setComponent` | stable | 0.1.0 | |
+| `Types` | stable | 0.1.0 | Constant map; field names are part of the contract. |
+| `defineQuery` | stable | 0.1.0 | |
+| `runQuery` | stable | 0.1.0 | |
+| `forEachEntity` | stable | 0.1.0 | |
+| `iterQuery` | stable | 0.1.0 | |
+| `enterQuery` | stable | 0.1.0 | |
+| `exitQuery` | stable | 0.1.0 | |
+| `queryArchetypes` | **experimental** | 0.1.0 | `Archetype.id` is opaque-internal; the shape of `Archetype` may grow. |
+| `pipe` | stable | 0.1.0 | |
+| `VERSION` | stable | 0.1.0 | |
+| `IS_SAB_SUPPORTED` | stable | 0.1.0 | |
+| `isWorld` | stable | 0.1.0 | |
+| `isEntity` | stable | 0.1.0 | |
+
+### `aiecsjs/loop`
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `createLoop` | stable | 0.1.0 | |
+
+### `aiecsjs/commands`
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `createCommandBuffer` | stable | 0.1.0 | |
+| `flush` | stable | 0.1.0 | |
+| `withCommandBuffer` | stable | 0.1.0 | |
+
+### `aiecsjs/observers`
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `observe` | stable | 0.1.0 | |
+| `onAdd` | stable | 0.1.0 | |
+| `onRemove` | stable | 0.1.0 | |
+| `onSet` | stable | 0.1.0 | |
+
+### `aiecsjs/serialize`
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `serializeWorld` | stable | 0.1.0 | Binary format includes a version stamp. |
+| `deserializeWorld` | stable | 0.1.0 | |
+| `toJSON` | stable | 0.1.0 | |
+| `fromJSON` | stable | 0.1.0 | |
+| `createDeltaSerializer` | **experimental** | 0.1.0 | Wire format may change before 1.0. |
+
+### `aiecsjs/worker`
+
+The entire subpath is **experimental** in 0.1. Snapshot layout and capability flags may change.
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `transferableSnapshot` | experimental | 0.1.0 | |
+| `adoptSnapshot` | experimental | 0.1.0 | |
+| `attachWorld` | experimental | 0.1.0 | |
+| `detachWorld` | experimental | 0.1.0 | |
+
+### `aiecsjs/relations`
+
+The entire subpath is **experimental** in 0.1 but implemented. Targeted for stabilization in 0.3.
+
+| Export | Stability | Since | Notes |
+|---|---|---|---|
+| `defineRelation` | experimental | 0.1.0 | |
+| `addRelation` | experimental | 0.1.0 | |
+| `removeRelation` | experimental | 0.1.0 | |
+| `getRelationTargets` | experimental | 0.1.0 | |
+| `ChildOf` (constant) | experimental | 0.1.0 | Built-in exclusive relation. |
+
+### `aiecsjs/internal/*`
+
+Everything under this prefix is **internal**. It exists for the implementation's own use and may break in any release. Do not import.
+
+## Roadmap
+
+| Version | Focus | Stability shift |
+|---|---|---|
+| 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
+| 0.2.x | Relations & hierarchies | `aiecsjs/relations` becomes implemented; still experimental. |
+| 0.3.x | Hardening, relations stabilization, multi-threading polish | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
+
+## How to check stability at runtime
+
+```ts
+import { VERSION } from 'aiecsjs'
+
+if (VERSION.startsWith('0.')) {
+  console.warn('aiecsjs is in pre-1.0; API surface may shift')
+}
+```
+
+For programmatic introspection, parse [`api.json`](./api.json) — each entry has `stability` and `since` fields.
