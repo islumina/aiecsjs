@@ -91,6 +91,3 @@ export { pipe } from './internal/pipe.js'
 
 // --- Utility ---
 export const IS_SAB_SUPPORTED: boolean = typeof SharedArrayBuffer !== 'undefined'
-
-// Re-export internal helpers needed by subpath modules (worker, serialize)
-export { getWorldState as _getWorldState } from './internal/world.js'

@@ -14,6 +14,23 @@
 - 加入 `pipeAsync` 以支援非同步系統組合。
 - 引入 doc-test 工具，使 README 中的程式碼區塊能被機械化驗證。
 
+## [0.1.3] - 2026-05-28
+
+「無已知 silent bug」版本。兩個正確性修正、一個熱路徑分配移除，加上一小批風格清理。公開 API 行為無任何改變；`_getWorldState` 從 root export 移除（原本就未文件化、無 sub-path 引用，前綴底線即內部訊號）。
+
+### 修正
+
+- `aiecsjs/relations` 的 relation data store 不再以 `srcEid * worldCapacity + tgtEid` 當 key。world 擴容後同一組 `(src, tgt)` 會算出不同 key，原有 entry 變孤兒。改為 nested `Map<srcEid, Map<tgtEid, data>>`，與 capacity 完全脫鉤；`destroyEntity` 清理 hook 同步更新。v0.1 並無對外 retrieve API 故 user-invisible，但只要 0.2 推出 retrieve surface 就會立即引爆。
+- 每個 query 在 world 上 resolve 後的 bitmask 不再寫回 module-global 的 `QueryInternal`。當同一個 `defineQuery(...)` handle 被兩個 component 註冊順序不同的 world 共用時，後者的 per-world mask 會覆寫前者，導致 world A 的 `runQuery` 靜默回傳錯誤的 rows。mask 改存於 `WorldState.queryMasks: Map<queryId, QueryMaskBundle>`，per-world 隔離。`tests/multi-world.test.ts` 新增 cross-order 場景的 regression。
+
+### 變更（內部）
+
+- Observer dispatch 路徑（`dispatchQueryObservers`）每次 mutation 不再分配臨時 `Uint32Array`。`bitmask.ts` 新增 `matchesEntityMask` helper，可直接以 base offset 讀 `state.entityMask`。
+- 共用的 bit 提取邏輯抽成 `bitmask.ts` 的 `forEachSetBit(mask, base, words, fn)`。`clearAllEntityStorages`（`component.ts`）與 `dispatchDestroyObservers`（`observers.ts`）改用同一個實作，不再三處各自 inline `word & -word` / `Math.clz32` 的相同算式。
+- `state.generations[idx]` 寫入不再需要 `as any`。`Uint8Array | Uint16Array` 兩者皆支援 indexed read/write。
+- `growEntityArrays` 內的 `void oldCap` no-op 刪除。
+- root `aiecsjs` 移除 `_getWorldState` export。`aiecsjs/serialize` 與 `aiecsjs/worker` 都已直接從 internal module import `getWorldState`，前綴底線的 root re-export 從來沒有消費者。
+
 ### 0.3 規劃
 
 - 將 `aiecsjs/relations` 與 `aiecsjs/worker` 提升為 `stable`。

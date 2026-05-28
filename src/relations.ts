@@ -31,7 +31,7 @@ function getOrCreateStorage(state: WorldState, rel: Relation<any>): RelationStor
     rel,
     exclusive: rel.__exclusive ? new Int32Array(state.capacity).fill(-1) : null,
     outgoing: new Map<number, number[]>(),
-    data: new Map<number, unknown>(),
+    data: new Map<number, Map<number, unknown>>(),
   }
   state.relationStorage.set(rel.__id, storage)
   return storage
@@ -67,8 +67,12 @@ export function addRelation<T>(
   }
 
   if (data !== undefined) {
-    const key = src * state.capacity + tgt
-    storage.data.set(key, data)
+    let inner = storage.data.get(src)
+    if (!inner) {
+      inner = new Map<number, unknown>()
+      storage.data.set(src, inner)
+    }
+    inner.set(tgt, data)
   }
 }
 
@@ -96,8 +100,11 @@ export function removeRelation(
       if (list.length === 0) storage.outgoing.delete(src)
     }
   }
-  const key = src * state.capacity + tgt
-  storage.data.delete(key)
+  const inner = storage.data.get(src)
+  if (inner) {
+    inner.delete(tgt)
+    if (inner.size === 0) storage.data.delete(src)
+  }
 }
 
 export function getRelationTargets(
@@ -140,11 +147,13 @@ registerRelationsCleanup((state: WorldState, eid: EntityId) => {
         if (list.length === 0) storage.outgoing.delete(src)
       }
     }
-    // Clear data entries involving this entity
-    for (const key of Array.from(storage.data.keys())) {
-      const srcKey = Math.floor(key / state.capacity)
-      const tgtKey = key % state.capacity
-      if (srcKey === e || tgtKey === e) storage.data.delete(key)
+    // Clear data entries involving this entity. The outer key is the source
+    // eid; entries whose source IS this entity drop entirely. Entries that
+    // reference this entity as a target are pruned from each inner map.
+    storage.data.delete(e)
+    for (const [src, inner] of storage.data) {
+      inner.delete(e)
+      if (inner.size === 0) storage.data.delete(src)
     }
   }
 })

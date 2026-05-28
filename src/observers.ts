@@ -17,7 +17,7 @@ import {
 } from './internal/component.js'
 import { runQuery } from './internal/query.js'
 import { registerObserversAPI } from './internal/entity.js'
-import { matches } from './internal/bitmask.js'
+import { forEachSetBit, matchesEntityMask } from './internal/bitmask.js'
 
 export function onAdd(
   world: World,
@@ -121,7 +121,8 @@ function fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown):
 
 // Helper: when a component changes, walk query observers to see if their query
 // match status changed. For simplicity, we re-check each query observer's query
-// against the entity's current mask.
+// against the entity's current mask. Reads state.entityMask in place — the
+// per-call Uint32Array allocation that used to live here is gone.
 function dispatchQueryObservers(
   state: WorldState,
   eid: EntityId,
@@ -129,17 +130,17 @@ function dispatchQueryObservers(
   _prev: unknown,
   _current: unknown,
 ): void {
-  // Use entityMask directly
   const w = state.options.maskWordCount
   const base = (eid as number) * w
-  const tmpMask = new Uint32Array(w)
-  for (let i = 0; i < w; i++) tmpMask[i] = state.entityMask[base + i] ?? 0
   for (const obs of state.observers) {
     if (obs.event !== event) continue
     if (obs.queryId === -1) continue
-    const q = state.queries[obs.queryId]
-    if (!q) continue
-    const isMatch = matches(tmpMask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, w)
+    const bundle = state.queryMasks.get(obs.queryId)
+    if (!bundle) continue
+    const isMatch = matchesEntityMask(
+      state.entityMask, base, w,
+      bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits,
+    )
     // For 'add' event, fire if newly matched. For 'remove', fire if newly unmatched.
     // We approximate "newly" by always firing on event when match status agrees;
     // duplicates are acceptable for 0.1 query observers.
@@ -157,16 +158,10 @@ registerObserversAPI({
     // Walk every bit currently set in the entity's mask
     const w = state.options.maskWordCount
     const base = (eid as number) * w
-    for (let wi = 0; wi < w; wi++) {
-      let word = state.entityMask[base + wi] ?? 0
-      while (word !== 0) {
-        const lsb = word & -word
-        const bit = (wi << 5) + (31 - Math.clz32(lsb))
-        for (const obs of state.observers) {
-          if (obs.event === 'remove' && obs.componentBit === bit) obs.handler(eid)
-        }
-        word &= word - 1
+    forEachSetBit(state.entityMask, base, w, (bit) => {
+      for (const obs of state.observers) {
+        if (obs.event === 'remove' && obs.componentBit === bit) obs.handler(eid)
       }
-    }
+    })
   },
 })

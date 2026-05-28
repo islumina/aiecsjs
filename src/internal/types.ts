@@ -158,15 +158,22 @@ export interface QueryInternal extends Query {
   all: number[]
   any: number[]
   none: number[]
-  withMask: Uint32Array
-  anyMask: Uint32Array
-  noneMask: Uint32Array
-  anyHasBits: boolean
   // Cache of column references per matched archetype (per query-call)
   columnViewCache: ComponentLike[]   // the requested components in their declared order
   reactiveKind: 'normal' | 'enter' | 'exit'
   sourceQueryId: number              // -1 for normal
   sourceQuery: QueryInternal | null  // back-ref for reactive registration
+}
+
+// Per-world resolved bitmasks for a query. Component bits are assigned per
+// world, so the masks must live in WorldState — keeping them on the shared
+// QueryInternal would silently cross-contaminate worlds whose component
+// registration order differs.
+export interface QueryMaskBundle {
+  withMask: Uint32Array
+  anyMask: Uint32Array
+  noneMask: Uint32Array
+  anyHasBits: boolean
 }
 
 export interface ReactiveBuffer {
@@ -259,7 +266,7 @@ export interface RelationStorage {
   rel: Relation<any>
   exclusive: Int32Array | null              // [srcEid] → tgtEid; -1 means none
   outgoing: Map<number, number[]>           // srcEid → tgtEid[]
-  data: Map<number, unknown>                // (srcEid * worldCapacity + tgtEid) → data
+  data: Map<number, Map<number, unknown>>   // srcEid → (tgtEid → data); nested to stay correct across capacity growth
 }
 
 export interface WorldState {
@@ -296,6 +303,7 @@ export interface WorldState {
 
   // --- query cache ---
   queries: QueryInternal[]                      // by id
+  queryMasks: Map<number, QueryMaskBundle>      // queryId → per-world resolved bitmasks
   queryArchetypeCache: (number[] | null)[]
   queryArchetypeStamp: number[]
   bitToQueries: Map<number, Set<number>>        // bit → queryIds that mention this bit

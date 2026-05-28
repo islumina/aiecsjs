@@ -67,4 +67,39 @@ describe('multiple worlds', () => {
     expect(hasComponent(wb, eb, Tag2)).toBe(true)
     expect(hasComponent(wb, eb, Tag1)).toBe(false)
   })
+
+  // Regression for F2: per-world query mask. When two worlds register the
+  // same shared `defineQuery` result but assign different per-world bits to
+  // its components, the per-world mask must not bleed across. Previously
+  // QueryInternal carried the mask; the second world's mask overwrote the
+  // first world's, so runQuery silently returned wrong rows in world A.
+  it('same query produces correct results in two worlds with different component bit orders', () => {
+    const Pos = defineComponent({ x: Types.f32 })
+    const Vel = defineComponent({ x: Types.f32 })
+    const q = defineQuery({ all: [Pos, Vel] })
+
+    const wa = createWorld()
+    // worldA: register Pos first, then Vel — bit 0 = Pos, bit 1 = Vel
+    const ea = createEntity(wa)
+    addComponent(wa, ea, Pos, { x: 1 })
+    addComponent(wa, ea, Vel, { x: 1 })
+    // Snapshot worldA's mask via runQuery to force registration
+    expect([...runQuery(wa, q)]).toEqual([ea])
+
+    const wb = createWorld()
+    // worldB: register Vel first, then Pos — bit 0 = Vel, bit 1 = Pos
+    const eb = createEntity(wb)
+    addComponent(wb, eb, Vel, { x: 2 })
+    addComponent(wb, eb, Pos, { x: 2 })
+    expect([...runQuery(wb, q)]).toEqual([eb])
+
+    // Re-querying worldA after worldB registered the same query must still
+    // resolve against worldA's bit layout, not worldB's.
+    expect([...runQuery(wa, q)]).toEqual([ea])
+
+    // Add a second entity in worldA that has Pos only; it must NOT match.
+    const ea2 = createEntity(wa)
+    addComponent(wa, ea2, Pos, { x: 3 })
+    expect([...runQuery(wa, q)]).toEqual([ea])
+  })
 })

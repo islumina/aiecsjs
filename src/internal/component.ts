@@ -14,7 +14,7 @@ import type {
   WorldComponentStorage,
   SoAColumns,
 } from './types.js'
-import { setBit, clearBit, testBit, cloneMask } from './bitmask.js'
+import { setBit, clearBit, testBit, cloneMask, forEachSetBit } from './bitmask.js'
 import {
   ensureArchetypeCapacity,
   findOrCreateArchetype,
@@ -265,22 +265,17 @@ function clearSoAEntity(soa: SoAColumns, fields: FieldInfo[], eid: number): void
 // Caller (e.g. destroyEntity) is expected to clear the mask separately.
 export function clearAllEntityStorages(state: WorldState, eid: EntityId): void {
   const wordCount = state.options.maskWordCount
-  const base = (eid as number) * wordCount
-  for (let wi = 0; wi < wordCount; wi++) {
-    let word = state.entityMask[base + wi] ?? 0
-    while (word !== 0) {
-      const lsb = word & -word
-      const bit = (wi << 5) + (31 - Math.clz32(lsb))
-      const storage = state.componentStorageByBit[bit]
-      const info = state.componentInfoByBit[bit]
-      if (storage?.kind === 'soa' && storage.soa && info) {
-        clearSoAEntity(storage.soa, info.fields, eid as number)
-      } else if (storage?.kind === 'aos' && storage.aos) {
-        storage.aos[eid as number] = undefined
-      }
-      word &= word - 1
+  const idx = eid as number
+  const base = idx * wordCount
+  forEachSetBit(state.entityMask, base, wordCount, (bit) => {
+    const storage = state.componentStorageByBit[bit]
+    const info = state.componentInfoByBit[bit]
+    if (storage?.kind === 'soa' && storage.soa && info) {
+      clearSoAEntity(storage.soa, info.fields, idx)
+    } else if (storage?.kind === 'aos' && storage.aos) {
+      storage.aos[idx] = undefined
     }
-  }
+  })
 }
 
 function migrateEntity(state: WorldState, eid: number, newMask: Uint32Array): void {

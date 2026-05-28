@@ -14,6 +14,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
 
+## [0.1.3] - 2026-05-28
+
+A "no known silent bugs" release. Two correctness fixes, one hot-path allocation removal, and a small batch of style cleanups. No public API behaviour changes; `_getWorldState` is removed from the root export (was undocumented, unused by every sub-path, leading underscore signalled internal).
+
+### Fixed
+
+- `aiecsjs/relations` relation data store no longer keys edges by `srcEid * worldCapacity + tgtEid`. After the world grew, the same `(src, tgt)` pair computed a different key and earlier entries became orphaned. Storage is now a nested `Map<srcEid, Map<tgtEid, data>>`, independent of capacity. The cleanup hook on `destroyEntity` was updated to match. v0.1 has no public retrieve API so the bug was user-invisible, but it would have surfaced the moment a retrieve surface landed in 0.2.
+- Per-world resolved query bitmasks no longer live on the module-global `QueryInternal`. When the same `defineQuery(...)` handle was used by two worlds whose component registration orders differed, the second world's per-world mask overwrote the first world's, and `runQuery` silently returned wrong rows in world A. Masks now live in `WorldState.queryMasks: Map<queryId, QueryMaskBundle>`, isolated per world. Regression test in `tests/multi-world.test.ts` exercises the cross-order scenario.
+
+### Changed (internal)
+
+- Observer dispatch (`dispatchQueryObservers`) no longer allocates a temporary `Uint32Array` on every mutation event. Added `matchesEntityMask` helper in `bitmask.ts` that reads directly from `state.entityMask` at a base offset.
+- Shared bit-iteration extracted as `forEachSetBit(mask, base, words, fn)` in `bitmask.ts`. `clearAllEntityStorages` (`component.ts`) and `dispatchDestroyObservers` (`observers.ts`) now share that single implementation instead of inlining the same `word & -word` / `Math.clz32` pattern three times.
+- `state.generations[idx]` is written without an `as any` cast. `Uint8Array | Uint16Array` already supports indexed read/write.
+- Removed the `void oldCap` no-op from `growEntityArrays`.
+- Removed `_getWorldState` from the root `aiecsjs` export. Sub-paths (`aiecsjs/serialize`, `aiecsjs/worker`) already import `getWorldState` directly from the internal module; the leading-underscore root re-export had no consumer.
+
 ### Planned for 0.3
 
 - Promote `aiecsjs/relations` and `aiecsjs/worker` to `stable`.

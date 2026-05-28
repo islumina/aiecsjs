@@ -97,6 +97,50 @@ export function listBits(mask: Uint32Array): number[] {
   return out
 }
 
+// Iterate set bits in a slice of a larger Uint32Array starting at `base`.
+// Shared by destroy paths and storage cleanup so the bit-extraction maths
+// lives in exactly one place.
+export function forEachSetBit(
+  mask: Uint32Array,
+  base: number,
+  words: number,
+  fn: (bit: number) => void,
+): void {
+  for (let wi = 0; wi < words; wi++) {
+    let word = mask[base + wi] ?? 0
+    while (word !== 0) {
+      const bit = (wi << 5) + ctz32(word)
+      fn(bit)
+      word &= word - 1
+    }
+  }
+}
+
+// Match a query against an entity's mask stored as a slice inside a larger
+// Uint32Array. Reading directly from the parent array avoids the temporary
+// Uint32Array allocation on every observer dispatch.
+export function matchesEntityMask(
+  entityMask: Uint32Array,
+  base: number,
+  words: number,
+  withMask: Uint32Array,
+  anyMask: Uint32Array,
+  noneMask: Uint32Array,
+  anyHasBits: boolean,
+): boolean {
+  let anyHit = !anyHasBits
+  for (let i = 0; i < words; i++) {
+    const m = entityMask[base + i] ?? 0
+    const wm = withMask[i] ?? 0
+    const am = anyMask[i] ?? 0
+    const nm = noneMask[i] ?? 0
+    if ((m & wm) !== wm) return false
+    if ((m & nm) !== 0) return false
+    if (!anyHit && (m & am) !== 0) anyHit = true
+  }
+  return anyHit
+}
+
 function ctz32(v: number): number {
   // Count trailing zeros in a 32-bit integer (assumes v !== 0)
   return 31 - Math.clz32(v & -v)

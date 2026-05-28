@@ -87,8 +87,9 @@ export function destroyEntity(world: World, eid: EntityId): void {
   const w = state.options.maskWordCount
   const base = eid * w
   for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
-  // bump generation (wraps within the type)
-  ;(state.generations as any)[eid] = (((state.generations as any)[eid] ?? 0) + 1) & 0xFFFF
+  // bump generation (Uint8Array wraps to 8 bits naturally; Uint16Array to 16)
+  const idx = eid as number
+  state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & 0xFFFF
 
   state.freeList.push(eid)
   state.size--

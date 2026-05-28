@@ -111,6 +111,7 @@ export function createWorld(options?: WorldOptions): World {
     archetypeByMaskHash: new Map<string, number>(),
     queryVersion: 0,
     queries: [],
+    queryMasks: new Map(),
     queryArchetypeCache: [],
     queryArchetypeStamp: [],
     bitToQueries: new Map<number, Set<number>>(),
@@ -149,6 +150,7 @@ export function destroyWorld(world: World): void {
   state.componentInfoByBit = []
   state.componentStorageByBit = []
   state.queries = []
+  state.queryMasks.clear()
   state.queryArchetypeCache = []
   state.observers = []
   state.relationStorage.clear()
@@ -209,7 +211,6 @@ export function ensureCapacity(state: WorldState, needed: number): void {
 }
 
 function growEntityArrays(state: WorldState, newCap: number): void {
-  const oldCap = state.capacity
   // generations
   const genCtor: any = state.generations.constructor
   const newGen = new genCtor(newCap) as Uint8Array | Uint16Array
@@ -239,7 +240,6 @@ function growEntityArrays(state: WorldState, newCap: number): void {
   }
 
   state.capacity = newCap
-  void oldCap // keep reference for clarity; unused after growth
 }
 
 function growSoAColumns(soa: Record<string, any>, fields: FieldInfo[], newCap: number): void {

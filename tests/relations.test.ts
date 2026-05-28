@@ -103,4 +103,39 @@ describe('relations', () => {
     addRelation(w, parents[parents.length - 1] as any, ChildOf, target)
     expect(getRelationTargets(w, parents[parents.length - 1] as any, ChildOf)).toEqual([target])
   })
+
+  // Regression for F1: relation data Map previously keyed `src * capacity + tgt`,
+  // which silently aliased entries once the world capacity grew. The cleanup hook
+  // also depended on that arithmetic. Nested Map<src, Map<tgt, data>> removes the
+  // dependency on `state.capacity` entirely. There is no public retrieve API in
+  // 0.1, so this asserts the observable cleanup side: destroying entities after
+  // a grow must still wipe all relation edges involving them.
+  it('relation data survives a capacity grow and cleans up correctly on destroy', () => {
+    const Likes = defineRelation<{ since: number }>()
+    const w = createWorld({ initialCapacity: 4 })
+    const a = createEntity(w)
+    const b = createEntity(w)
+    addRelation(w, a, Likes, b, { since: 2024 })
+    expect(getRelationTargets(w, a, Likes)).toEqual([b])
+
+    // Allocate enough fresh entities to push capacity past 4 (doubles to 8, 16...).
+    const filler: number[] = []
+    for (let i = 0; i < 20; i++) filler.push(createEntity(w) as number)
+
+    // Edge still observable after grow.
+    expect(getRelationTargets(w, a, Likes)).toEqual([b])
+
+    // Add a second edge using high-index entities to exercise the post-grow path.
+    const high = filler[filler.length - 1]!
+    addRelation(w, a as any, Likes, high as any, { since: 2025 })
+    expect([...getRelationTargets(w, a, Likes)].sort()).toEqual([b, high].sort())
+
+    // Destroy target b — outgoing edge to b must drop; high remains.
+    destroyEntity(w, b)
+    expect(getRelationTargets(w, a, Likes)).toEqual([high])
+
+    // Destroy source a — all outgoing edges drop.
+    destroyEntity(w, a)
+    expect(getRelationTargets(w, a, Likes)).toEqual([])
+  })
 })

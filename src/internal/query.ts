@@ -6,11 +6,12 @@ import type {
   Query,
   QueryDescriptor,
   QueryInternal,
+  QueryMaskBundle,
   ReactiveBuffer,
   World,
   WorldState,
 } from './types.js'
-import { createMask, matches, setBit, testBit, isMaskZero, listBits } from './bitmask.js'
+import { createMask, matches, setBit, isMaskZero, listBits } from './bitmask.js'
 import {
   getOrRegisterComponentBit,
   getWorldState,
@@ -49,10 +50,6 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
     all: (desc.all ?? []).map(c => c.__id),
     any: (desc.any ?? []).map(c => c.__id),
     none: (desc.none ?? []).map(c => c.__id),
-    withMask: createMask(8),
-    anyMask: createMask(8),
-    noneMask: createMask(8),
-    anyHasBits: (desc.any ?? []).length > 0,
     columnViewCache: [...(desc.all ?? []), ...(desc.any ?? [])],
     reactiveKind: 'normal',
     sourceQueryId: -1,
@@ -73,10 +70,6 @@ export function enterQuery(query: Query): Query {
     all: q.all,
     any: q.any,
     none: q.none,
-    withMask: createMask(8),
-    anyMask: createMask(8),
-    noneMask: createMask(8),
-    anyHasBits: q.anyHasBits,
     columnViewCache: q.columnViewCache,
     reactiveKind: 'enter',
     sourceQueryId: q.id,
@@ -97,10 +90,6 @@ export function exitQuery(query: Query): Query {
     all: q.all,
     any: q.any,
     none: q.none,
-    withMask: createMask(8),
-    anyMask: createMask(8),
-    noneMask: createMask(8),
-    anyHasBits: q.anyHasBits,
     columnViewCache: q.columnViewCache,
     reactiveKind: 'exit',
     sourceQueryId: q.id,
@@ -113,7 +102,7 @@ export function exitQuery(query: Query): Query {
 // --- Per-world query setup ---
 
 function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
-  if (state.queries[q.id] === q) return
+  if (state.queries[q.id] === q && state.queryMasks.has(q.id)) return
 
   // Build per-world bitmasks (this may register new bits)
   const ww = state.options.maskWordCount
@@ -136,10 +125,13 @@ function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
     setBit(noneMask, bit)
   }
 
-  q.withMask = withMask
-  q.anyMask = anyMask
-  q.noneMask = noneMask
-  q.anyHasBits = !isMaskZero(anyMask)
+  const bundle: QueryMaskBundle = {
+    withMask,
+    anyMask,
+    noneMask,
+    anyHasBits: !isMaskZero(anyMask),
+  }
+  state.queryMasks.set(q.id, bundle)
 
   state.queries[q.id] = q
   state.queryArchetypeCache[q.id] = null
@@ -174,11 +166,12 @@ function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
   ) {
     return state.queryArchetypeCache[q.id]!
   }
+  const bundle = state.queryMasks.get(q.id)!
   const words = state.options.maskWordCount
   const list: number[] = []
   for (let i = 0; i < state.archetypes.length; i++) {
     const arch = state.archetypes[i]!
-    if (matches(arch.mask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)) {
+    if (matches(arch.mask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)) {
       list.push(i)
     }
   }
@@ -340,8 +333,10 @@ export function recordEntityMaskChange(
     const q = state.queries[qid]
     if (!q) continue
     if (q.reactiveKind !== 'normal') continue
-    const wasMatch = matches(prevMask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)
-    const isMatch = matches(nextMask, q.withMask, q.anyMask, q.noneMask, q.anyHasBits, words)
+    const bundle = state.queryMasks.get(qid)
+    if (!bundle) continue
+    const wasMatch = matches(prevMask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
+    const isMatch = matches(nextMask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
     if (!wasMatch && isMatch) {
       pushReactive(state, qid, 'enter', eid)
     } else if (wasMatch && !isMatch) {
