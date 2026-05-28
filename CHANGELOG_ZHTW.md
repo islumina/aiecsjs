@@ -14,6 +14,15 @@
 - 加入 `pipeAsync` 以支援非同步系統組合。
 - 引入 doc-test 工具，使 README 中的程式碼區塊能被機械化驗證。
 
+## [0.1.4] - 2026-05-28
+
+純文件版本。新增與 `aibridgejs` 的跨包整合章節，指向後者的 JSON envelope 契約；無 source code 變動。
+
+### 文件
+
+- README 與 README_ZHTW 新增「與 aibridgejs 整合」章節，說明 `bridge.call` / `bridge.emit` 強制 JSON-safe payload，會無聲剝除 `Date`、`Map`、`Set` 與類別實例。透過 bridge 傳輸 world 狀態的正確寫法是先 `toJSON(world)`（或將 `serializeWorld(world)` 包成 JSON envelope）再 emit，**不要**直接 emit `getComponent(...)`。詳見 [aiecsjs README · 與 aibridgejs 整合](README_ZHTW.md#與-aibridgejs-整合)。
+- 透過 `aijs-integration-smoke` 同伴 repo 驗證：`aifsmjs@0.1.2`、`aibridgejs@0.1.3`、`aiecsjs@0.1.3` 三套件所有 named export 可在同一個 TypeScript module 共存，`tsc --noEmit --strict` 零 identifier 衝突。
+
 ## [0.1.3] - 2026-05-28
 
 「無已知 silent bug」版本。兩個正確性修正、一個熱路徑分配移除，加上一小批風格清理。公開 API 行為無任何改變；`_getWorldState` 從 root export 移除（原本就未文件化、無 sub-path 引用，前綴底線即內部訊號）。

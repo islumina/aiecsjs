@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
-![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.4-blue.svg)
 ![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
 
 > 為 TypeScript 而設計的原型式 ECS，支援瀏覽器與 Node，內建 SAB 快照傳輸（snapshot transport）與 AI 可讀文件。
@@ -92,6 +92,27 @@ pipe(movement)(world, 1/60)
 - **網路複製。** `aiecsjs/serialize` 產生快照 byte 流；如何送上線路由應用層決定。
 - **反應式 value-predicate query。** `enterQuery` / `exitQuery` 只在元件集合 membership 變動時觸發。元件值變動不追蹤。
 - **Prefab / 實體繼承 / 階層。** `aiecsjs/relations` 提供純粹的實體對實體關聯，不是繼承。
+
+## 與 aibridgejs 整合
+
+若你透過 [aibridgejs](https://www.npmjs.com/package/aibridgejs) bridge（iframe / Flutter InAppWebView）傳遞 world 狀態，bridge 強制要求 JSON 信封並會無聲剝除 `Date`、`Map`、`Set` 與類別實例。`defineObjectComponent(...)` 的 AoS 元件可合法持有上述任何一種；直接 emit 過去會在 host 端被破壞。
+
+正確作法——先序列化，再 emit 純物件或 byte 陣列：
+
+```ts
+import { toJSON } from 'aiecsjs/serialize'
+
+const snap = toJSON(world)
+await bridge.emit('world.snapshot', snap)
+```
+
+不要這樣做——`getComponent` 回傳的是 live column view 或保留 prototype 的 AoS 實例，bridge 無法傳輸：
+
+```ts
+await bridge.emit('inv', getComponent(world, eid, Inventory))
+```
+
+`serializeWorld(world)` 回傳的二進位 `Uint8Array` 也是 bridge-safe；把 byte 用 `{ kind: 'binary', bytes: Array.from(snap) }` 之類的 JSON 信封包起，或在 host 支援時改用 transferable channel。
 
 ## 安裝
 

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
-![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.4-blue.svg)
 ![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
 
 > A TypeScript-first archetype ECS for browser and Node, with SAB-ready snapshot transport and AI-readable documentation.
@@ -85,6 +85,27 @@ The core stays narrow on purpose. The following are explicit non-goals; reach fo
 - **Network replication.** `aiecsjs/serialize` produces snapshot bytes; how they cross the wire is your app's choice.
 - **Reactive value-predicate queries.** `enterQuery` / `exitQuery` fire on component-set membership change only. Component value mutations are not tracked.
 - **Prefab / entity inheritance / hierarchy.** `aiecsjs/relations` provides plain entity-to-entity references, not inheritance.
+
+## Integration with aibridgejs
+
+If you stream world state across an [aibridgejs](https://www.npmjs.com/package/aibridgejs) bridge (iframe / Flutter InAppWebView), the bridge enforces a strict JSON envelope and silently drops `Date`, `Map`, `Set`, and class instances. AoS components from `defineObjectComponent(...)` can legally hold any of these; sending them as-is corrupts the payload on the host side.
+
+Correct shape — serialise first, emit a plain object or byte array:
+
+```ts
+import { toJSON } from 'aiecsjs/serialize'
+
+const snap = toJSON(world)
+await bridge.emit('world.snapshot', snap)
+```
+
+Do NOT do — `getComponent` returns the live column view or the AoS instance with its prototype intact, which the bridge cannot transport:
+
+```ts
+await bridge.emit('inv', getComponent(world, eid, Inventory))
+```
+
+`serializeWorld(world)` (binary, `Uint8Array`) is also bridge-safe; wrap the bytes in a JSON envelope like `{ kind: 'binary', bytes: Array.from(snap) }`, or use a transferable channel when the host supports it.
 
 ## Install
 

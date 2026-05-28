@@ -1,6 +1,6 @@
 {
   "name": "aiecsjs",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "TypeScript-first archetype ECS with TypedArray SoA, SAB-ready snapshot transport, and AI-readable docs.",
   "type": "module",
   "main": "./dist/index.cjs",

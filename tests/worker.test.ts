@@ -29,7 +29,7 @@ describe('worker / SAB', () => {
     const snap = transferableSnapshot(w)
     expect(snap.buffer).toBeDefined()
     expect(snap.meta.magic).toBe(0x41494543)
-    expect(snap.meta.aiecsjsVersion).toBe('0.1.3')
+    expect(snap.meta.aiecsjsVersion).toBe('0.1.4')
   })
 
   it.skipIf(!IS_SAB_SUPPORTED)('adoptSnapshot rebuilds a usable world', () => {

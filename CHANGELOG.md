@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
 
+## [0.1.4] - 2026-05-28
+
+Docs-only release. Adds a cross-package integration section pointing at the `aibridgejs` JSON envelope contract; no source code changes.
+
+### Documentation
+
+- README and README_ZHTW gained an "Integration with aibridgejs" section explaining that `bridge.call` / `bridge.emit` enforce JSON-safe payloads and silently drop `Date`, `Map`, `Set`, and class instances. The correct shape for streaming world state across the bridge is `toJSON(world)` (or `serializeWorld(world)` wrapped in a JSON envelope) before emitting, not `getComponent(...)` direct. See [aiecsjs README · Integration with aibridgejs](README.md#integration-with-aibridgejs).
+- Verified via the `aijs-integration-smoke` companion project: every named export from `aifsmjs@0.1.2`, `aibridgejs@0.1.3`, and `aiecsjs@0.1.3` can coexist in a single TypeScript module with zero identifier collisions under `tsc --noEmit --strict`.
+
 ## [0.1.3] - 2026-05-28
 
 A "no known silent bugs" release. Two correctness fixes, one hot-path allocation removal, and a small batch of style cleanups. No public API behaviour changes; `_getWorldState` is removed from the root export (was undocumented, unused by every sub-path, leading underscore signalled internal).

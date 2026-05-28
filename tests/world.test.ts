@@ -16,7 +16,7 @@ describe('world', () => {
   it('creates a world with default options', () => {
     const w = createWorld()
     expect(w.id).toBeGreaterThan(0)
-    expect(w.version).toBe('0.1.3')
+    expect(w.version).toBe('0.1.4')
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(1024)
   })
