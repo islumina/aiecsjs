@@ -1,0 +1,65 @@
+name: Publish
+
+# Triggers on any pushed tag that matches the semver pattern (v0.1.1, v0.2.0, etc.).
+# Also exposes a workflow_dispatch button on the Actions page for manual runs.
+#
+# Required setup (one-time, on npmjs.com + GitHub):
+# 1. Create a Granular Access Token at https://www.npmjs.com/settings/<user>/tokens
+#    - Permissions: "Read and write"
+#    - Packages: select aiecsjs
+#    - Allowed IP ranges: leave open or scope to GitHub Actions
+#    - 2FA: enable "Bypass 2FA on publish" (otherwise OTP will be required and CI
+#      cannot supply it)
+# 2. Save the token as the repo secret NPM_TOKEN at
+#    https://github.com/<user>/aiecsjs/settings/secrets/actions
+# 3. (Optional, recommended) Enable npm provenance by leaving id-token: write
+#    permission set below. npm will then attest the build to the public sigstore
+#    log so consumers can verify the package came from this exact workflow.
+#
+# Releasing a new version:
+#   bump package.json + src/version.ts + README badges + CHANGELOG
+#   git commit -m "release: vX.Y.Z ..."
+#   git tag vX.Y.Z -m "..."
+#   git push origin main vX.Y.Z
+# The tag push fires this workflow.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    name: npm publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      # contents: read is required for actions/checkout.
+      # id-token: write is required so npm can mint a sigstore attestation.
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install
+        run: npm ci
+
+      # prepublishOnly already runs typecheck + test + build + size, so the
+      # publish step doubles as the final gate. The workflow fails fast if
+      # any of those fail.
+      - name: Publish (provenance + public access)
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
