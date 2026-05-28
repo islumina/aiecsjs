@@ -1,10 +1,15 @@
-// aiecsjs/worker — SharedArrayBuffer helpers (experimental, snapshot-copy in 0.1).
+// aiecsjs/worker — SharedArrayBuffer helpers (experimental, snapshot-copy).
 //
-// Note: 0.1 implements SAB as a transferable snapshot pattern rather than true
+// Note: 0.x implements SAB as a transferable snapshot pattern rather than true
 // shared-memory aliasing. The world is serialized into the SAB, and the worker
 // reconstructs a fresh world from those bytes via adoptSnapshot/attachWorld.
-// True shared-column memory is on the 0.2 roadmap. The API matches the
-// documented contract and survives postMessage cleanly.
+// True shared-column memory is targeted for a future stable release.
+// The API matches the documented contract and survives postMessage cleanly.
+//
+// EntityRef is in-memory only — not preserved across worker boundaries.
+// Generation counters reset on adoptSnapshot/attachWorld. Pass `EntityRef.id`
+// (the packed EntityId) across the worker boundary only if you understand that
+// the generation portion will be stale after a round-trip snapshot.
 
 import type { TransferableSnapshot, World, WorldMeta, WorldState } from './internal/types.js'
 import { destroyWorld, getWorldState, isWorldRegistered } from './internal/world.js'

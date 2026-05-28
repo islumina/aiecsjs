@@ -34,19 +34,21 @@ describe('entity', () => {
     expect(() => destroyEntity(w, e)).not.toThrow()
   })
 
-  it('recycles freed entities (slot reuse)', () => {
+  it('recycles freed entities (slot reuse — same index, different generation)', () => {
     const w = createWorld()
     const a = createEntity(w)
     destroyEntity(w, a)
     const b = createEntity(w)
-    expect(b).toBe(a) // same slot
+    // Same raw slot index, but different packed value (generation bumped)
+    expect(getEntityIndex(b)).toBe(getEntityIndex(a))
     expect(entityExists(w, b)).toBe(true)
   })
 
-  it('getEntityIndex / packEntity are identity in 0.1', () => {
-    expect(getEntityIndex(42 as any)).toBe(42)
-    expect(getEntityGeneration(42 as any)).toBe(0)
-    expect(packEntity(42, 3)).toBe(42)
+  it('getEntityIndex / packEntity round-trip in 0.3', () => {
+    expect(getEntityIndex(packEntity(42, 3))).toBe(42)
+    expect(getEntityGeneration(packEntity(42, 3))).toBe(3)
+    expect(getEntityIndex(packEntity(1, 0))).toBe(1)
+    expect(getEntityGeneration(packEntity(1, 0))).toBe(0)
   })
 
   it('isEntity checks liveness, rejects 0', () => {
@@ -66,17 +68,51 @@ describe('entity', () => {
     expect(new Set(ents).size).toBe(50)
   })
 
-  // Documents the v0.1 slot reuse behaviour: EntityId is a bare slot index
-  // and does not encode generation. After destroy + create, a cached EntityId
-  // may alias the new entity. ABA-safe references arrive with `EntityRef` in 0.2.
-  it('reused slot returns the same EntityId value (no ABA protection in 0.1)', () => {
+  // Documents the v0.3 ABA protection: packed EntityId encodes generation.
+  // After destroy + create on the same slot, the old EntityId has a different
+  // packed value (stale generation) and is correctly reported as dead.
+  it('ABA protection works: reused slot gets new packed EntityId', () => {
     const w = createWorld()
     const a = createEntity(w)
+    const aIdx = getEntityIndex(a)
     destroyEntity(w, a)
     const b = createEntity(w)
-    expect(b).toBe(a) // same numeric id; intentional in 0.1
-    // The cached old EntityId now refers to the new live entity. This is
-    // the documented limitation; consumers needing ABA safety wait for 0.2.
-    expect(entityExists(w, a)).toBe(true)
+    // Same slot index, but packed value differs (generation bumped)
+    expect(getEntityIndex(b)).toBe(aIdx)
+    expect(b).not.toBe(a) // packed values differ due to generation
+    // Old packed eid is now stale — must report dead
+    expect(entityExists(w, a)).toBe(false)
+    // New entity is live
+    expect(entityExists(w, b)).toBe(true)
+  })
+
+  it('generationBits=0 degenerate mode: spawn/destroy still works', () => {
+    const w = createWorld({ generationBits: 0 })
+    const e = createEntity(w)
+    expect(entityExists(w, e)).toBe(true)
+    destroyEntity(w, e)
+    expect(entityExists(w, e)).toBe(false)
+  })
+
+  it('generationBits=16 boundary: spawn/destroy works', () => {
+    const w = createWorld({ generationBits: 16 })
+    const e = createEntity(w)
+    expect(entityExists(w, e)).toBe(true)
+    destroyEntity(w, e)
+    expect(entityExists(w, e)).toBe(false)
+  })
+
+  it('indexBits=10 small range: throws on 1025th entity', () => {
+    const w = createWorld({ indexBits: 10, maxEntities: 1023 })
+    for (let i = 0; i < 1023; i++) createEntity(w)
+    expect(() => createEntity(w)).toThrow()
+  })
+
+  it('entityExists returns false for garbage numbers (large, negative, float)', () => {
+    const w = createWorld()
+    expect(entityExists(w, 999999999 as any)).toBe(false)
+    expect(entityExists(w, -1 as any)).toBe(false)
+    expect(entityExists(w, 1.5 as any)).toBe(false)
+    expect(entityExists(w, 0 as any)).toBe(false)
   })
 })

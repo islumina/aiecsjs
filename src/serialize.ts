@@ -45,16 +45,34 @@ export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions
   return fromJSON(snapshot)
 }
 
+/**
+ * Serialize a world snapshot to a plain JSON-compatible object.
+ *
+ * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
+ * Generation counters reset on world load. Stale refs from before serialization
+ * will deref to null after loading the snapshot into a new world.
+ */
 export function toJSON(world: World): WorldSnapshot {
   const state = getWorldState(world)
   const entities: WorldSnapshot['entities'] = []
-  for (let eid = 1; eid < state.capacity; eid++) {
-    if (!entityExists(world, eid as EntityId)) continue
-    const archId = state.entityArchetype[eid] ?? 0
-    if (archId === 0) continue // unattached (shouldn't happen for alive)
+  // Iterate by raw slot index; snapshot stores raw idx in the `eid` field
+  // (wire format unchanged — idx is used for load-side entity re-creation).
+  for (let idx = 1; idx < state.capacity; idx++) {
+    const archId = state.entityArchetype[idx] ?? 0
+    if (archId === 0) continue // slot unused
+
+    const arch = state.archetypes[archId]
+    if (!arch) continue
+
+    // Build the packed eid from idx + current generation to do alive check
+    const gen = state.generations[idx] ?? 0
+    const packedEid =
+      ((gen & state.options.generationMask) << state.options.indexBits) |
+      (idx & state.options.indexMask)
+    if (!arch.entityRow.has(packedEid)) continue
 
     const w = state.options.maskWordCount
-    const base = eid * w
+    const base = idx * w
     const components: WorldSnapshot['entities'][0]['components'] = []
     for (let wi = 0; wi < w; wi++) {
       let word = state.entityMask[base + wi] ?? 0
@@ -71,17 +89,17 @@ export function toJSON(world: World): WorldSnapshot {
               const col = storage.soa[f.name]
               if (!col) continue
               if (f.vectorLen === 1) {
-                obj[f.name] = col[eid]
+                obj[f.name] = col[idx]
               } else {
                 const arr: number[] = []
-                const baseI = eid * f.vectorLen
+                const baseI = idx * f.vectorLen
                 for (let i = 0; i < f.vectorLen; i++) arr.push(col[baseI + i] ?? 0)
                 obj[f.name] = arr
               }
             }
             data = obj
           } else if (info.kind === 'aos' && storage?.aos) {
-            data = storage.aos[eid] ?? null
+            data = storage.aos[idx] ?? null
           } else {
             data = true
           }
@@ -90,7 +108,8 @@ export function toJSON(world: World): WorldSnapshot {
         word &= word - 1
       }
     }
-    entities.push({ eid, components })
+    // Wire format stores raw idx (not packed) for cross-session portability
+    entities.push({ eid: idx, components })
   }
   return {
     version: state.version,

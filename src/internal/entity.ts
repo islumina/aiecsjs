@@ -1,6 +1,28 @@
 import { clearAllEntityStorages } from './component.js'
-import type { EntityId, World, WorldState } from './types.js'
+import type { EntityId, ResolvedWorldOptions, World, WorldState } from './types.js'
 import { ensureArchetypeCapacity, ensureCapacity, getWorldState } from './world.js'
+
+// --- Default bit layout constants (used by public getEntityIndex / getEntityGeneration / packEntity) ---
+// These use the default 24/8 split. See §4.4 limitation: callers using non-default
+// createWorld({ indexBits, generationBits }) should not rely on these functions for unpacking.
+export const DEFAULT_INDEX_BITS = 24
+export const DEFAULT_GENERATION_BITS = 8
+export const DEFAULT_INDEX_MASK = (1 << DEFAULT_INDEX_BITS) - 1
+export const DEFAULT_GENERATION_MASK = (1 << DEFAULT_GENERATION_BITS) - 1
+
+// --- Internal pack/unpack helpers (world-options-aware) ---
+
+export function packEid(idx: number, gen: number, opts: ResolvedWorldOptions): EntityId {
+  return (((gen & opts.generationMask) << opts.indexBits) | (idx & opts.indexMask)) as EntityId
+}
+
+export function unpackIdx(eid: number, opts: ResolvedWorldOptions): number {
+  return eid & opts.indexMask
+}
+
+export function unpackGen(eid: number, opts: ResolvedWorldOptions): number {
+  return (eid >>> opts.indexBits) & opts.generationMask
+}
 
 export function createEntity(world: World): EntityId {
   const state = getWorldState(world)
@@ -8,9 +30,9 @@ export function createEntity(world: World): EntityId {
     throw new Error('aiecsjs: cannot createEntity on a read-only world (worker-attached)')
   }
 
-  let eid: number
+  let idx: number
   if (state.freeList.length > 0) {
-    eid = state.freeList.pop()!
+    idx = state.freeList.pop()!
   } else {
     if (state.nextFreshIndex >= state.options.maxEntities) {
       throw new Error(`aiecsjs: reached maxEntities ${state.options.maxEntities}`)
@@ -18,8 +40,11 @@ export function createEntity(world: World): EntityId {
     if (state.nextFreshIndex >= state.capacity) {
       ensureCapacity(state, state.nextFreshIndex + 1)
     }
-    eid = state.nextFreshIndex++
+    idx = state.nextFreshIndex++
   }
+
+  const gen = state.generations[idx] ?? 0
+  const eid = packEid(idx, gen, state.options)
 
   // Move into the empty archetype (0)
   const arch = state.archetypes[0]
@@ -30,14 +55,14 @@ export function createEntity(world: World): EntityId {
   arch.entityRow.set(eid, row)
   arch.size++
 
-  state.entityArchetype[eid] = 0
-  // Reset entityMask row for this eid
+  state.entityArchetype[idx] = 0
+  // Reset entityMask row for this idx
   const w = state.options.maskWordCount
-  const base = eid * w
+  const base = idx * w
   for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
 
   state.size++
-  return eid as EntityId
+  return eid
 }
 
 export function destroyEntity(world: World, eid: EntityId): void {
@@ -46,6 +71,8 @@ export function destroyEntity(world: World, eid: EntityId): void {
     throw new Error('aiecsjs: cannot destroyEntity on a read-only world')
   }
   if (!isAliveInternal(state, eid)) return
+
+  const idx = eid & state.options.indexMask
 
   // Fire onRemove for every component the entity has, plus reactive exit
   // (Late-bound to avoid circular imports — done via observers module.)
@@ -61,7 +88,7 @@ export function destroyEntity(world: World, eid: EntityId): void {
   clearAllEntityStorages(state, eid)
 
   // Swap-pop from its archetype
-  const archId = state.entityArchetype[eid] ?? 0
+  const archId = state.entityArchetype[idx] ?? 0
   const arch = state.archetypes[archId]
   if (arch) {
     const row = arch.entityRow.get(eid)
@@ -79,15 +106,15 @@ export function destroyEntity(world: World, eid: EntityId): void {
   }
 
   // Wipe state
-  state.entityArchetype[eid] = 0
+  state.entityArchetype[idx] = 0
   const w = state.options.maskWordCount
-  const base = eid * w
+  const base = idx * w
   for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
-  // bump generation (Uint8Array wraps to 8 bits naturally; Uint16Array to 16)
-  const idx = eid as number
-  state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & 0xffff
+  // Bump generation — use generationMask so non-default generationBits wraps correctly
+  state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & state.options.generationMask
 
-  state.freeList.push(eid)
+  // freeList stores raw idx (not packed); createEntity packs on re-use
+  state.freeList.push(idx)
   state.size--
 }
 
@@ -97,27 +124,49 @@ export function entityExists(world: World, eid: EntityId): boolean {
 }
 
 export function isAliveInternal(state: WorldState, eid: number): boolean {
-  if (eid <= 0) return false
-  if (eid >= state.capacity) return false
-  // An entity is alive iff it is in some archetype (its row map points somewhere).
-  const archId = state.entityArchetype[eid] ?? 0
+  const idx = eid & state.options.indexMask
+  if (idx <= 0) return false
+  if (idx >= state.capacity) return false
+  const archId = state.entityArchetype[idx] ?? 0
   const arch = state.archetypes[archId]
   if (!arch) return false
-  return arch.entityRow.has(eid)
+  if (!arch.entityRow.has(eid)) return false
+  // Generation comparison: packed eid must match stored generation
+  const storedGen = state.generations[idx] ?? 0
+  const refGen = (eid >>> state.options.indexBits) & state.options.generationMask
+  return storedGen === refGen
 }
 
+/**
+ * Extract the index portion of a packed entity ID.
+ *
+ * Uses the default 24-bit index layout. If you created the world with a
+ * non-default `indexBits`, use `EntityRef` + `deref` instead.
+ */
 export function getEntityIndex(eid: EntityId): number {
-  return eid as number
+  return (eid as number) & DEFAULT_INDEX_MASK
 }
 
-export function getEntityGeneration(_eid: EntityId): number {
-  // Unversioned in 0.1: generation not encoded in EntityId.
-  return 0
+/**
+ * Extract the generation portion of a packed entity ID.
+ *
+ * Uses the default 8-bit generation layout. If you created the world with a
+ * non-default `generationBits`, use `EntityRef` + `deref` instead.
+ */
+export function getEntityGeneration(eid: EntityId): number {
+  return ((eid as number) >>> DEFAULT_INDEX_BITS) & DEFAULT_GENERATION_MASK
 }
 
-export function packEntity(index: number, _generation: number): EntityId {
-  // Identity in 0.1.
-  return index as EntityId
+/**
+ * Pack an index and generation into an EntityId using the default 24/8 bit layout.
+ *
+ * Uses the default `indexBits=24, generationBits=8`. If you created the world
+ * with non-default bit sizes, this will produce values with incorrect layout.
+ * Use `EntityRef` and `deref` for portable cross-world identity matching.
+ */
+export function packEntity(index: number, generation: number): EntityId {
+  return (((generation & DEFAULT_GENERATION_MASK) << DEFAULT_INDEX_BITS) |
+    (index & DEFAULT_INDEX_MASK)) as EntityId
 }
 
 export function isEntity(world: World, x: unknown): x is EntityId {

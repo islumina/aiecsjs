@@ -69,6 +69,8 @@ function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
     maxEntities,
     indexBits,
     generationBits,
+    indexMask: (1 << indexBits) - 1,
+    generationMask: generationBits === 0 ? 0 : (1 << generationBits) - 1,
     maxComponents,
     maskWordCount: Math.ceil(maxComponents / 32),
     buffer: o.buffer ?? null,
@@ -350,14 +352,16 @@ export function getOrRegisterComponentBit(state: WorldState, info: ComponentInfo
 export function readEntityMask(state: WorldState, eid: number): Uint32Array {
   const w = state.options.maskWordCount
   const out = new Uint32Array(w)
-  const base = eid * w
+  const idx = eid & state.options.indexMask
+  const base = idx * w
   for (let i = 0; i < w; i++) out[i] = state.entityMask[base + i] ?? 0
   return out
 }
 
 export function writeEntityMask(state: WorldState, eid: number, mask: Uint32Array): void {
   const w = state.options.maskWordCount
-  const base = eid * w
+  const idx = eid & state.options.indexMask
+  const base = idx * w
   for (let i = 0; i < w; i++) state.entityMask[base + i] = mask[i] ?? 0
 }
 

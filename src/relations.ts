@@ -41,8 +41,9 @@ export function addRelation<T>(
   const state = getWorldState(world)
   if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
   const storage = getOrCreateStorage(state, rel as Relation<any>)
-  const src = source as number
-  const tgt = target as number
+  // Use raw idx as keys in relation storage so slot reuse invalidation is consistent
+  const src = (source as number) & state.options.indexMask
+  const tgt = (target as number) & state.options.indexMask
 
   if (storage.exclusive) {
     if (src >= storage.exclusive.length) {
@@ -80,8 +81,8 @@ export function removeRelation(
   if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
   const storage = state.relationStorage.get(rel.__id)
   if (!storage) return
-  const src = source as number
-  const tgt = target as number
+  const src = (source as number) & state.options.indexMask
+  const tgt = (target as number) & state.options.indexMask
   if (storage.exclusive) {
     if (src < storage.exclusive.length && storage.exclusive[src] === tgt) {
       storage.exclusive[src] = -1
@@ -109,7 +110,7 @@ export function getRelationTargets(
   const state = getWorldState(world)
   const storage = state.relationStorage.get(rel.__id)
   if (!storage) return []
-  const src = source as number
+  const src = (source as number) & state.options.indexMask
   if (storage.exclusive) {
     if (src < storage.exclusive.length) {
       const tgt = storage.exclusive[src] ?? -1
@@ -124,7 +125,7 @@ export function getRelationTargets(
 
 // Cleanup hook: when an entity is destroyed, remove all relations involving it.
 registerRelationsCleanup((state: WorldState, eid: EntityId) => {
-  const e = eid as number
+  const e = (eid as number) & state.options.indexMask
   for (const storage of state.relationStorage.values()) {
     if (storage.exclusive) {
       if (e < storage.exclusive.length) storage.exclusive[e] = -1

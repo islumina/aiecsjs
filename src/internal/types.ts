@@ -119,6 +119,8 @@ export interface ResolvedWorldOptions {
   maxEntities: number
   indexBits: number
   generationBits: number
+  indexMask: number
+  generationMask: number
   maxComponents: number
   maskWordCount: number
   buffer: SharedArrayBuffer | null

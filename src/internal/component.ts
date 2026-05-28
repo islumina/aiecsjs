@@ -122,14 +122,14 @@ export function addComponent<C extends ComponentLike>(
 
   const prevMask = readEntityMask(state, eid)
   if (testBit(prevMask, bit)) {
-    if (initial !== undefined) writeInitial(state, eid, component, initial)
+    if (initial !== undefined) writeInitial(state, eid as number, component, initial)
     return
   }
   const newMask = cloneMask(prevMask)
   setBit(newMask, bit)
-  migrateEntity(state, eid, newMask)
+  migrateEntity(state, eid as number, newMask)
 
-  writeInitial(state, eid, component, initial)
+  writeInitial(state, eid as number, component, initial)
 
   fireAddObservers(state, eid, bit)
   notifyMaskChange(state, eid, bit, prevMask, newMask)
@@ -158,15 +158,16 @@ export function removeComponent<C extends ComponentLike>(
   // this "mutate then fire" order; keeping removeComponent consistent.
   const newMask = cloneMask(prevMask)
   clearBit(newMask, bit)
-  migrateEntity(state, eid, newMask)
+  migrateEntity(state, eid as number, newMask)
 
   fireRemoveObservers(state, eid, bit)
 
+  const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
   if (storage?.kind === 'soa' && storage.soa) {
-    clearSoAEntity(storage.soa, info.fields, eid)
+    clearSoAEntity(storage.soa, info.fields, idx)
   } else if (storage?.kind === 'aos' && storage.aos) {
-    storage.aos[eid] = undefined
+    storage.aos[idx] = undefined
   }
 
   notifyMaskChange(state, eid, bit, prevMask, newMask)
@@ -201,7 +202,10 @@ export function getComponent<C extends ComponentLike>(
   const storage = state.componentStorageByBit[bit]
   if (!storage) return undefined
   if (storage.kind === 'soa') return storage.soa
-  if (storage.kind === 'aos') return storage.aos?.[eid]
+  if (storage.kind === 'aos') {
+    const idx = (eid as number) & state.options.indexMask
+    return storage.aos?.[idx]
+  }
   return true // tag
 }
 
@@ -226,7 +230,7 @@ export function setComponent<C extends ComponentLike, V>(
     addComponent(world, eid, component, value as any)
     return
   }
-  writeInitial(state, eid, component, value as any)
+  writeInitial(state, eid as number, component, value as any)
   fireSetObservers(state, eid, bit, value)
 }
 
@@ -234,7 +238,7 @@ export function setComponent<C extends ComponentLike, V>(
 
 function writeInitial(
   state: WorldState,
-  eid: number,
+  packedEid: number,
   component: ComponentLike,
   initial: unknown,
 ): void {
@@ -243,6 +247,8 @@ function writeInitial(
   if (bit === undefined) return
   const storage = state.componentStorageByBit[bit]
   if (!storage) return
+  // Unpack to raw index for storage access
+  const idx = packedEid & state.options.indexMask
   if (info.kind === 'soa' && storage.soa) {
     if (initial == null) return
     const obj = initial as Record<string, unknown>
@@ -252,19 +258,19 @@ function writeInitial(
       if (!col) continue
       const val = obj[f.name]
       if (f.vectorLen === 1) {
-        col[eid] = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val)
+        col[idx] = typeof val === 'boolean' ? (val ? 1 : 0) : Number(val)
       } else if (Array.isArray(val) || ArrayBuffer.isView(val)) {
-        const base = eid * f.vectorLen
+        const base = idx * f.vectorLen
         const arr = val as ArrayLike<number>
         for (let i = 0; i < f.vectorLen; i++) col[base + i] = Number(arr[i] ?? 0)
       }
     }
   } else if (info.kind === 'aos' && storage.aos) {
     const factory = info.factory ?? (() => ({}))
-    let inst = storage.aos[eid]
+    let inst = storage.aos[idx]
     if (inst === undefined) {
       inst = factory()
-      storage.aos[eid] = inst
+      storage.aos[idx] = inst
     }
     if (initial && typeof initial === 'object') {
       // SECURITY: do NOT use `Object.assign(inst, initial)` here. When `initial`
@@ -304,7 +310,7 @@ function clearSoAEntity(soa: SoAColumns, fields: FieldInfo[], eid: number): void
 // Caller (e.g. destroyEntity) is expected to clear the mask separately.
 export function clearAllEntityStorages(state: WorldState, eid: EntityId): void {
   const wordCount = state.options.maskWordCount
-  const idx = eid as number
+  const idx = (eid as number) & state.options.indexMask
   const base = idx * wordCount
   forEachSetBit(state.entityMask, base, wordCount, (bit) => {
     const storage = state.componentStorageByBit[bit]
@@ -317,8 +323,10 @@ export function clearAllEntityStorages(state: WorldState, eid: EntityId): void {
   })
 }
 
-function migrateEntity(state: WorldState, eid: number, newMask: Uint32Array): void {
-  const srcArchId = state.entityArchetype[eid] ?? 0
+function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Array): void {
+  // Unpack to raw index for sparse-array lookups
+  const idx = packedEid & state.options.indexMask
+  const srcArchId = state.entityArchetype[idx] ?? 0
   const srcArch = state.archetypes[srcArchId]
   if (!srcArch) return
 
@@ -328,8 +336,8 @@ function migrateEntity(state: WorldState, eid: number, newMask: Uint32Array): vo
   if (!destArch) return
 
   if (destArchId !== srcArchId) {
-    // Swap-pop from src
-    const row = srcArch.entityRow.get(eid)
+    // Swap-pop from src (arch.entities / entityRow use packed eid as key)
+    const row = srcArch.entityRow.get(packedEid)
     if (row !== undefined) {
       const lastRow = srcArch.size - 1
       if (row !== lastRow) {
@@ -338,21 +346,21 @@ function migrateEntity(state: WorldState, eid: number, newMask: Uint32Array): vo
         srcArch.entityRow.set(moved, row)
       }
       srcArch.entities[lastRow] = 0
-      srcArch.entityRow.delete(eid)
+      srcArch.entityRow.delete(packedEid)
       srcArch.size--
     }
 
-    // Append to dest
+    // Append to dest (store packed eid)
     ensureArchetypeCapacity(destArch, destArch.size + 1)
     const newRow = destArch.size
-    destArch.entities[newRow] = eid
-    destArch.entityRow.set(eid, newRow)
+    destArch.entities[newRow] = packedEid
+    destArch.entityRow.set(packedEid, newRow)
     destArch.size++
 
-    state.entityArchetype[eid] = destArchId
+    state.entityArchetype[idx] = destArchId
   }
 
-  writeEntityMask(state, eid, newMask)
+  writeEntityMask(state, packedEid, newMask)
 }
 
 // --- Observer dispatch (lazy-bound) ---
