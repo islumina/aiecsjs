@@ -941,6 +941,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
 - Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+- Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
+  default `generationBits=8`, a single slot recycled 256 times wraps back to its
+  starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
+  workloads (~5000 frame to wrap a single slot at 60 fps × ~1k destroys); high-churn
+  pools should set `createWorld({ generationBits: 16 })`. See test
+  [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
 ## [0.3.0] - 2026-05-29
 
