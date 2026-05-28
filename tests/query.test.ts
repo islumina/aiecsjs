@@ -1,22 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  destroyEntity,
-  defineComponent,
-  defineTag,
+  Types,
   addComponent,
-  removeComponent,
-  hasComponent,
-  setComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
   defineQuery,
-  runQuery,
-  iterQuery,
-  forEachEntity,
+  defineTag,
+  destroyEntity,
   enterQuery,
   exitQuery,
+  forEachEntity,
+  hasComponent,
+  iterQuery,
   queryArchetypes,
-  Types,
+  removeComponent,
+  runQuery,
+  setComponent,
 } from '../src/index.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -78,7 +78,7 @@ describe('query', () => {
       pos.y[e] += vel.y[e]
     })
     for (const e of ents) {
-      const pos = (w as any)
+      const pos = w as any
       // Read back via Position column from getComponent indirectly: we know x === i+10
     }
   })
@@ -160,13 +160,17 @@ function naiveFilter(
   entities: number[],
   spec: { all?: any[]; any?: any[]; none?: any[] },
 ): number[] {
-  return entities.filter(e => {
+  return entities.filter((e) => {
     if (spec.all) {
       for (const c of spec.all) if (!hasComponent(w, e as any, c)) return false
     }
     if (spec.any && spec.any.length > 0) {
       let hit = false
-      for (const c of spec.any) if (hasComponent(w, e as any, c)) { hit = true; break }
+      for (const c of spec.any)
+        if (hasComponent(w, e as any, c)) {
+          hit = true
+          break
+        }
       if (!hit) return false
     }
     if (spec.none) {
@@ -219,7 +223,9 @@ describe('query cross-check vs naive linear filter', () => {
     }
     const q = defineQuery({ all: [Position], any: [Velocity, Health] })
     const actual = [...runQuery(w, q)].sort((a, b) => a - b)
-    const expected = naiveFilter(w, ents, { all: [Position], any: [Velocity, Health] }).sort((a, b) => a - b)
+    const expected = naiveFilter(w, ents, { all: [Position], any: [Velocity, Health] }).sort(
+      (a, b) => a - b,
+    )
     expect(actual).toEqual(expected)
   })
 

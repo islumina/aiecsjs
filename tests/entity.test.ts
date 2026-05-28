@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
   createEntity,
+  createWorld,
   destroyEntity,
   entityExists,
-  getEntityIndex,
   getEntityGeneration,
-  packEntity,
+  getEntityIndex,
   isEntity,
+  packEntity,
 } from '../src/index.js'
 
 describe('entity', () => {

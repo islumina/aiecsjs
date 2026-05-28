@@ -1,19 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  defineComponent,
-  addComponent,
-  hasComponent,
   IS_SAB_SUPPORTED,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  hasComponent,
 } from '../src/index.js'
-import {
-  transferableSnapshot,
-  adoptSnapshot,
-  attachWorld,
-  detachWorld,
-} from '../src/worker.js'
+import { adoptSnapshot, attachWorld, detachWorld, transferableSnapshot } from '../src/worker.js'
 
 describe('worker / SAB', () => {
   const Position = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -29,7 +24,7 @@ describe('worker / SAB', () => {
     const snap = transferableSnapshot(w)
     expect(snap.buffer).toBeDefined()
     expect(snap.meta.magic).toBe(0x41494543)
-    expect(snap.meta.aiecsjsVersion).toBe('0.1.4')
+    expect(snap.meta.aiecsjsVersion).toBe('0.2.0')
   })
 
   it.skipIf(!IS_SAB_SUPPORTED)('adoptSnapshot rebuilds a usable world', () => {

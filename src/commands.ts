@@ -1,5 +1,7 @@
 // aiecsjs/commands — deferred structural mutations during iteration.
 
+import { addComponent, removeComponent } from './internal/component.js'
+import { createEntity, destroyEntity } from './internal/entity.js'
 import type {
   CommandBuffer,
   CommandBufferState,
@@ -10,11 +12,6 @@ import type {
   World,
 } from './internal/types.js'
 import { getWorldState } from './internal/world.js'
-import {
-  addComponent,
-  removeComponent,
-} from './internal/component.js'
-import { createEntity, destroyEntity } from './internal/entity.js'
 
 export function createCommandBuffer(world: World): CommandBuffer {
   const state = getWorldState(world)
@@ -56,7 +53,12 @@ export function flush(cb: CommandBuffer): void {
     // Phase 2: add/remove in queue order
     for (const op of state.ops) {
       if (op.kind === 'add') {
-        addComponent(world, resolve(op.eid), op.component, op.initial as ComponentInit<ComponentLike>)
+        addComponent(
+          world,
+          resolve(op.eid),
+          op.component,
+          op.initial as ComponentInit<ComponentLike>,
+        )
       } else if (op.kind === 'remove') {
         removeComponent(world, resolve(op.eid), op.component)
       }

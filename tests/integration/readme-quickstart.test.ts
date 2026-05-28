@@ -1,17 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  destroyEntity,
-  defineComponent,
-  addComponent,
-  removeComponent,
-  defineQuery,
-  forEachEntity,
-  pipe,
-  getComponent,
-  entityExists,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  defineQuery,
+  destroyEntity,
+  entityExists,
+  forEachEntity,
+  getComponent,
+  pipe,
+  removeComponent,
 } from '../../src/index.js'
 
 // This test mirrors the README Quick Start (sans createLoop, which we replace with a manual tick loop).

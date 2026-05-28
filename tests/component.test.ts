@@ -1,17 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  destroyEntity,
-  defineComponent,
-  defineTag,
-  defineObjectComponent,
-  addComponent,
-  removeComponent,
-  hasComponent,
-  getComponent,
-  setComponent,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  defineObjectComponent,
+  defineTag,
+  destroyEntity,
+  getComponent,
+  hasComponent,
+  removeComponent,
+  setComponent,
 } from '../src/index.js'
 
 describe('component definition', () => {
@@ -107,6 +107,38 @@ describe('component ops (AoS)', () => {
     addComponent(w, e, MeshRef, { id: 42 })
     const inst = getComponent(w, e, MeshRef) as any
     expect(inst.id).toBe(42)
+  })
+
+  it('AoS writeInitial rejects __proto__ pollution from untrusted JSON', () => {
+    // Simulates the deserialise / bridge-payload threat path.
+    const Attr = defineObjectComponent<{ role: string }>(() => ({ role: 'guest' }))
+    const w = createWorld()
+    const e = createEntity(w)
+    // Attacker-crafted JSON yields an OWN __proto__ key after JSON.parse.
+    const malicious = JSON.parse('{"role":"user","__proto__":{"role":"admin","poisoned":true}}')
+    addComponent(w, e, Attr, malicious)
+    const inst = getComponent(w, e, Attr) as { role: string; poisoned?: boolean }
+    // The legitimate field copies through.
+    expect(inst.role).toBe('user')
+    // The prototype was NOT replaced — no inherited `poisoned` property.
+    expect((inst as { poisoned?: boolean }).poisoned).toBeUndefined()
+    // Object.prototype was not polluted globally either.
+    expect(({} as Record<string, unknown>).poisoned).toBeUndefined()
+  })
+
+  it('AoS writeInitial rejects constructor / prototype keys', () => {
+    const Attr = defineObjectComponent<{ role: string }>(() => ({ role: 'guest' }))
+    const w = createWorld()
+    const e = createEntity(w)
+    const evil = JSON.parse(
+      '{"role":"x","constructor":{"prototype":{"evil":1}},"prototype":{"evil":2}}',
+    )
+    addComponent(w, e, Attr, evil)
+    const inst = getComponent(w, e, Attr) as Record<string, unknown>
+    expect(inst.role).toBe('x')
+    // The dangerous keys are dropped at copy time.
+    expect((inst as { constructor?: unknown }).constructor).toBe(Object)
+    expect(inst.prototype).toBeUndefined()
   })
 })
 

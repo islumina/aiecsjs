@@ -17,8 +17,16 @@ export const Types = {
 } as const
 
 export type SoAFieldType =
-  | 'i8' | 'u8' | 'i16' | 'u16' | 'i32' | 'u32'
-  | 'f32' | 'f64' | 'eid' | 'bool'
+  | 'i8'
+  | 'u8'
+  | 'i16'
+  | 'u16'
+  | 'i32'
+  | 'u32'
+  | 'f32'
+  | 'f64'
+  | 'eid'
+  | 'bool'
 
 export type SoAFieldDecl = SoAFieldType | readonly [SoAFieldType, number]
 export type SoASchema = Readonly<Record<string, SoAFieldDecl>>
@@ -43,23 +51,32 @@ export interface TagComponent {
 export type ComponentLike = SoAComponent<any> | AoSComponent<any> | TagComponent
 
 export type ColumnArray =
-  | Int8Array | Uint8Array | Int16Array | Uint16Array
-  | Int32Array | Uint32Array | Float32Array | Float64Array
+  | Int8Array
+  | Uint8Array
+  | Int16Array
+  | Uint16Array
+  | Int32Array
+  | Uint32Array
+  | Float32Array
+  | Float64Array
 
 export interface SoAColumns {
   [field: string]: ColumnArray
 }
 
-export type ComponentView<C extends ComponentLike> =
-  C extends SoAComponent<infer _S> ? SoAColumns :
-  C extends AoSComponent<infer T> ? (T | undefined) :
-  C extends TagComponent ? boolean :
-  never
+export type ComponentView<C extends ComponentLike> = C extends SoAComponent<infer _S>
+  ? SoAColumns
+  : C extends AoSComponent<infer T>
+    ? T | undefined
+    : C extends TagComponent
+      ? boolean
+      : never
 
-export type ComponentInit<C extends ComponentLike> =
-  C extends SoAComponent<infer _S> ? Record<string, unknown> :
-  C extends AoSComponent<infer T> ? Partial<T> :
-  undefined
+export type ComponentInit<C extends ComponentLike> = C extends SoAComponent<infer _S>
+  ? Record<string, unknown>
+  : C extends AoSComponent<infer T>
+    ? Partial<T>
+    : undefined
 
 export interface QueryDescriptor {
   all?: ComponentLike[]
@@ -111,16 +128,20 @@ export interface ResolvedWorldOptions {
 export interface FieldInfo {
   name: string
   type: SoAFieldType
-  vectorLen: number  // 1 for scalar
+  vectorLen: number // 1 for scalar
   ctor: TypedArrayConstructor
   bytesPerElement: number
 }
 
 export type TypedArrayConstructor =
-  | Int8ArrayConstructor | Uint8ArrayConstructor
-  | Int16ArrayConstructor | Uint16ArrayConstructor
-  | Int32ArrayConstructor | Uint32ArrayConstructor
-  | Float32ArrayConstructor | Float64ArrayConstructor
+  | Int8ArrayConstructor
+  | Uint8ArrayConstructor
+  | Int16ArrayConstructor
+  | Uint16ArrayConstructor
+  | Int32ArrayConstructor
+  | Uint32ArrayConstructor
+  | Float32ArrayConstructor
+  | Float64ArrayConstructor
 
 export interface ComponentInfo {
   id: number
@@ -146,11 +167,11 @@ export interface ArchetypeState {
   mask: Uint32Array
   size: number
   capacity: number
-  entities: Uint32Array       // packed eids in row order
-  entityRow: Map<number, number>  // eid → row (small archetype-local lookup)
-  componentBits: number[]     // sorted
-  edgeAdd: Int32Array         // [bit] → archetype id; -1 unknown
-  edgeRemove: Int32Array      // [bit] → archetype id; -1 unknown
+  entities: Uint32Array // packed eids in row order
+  entityRow: Map<number, number> // eid → row (small archetype-local lookup)
+  componentBits: number[] // sorted
+  edgeAdd: Int32Array // [bit] → archetype id; -1 unknown
+  edgeRemove: Int32Array // [bit] → archetype id; -1 unknown
 }
 
 export interface QueryInternal extends Query {
@@ -159,10 +180,10 @@ export interface QueryInternal extends Query {
   any: number[]
   none: number[]
   // Cache of column references per matched archetype (per query-call)
-  columnViewCache: ComponentLike[]   // the requested components in their declared order
+  columnViewCache: ComponentLike[] // the requested components in their declared order
   reactiveKind: 'normal' | 'enter' | 'exit'
-  sourceQueryId: number              // -1 for normal
-  sourceQuery: QueryInternal | null  // back-ref for reactive registration
+  sourceQueryId: number // -1 for normal
+  sourceQuery: QueryInternal | null // back-ref for reactive registration
 }
 
 // Per-world resolved bitmasks for a query. Component bits are assigned per
@@ -185,8 +206,8 @@ export type ObserverEvent = 'add' | 'remove' | 'set'
 
 export interface ObserverEntry {
   event: ObserverEvent
-  componentBit: number        // -1 means "any component" (used by query observe)
-  queryId: number             // -1 means component-only
+  componentBit: number // -1 means "any component" (used by query observe)
+  queryId: number // -1 means component-only
   handler: (eid: EntityId, value?: unknown) => void
 }
 
@@ -264,9 +285,9 @@ export interface Relation<T = void> {
 
 export interface RelationStorage {
   rel: Relation<any>
-  exclusive: Int32Array | null              // [srcEid] → tgtEid; -1 means none
-  outgoing: Map<number, number[]>           // srcEid → tgtEid[]
-  data: Map<number, Map<number, unknown>>   // srcEid → (tgtEid → data); nested to stay correct across capacity growth
+  exclusive: Int32Array | null // [srcEid] → tgtEid; -1 means none
+  outgoing: Map<number, number[]> // srcEid → tgtEid[]
+  data: Map<number, Map<number, unknown>> // srcEid → (tgtEid → data); nested to stay correct across capacity growth
 }
 
 export interface WorldState {
@@ -279,20 +300,20 @@ export interface WorldState {
   options: ResolvedWorldOptions
 
   // --- entity allocation ---
-  size: number                                  // alive count
-  nextFreshIndex: number                        // never-used index
-  freeList: number[]                            // recycled indices
-  generations: Uint8Array | Uint16Array         // [eid] → version
+  size: number // alive count
+  nextFreshIndex: number // never-used index
+  freeList: number[] // recycled indices
+  generations: Uint8Array | Uint16Array // [eid] → version
   destroyed: boolean
 
   // --- component registry (per-world) ---
-  componentBitFor: Map<number, number>          // global component id → bit pos in this world
-  componentInfoByBit: (ComponentInfo | null)[]  // bit pos → ComponentInfo
+  componentBitFor: Map<number, number> // global component id → bit pos in this world
+  componentInfoByBit: (ComponentInfo | null)[] // bit pos → ComponentInfo
   componentStorageByBit: (WorldComponentStorage | null)[]
   nextComponentBit: number
 
   // --- sparse entity state ---
-  entityArchetype: Uint32Array                  // [eid] → archetype id (0 = unattached)
+  entityArchetype: Uint32Array // [eid] → archetype id (0 = unattached)
   // entityMask flattened: word w of mask of eid is at entityMask[eid * maskWordCount + w]
   entityMask: Uint32Array
 
@@ -302,20 +323,20 @@ export interface WorldState {
   queryVersion: number
 
   // --- query cache ---
-  queries: QueryInternal[]                      // by id
-  queryMasks: Map<number, QueryMaskBundle>      // queryId → per-world resolved bitmasks
+  queries: QueryInternal[] // by id
+  queryMasks: Map<number, QueryMaskBundle> // queryId → per-world resolved bitmasks
   queryArchetypeCache: (number[] | null)[]
   queryArchetypeStamp: number[]
-  bitToQueries: Map<number, Set<number>>        // bit → queryIds that mention this bit
+  bitToQueries: Map<number, Set<number>> // bit → queryIds that mention this bit
 
   // --- reactive query state ---
-  reactiveBuffers: Map<number, ReactiveBuffer>  // queryId → { entered, exited }
+  reactiveBuffers: Map<number, ReactiveBuffer> // queryId → { entered, exited }
 
   // --- observers ---
   observers: ObserverEntry[]
 
   // --- relations ---
-  relationStorage: Map<number, RelationStorage>  // relation id → storage
+  relationStorage: Map<number, RelationStorage> // relation id → storage
 
   // --- worker / SAB ---
   sab: SharedArrayBuffer | null

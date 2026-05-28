@@ -6,19 +6,10 @@
 // True shared-column memory is on the 0.2 roadmap. The API matches the
 // documented contract and survives postMessage cleanly.
 
-import type {
-  TransferableSnapshot,
-  World,
-  WorldMeta,
-  WorldState,
-} from './internal/types.js'
+import type { TransferableSnapshot, World, WorldMeta, WorldState } from './internal/types.js'
+import { destroyWorld, getWorldState, isWorldRegistered } from './internal/world.js'
+import { deserializeWorld, serializeWorld } from './serialize.js'
 import { VERSION } from './version.js'
-import {
-  getWorldState,
-  destroyWorld,
-  isWorldRegistered,
-} from './internal/world.js'
-import { serializeWorld, deserializeWorld } from './serialize.js'
 
 const MAGIC = 0x41494543 // 'AIEC' little-endian as uint32
 
@@ -41,16 +32,35 @@ export function transferableSnapshot(world: World): TransferableSnapshot {
   return { buffer: sab, meta: buildMeta(state) }
 }
 
+/**
+ * Adopt a snapshot previously produced by `transferableSnapshot`.
+ *
+ * SECURITY: same trust expectation as `attachWorld` — the sender of the
+ * `TransferableSnapshot` (typically a Web Worker) must be trusted. The
+ * function runs `validateMeta` and `deserializeWorld`, which enforce magic
+ * + format version + length bounds on the binary header; but the inner
+ * JSON payload, once decoded, is fed to `addComponent` and reaches AoS
+ * components. For untrusted senders, use `aibridgejs` + `toJSON(world)` at
+ * the application boundary instead.
+ */
 export function adoptSnapshot(snap: TransferableSnapshot): World {
   validateMeta(snap.meta)
   const bytes = new Uint8Array(snap.buffer)
   return deserializeWorld(bytes)
 }
 
-export function attachWorld(
-  buffer: SharedArrayBuffer,
-  options?: { readOnly?: boolean },
-): World {
+/**
+ * Adopt a SharedArrayBuffer-backed snapshot produced by `transferableSnapshot`.
+ *
+ * SECURITY: the SAB sender must be trusted. `attachWorld` performs the same
+ * magic + version + length-bounds checks as `deserializeWorld`, but the JSON
+ * payload itself is deserialised into AoS components via `addComponent`. If
+ * the sender is untrusted (e.g. a third-party Web Worker that you do not
+ * audit), prefer the higher-level `aibridgejs` channel + `toJSON(world)`
+ * pattern, which lets you validate the shape at the application boundary
+ * before constructing entities.
+ */
+export function attachWorld(buffer: SharedArrayBuffer, options?: { readOnly?: boolean }): World {
   const bytes = new Uint8Array(buffer)
   const world = deserializeWorld(bytes)
   if (options?.readOnly) {

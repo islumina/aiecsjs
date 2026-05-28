@@ -8,11 +8,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned for 0.2
+### Planned for 0.3+
 
-- Implement `aiecsjs/relations`: `defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `ChildOf`.
+- Implement ABA-safe `EntityRef` and graduate `getEntityGeneration` / `packEntity` from experimental → stable.
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
+- Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+
+## [0.2.0] - 2026-05-28
+
+### Fixed (correctness + security)
+
+- **Prototype-pollution hardening in AoS `writeInitial`** ([src/internal/component.ts](src/internal/component.ts)): replaced `Object.assign(inst, initial)` with an explicit own-key copy that filters `__proto__` / `constructor` / `prototype`. Closes a path where a malicious `JSON.parse` payload reaching `addComponent` / `setComponent` / `fromJSON` / `deserializeWorld` could clobber the per-instance prototype.
+- **Observer dispatch is now safe against unsubscribe-during-iteration** ([src/observers.ts](src/observers.ts)): every `fire*` walks a snapshot of `state.observers` (`Array.from(...)` + `includes` guard) so a handler that calls its own returned disposer no longer skips sibling observers in the same fire round.
+- **`removeComponent` writes the new entity mask BEFORE firing observers** ([src/internal/component.ts](src/internal/component.ts)): query-targeted `remove` observers read `state.entityMask` to decide if the entity left the matching set; with the previous ordering the bit was still set during dispatch and the remove never fired. Brings `removeComponent` in line with `addComponent`'s "mutate then fire" order.
+- **`destroyEntity` now emits query-targeted `remove` events** ([src/observers.ts](src/observers.ts) `dispatchDestroyObservers`): in addition to per-component `onRemove`, the destroy hook now walks query observers and fires `remove` for any query the entity was matching pre-destroy. `wasMatch` is computed against a **snapshot of the pre-destroy mask** (not live `state.entityMask`) so a Phase 1 reentrant handler that mutates the entity's mask cannot suppress query removes in Phase 2 (regression caught by the round-2 review).
+- **`deserializeWorld` / `attachWorld` / `adoptSnapshot` binary length fields are bounds-checked** ([src/serialize.ts](src/serialize.ts)): `verLen` and `jsonLen` carry explicit `off + len <= bytes.length` assertions and a 64 MiB cap. `attachWorld` and `adoptSnapshot` ([src/worker.ts](src/worker.ts)) both carry SECURITY JSDocs that document the trust boundary expectation for SAB / TransferableSnapshot transports.
+
+### Added (API)
+
+- **`disposeWorld(world)`** — new export that aliases `destroyWorld`. Aligns with the ai*js ecosystem `dispose()` convention (`aifsmjs.Runtime.dispose`, `aibridgejs.Bridge.dispose`). Prefer this name in new code; `destroyWorld` is retained as a deprecated alias and is scheduled for removal in 1.0.
+- **`{ signal?: AbortSignal }` on every observer**: `onAdd`, `onRemove`, `onSet`, and `observe` now accept an options object. When the signal aborts, the observer auto-unsubscribes. The returned unsubscribe function remains valid and idempotent. New exported type `ObserverOptions` documents the shape. This closes a long-running gap noted in the AI ecosystem audit — long-lived observers on user-controlled lifecycles (UI components, async pipelines) no longer require manual cleanup wiring.
+
+### Changed (stability)
+
+- `getEntityGeneration` and `packEntity` re-classified from `stable` → `experimental` in `STABILITY.md` and `api.json`. In 0.1 these returned `0` / identity and that has not changed — the relabel honestly admits the deferred encoding work. Real values arrive when ABA-safe `EntityRef` lands.
+- `destroyWorld` re-classified from `stable` → `deprecated`. Behaviour unchanged; the deprecation is the API-naming alignment described above. Use `disposeWorld` instead.
+
+### Documentation
+
+- `onSet` now carries a JSDoc and README paragraph clarifying that it is a **low-level mutation hook**, not a reactive value-predicate query. `enterQuery` / `exitQuery` continue to be the structural-change surface; reactive value tracking remains an explicit non-goal of the core.
+- README observer section gains an `AbortController`-based unsubscribe example.
+
+### Build & tooling
+
+- Added [Biome](https://biomejs.dev/) lint + format (`biome.json`, `npm run lint`, `npm run format`). Brings parity with `aifsmjs` and `aibridgejs` and surfaces `noExplicitAny` warnings in legacy `src/internal/*` for follow-up cleanup.
+- Added `scripts/verify-exports.mjs` and the `npm run verify:exports` script; gates that every `package.json#exports` entry has a real file in `dist/`. Wired into `prepublishOnly`.
+- New `CONTRIBUTING.md` with the same shape used by `aifsmjs` (quick start, scope policy, release flow).
+
+### Compatibility
+
+This release is **non-breaking at runtime**. All existing code that called `destroyWorld(world)`, registered observers without options, or read `getEntityGeneration` continues to work. The stability label change is documentation-only.
 
 ## [0.1.4] - 2026-05-28
 

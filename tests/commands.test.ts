@@ -1,20 +1,16 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { createCommandBuffer, flush, withCommandBuffer } from '../src/commands.js'
 import {
-  createWorld,
+  Types,
+  addComponent,
   createEntity,
-  destroyEntity,
+  createWorld,
   defineComponent,
   defineTag,
-  addComponent,
-  hasComponent,
+  destroyEntity,
   entityExists,
-  Types,
+  hasComponent,
 } from '../src/index.js'
-import {
-  createCommandBuffer,
-  flush,
-  withCommandBuffer,
-} from '../src/commands.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Dead = defineTag()

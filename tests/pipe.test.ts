@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createWorld, pipe } from '../src/index.js'
 
 describe('pipe', () => {
@@ -17,8 +17,14 @@ describe('pipe', () => {
   it('threads ctx through systems', () => {
     const w = createWorld()
     const order: string[] = []
-    const s1 = (world: any, ctx: any) => { order.push(`1:${ctx}`); return world }
-    const s2 = (world: any, ctx: any) => { order.push(`2:${ctx}`); return world }
+    const s1 = (world: any, ctx: any) => {
+      order.push(`1:${ctx}`)
+      return world
+    }
+    const s2 = (world: any, ctx: any) => {
+      order.push(`2:${ctx}`)
+      return world
+    }
     pipe(s1, s2)(w, 'hello')
     expect(order).toEqual(['1:hello', '2:hello'])
   })

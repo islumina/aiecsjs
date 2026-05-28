@@ -10,7 +10,7 @@
 
 > 為 TypeScript 而設計的原型式 ECS，支援瀏覽器與 Node，內建 SAB 快照傳輸（snapshot transport）與 AI 可讀文件。
 
-aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。0.1 的實體 ID 為純索引值；世代計數在內部追蹤槽位重用，但不編入 ID。具 ABA 安全的 `EntityRef` 預計 0.2 推出。
+aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。0.x 的實體 ID 為純索引值；世代計數在內部追蹤槽位重用，但不編入 ID。具 ABA 安全的 `EntityRef` 預計 **0.3+** 推出（0.2 為求 API 穩定與安全性收尾而延後）。
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -64,7 +64,7 @@ pipe(movement)(world, 1/60)
 | 儲存模型 | 原型 + SoA 欄位 | SparseSet + bitmask + SoA/AoS | 原型 + JS 物件 | 可選（packed/sparse/compact）+ ArrayBuffer |
 | API 風格 | 函式式 + `pipe` | 函式式 + `pipe` | 鏈式 OO | 裝飾器 class |
 | 查詢 TS 推導 | 欄位元組支援 | 手動 | 述詞推導 | class-based |
-| 多執行緒 | SAB 快照傳輸（0.1）；真共享欄位預計 0.2 | SAB-ready，排程自理 | 單執行緒 | Roadmap（未實作） |
+| 多執行緒 | SAB 快照傳輸（0.x）；真共享欄位預計 0.3+ | SAB-ready，排程自理 | 單執行緒 | Roadmap（未實作） |
 | AI 文件 | `llms.txt` + `llms-full.txt` + `api.json` | 無 | 無 | 無 |
 | 維護狀態 | 活躍（新） | 活躍 | 趨緩（npm 已 ~3 年） | 活躍 |
 
@@ -293,13 +293,20 @@ const stopAdd = onAdd(world, Position, (e) => console.log('positioned', e))
 const stopRemove = onRemove(world, Player, (e) => console.log('un-playered', e))
 const stopSet = onSet(world, Health, (e, val) => console.log('health set', e, val))
 
-// 之後解除
+// AbortSignal 自動解除（0.2.0 起支援）：
+const ac = new AbortController()
+onAdd(world, Position, (e) => trackEntity(e), { signal: ac.signal })
+ac.abort() // 一次解除所有掛在此 signal 上的 observer
+
+// 也可使用回傳的 unsubscribe，兩種方式皆冪等可混用：
 stopAdd()
 stopRemove()
 stopSet()
 ```
 
 Observer 會在變動呼叫內同步觸發。用於需要在變動發生瞬間執行的副作用（除錯、複製）。對於要批次的 UI 更新，請改用反應式查詢。
+
+**`onSet` 是 low-level mutation hook**，不是反應式 value-predicate query。僅在 `setComponent(world, eid, comp, value)` 且該 entity 已持有該 component 時觸發 ─ `addComponent` 不會觸發 `onSet`（請用 `onAdd`；`addComponent` 後再 `setComponent` 則依序觸發兩者）。`enterQuery` / `exitQuery` 只對 component 集合的結構變化反應；若需要「value 越過閾值」的反應式視圖，請在 app 層基於 `onSet` 自行組裝。
 
 ### Command buffer：何時與為何
 
@@ -343,7 +350,7 @@ addRelation(world, alice, ChildOf, parent)
 const parentOfAlice = getRelationTargets(world, alice, ChildOf)
 ```
 
-0.2 版會加入獨佔關係（只允許一個目標）、wildcard 查詢、以及關係圖的序列化。
+Relations 穩定化 ─ 獨佔關係（只允許一個目標）、wildcard 查詢、以及關係圖的序列化 ─ 預計 **0.3+** 落地；0.2.0 保留 relations subpath 現有 experimental 形狀（無破壞變更）。
 
 ## API 參考
 
@@ -354,7 +361,8 @@ const parentOfAlice = getRelationTargets(world, alice, ChildOf)
 | 函式 | Signature | 穩定度 |
 |---|---|---|
 | `createWorld` | `(options?: WorldOptions) => World` | stable |
-| `destroyWorld` | `(world: World) => void` | stable |
+| `disposeWorld` | `(world: World) => void` | stable（since 0.2.0） |
+| `destroyWorld` | `(world: World) => void` | **deprecated** since 0.2.0 ─ `disposeWorld` 的別名；1.0 移除 |
 | `resetWorld` | `(world: World) => void` | stable |
 | `getWorldSize` | `(world: World) => number`（存活實體數） | stable |
 | `getWorldCapacity` | `(world: World) => number` | stable |
@@ -437,10 +445,10 @@ const Types = { i8, u8, i16, u16, i32, u32, f32, f64, eid, bool } as const
 
 | 函式 | Signature | 穩定度 |
 |---|---|---|
-| `observe` | `(world, q, event, handler) => () => void` | stable |
-| `onAdd` | `(world, comp, handler) => () => void` | stable |
-| `onRemove` | `(world, comp, handler) => () => void` | stable |
-| `onSet` | `(world, comp, handler) => () => void` | stable |
+| `observe` | `(world, q, event, handler, opts?: { signal? }) => () => void` | stable |
+| `onAdd` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable |
+| `onRemove` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable |
+| `onSet` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable；low-level mutation hook，非反應式 |
 
 ### 序列化 — `aiecsjs/serialize`
 

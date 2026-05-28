@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { VERSION, IS_SAB_SUPPORTED, isWorld, isEntity, createWorld, createEntity } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
+import {
+  IS_SAB_SUPPORTED,
+  VERSION,
+  createEntity,
+  createWorld,
+  isEntity,
+  isWorld,
+} from '../src/index.js'
 
 describe('utility', () => {
   it('VERSION matches package.json', () => {

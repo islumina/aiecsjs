@@ -1,14 +1,8 @@
 // aiecsjs/relations — entity-to-entity relations (experimental in 0.1).
 
-import type {
-  EntityId,
-  Relation,
-  RelationStorage,
-  World,
-  WorldState,
-} from './internal/types.js'
-import { getWorldState } from './internal/world.js'
 import { registerRelationsCleanup } from './internal/entity.js'
+import type { EntityId, Relation, RelationStorage, World, WorldState } from './internal/types.js'
+import { getWorldState } from './internal/world.js'
 
 let nextRelationId = 1
 

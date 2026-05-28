@@ -98,7 +98,7 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 
 ### `aiecsjs/worker`（experimental adapter sub-path）
 
-整個 subpath 在 0.1 為 **experimental**。**0.1 的實作為 snapshot-copy 傳輸**——傳送時將 world 序列化進 SAB，接收端反序列化成全新 world，並非真正的共享記憶體欄位 aliasing。API 表面符合文件契約；真正的共享欄位將於 0.2 推出。Snapshot 佈局與能力旗標可能改變。
+整個 subpath 在 0.x 為 **experimental**。**0.x 的實作為 snapshot-copy 傳輸**——傳送時將 world 序列化進 SAB，接收端反序列化成全新 world，並非真正的共享記憶體欄位 aliasing。API 表面符合文件契約；真正的共享欄位預計 **0.3+** 推出。Snapshot 佈局與能力旗標可能改變。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -128,8 +128,8 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | 版本 | 焦點 | 穩定度變動 |
 |---|---|---|
 | 0.1.x | 核心表面（world、entity、component、query、system、loop、commands、observers、serialize） | 初次發佈；package 整體標 experimental，但各 export 表中列為 stable 者皆穩定。 |
-| 0.2.x | Relations 與階層 | `aiecsjs/relations` 落實實作；仍為 experimental。 |
-| 0.3.x | 硬化、Relations 穩定、多執行緒打磨 | `aiecsjs/relations` 與 `aiecsjs/worker` → stable。 |
+| 0.2.0 | 安全與生態對齊 | 原型污染強化、observer `{ signal? }`、`disposeWorld` 別名、`getEntityGeneration` / `packEntity` 改 experimental、`verify:llms` gate。詳見 [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28)。 |
+| 0.3+ | Relations 穩定化 + EntityRef + SAB | `aiecsjs/relations` 升為 stable；ABA-safe `EntityRef` 上線，`getEntityGeneration` / `packEntity` 開始回傳真值；`aiecsjs/worker` 採用真正 shared-memory column aliasing。 |
 | 1.0.0 | API 凍結 | 所有 `stable` 匯出於 1.x 系列凍結。 |
 
 ## 在執行時檢查穩定度

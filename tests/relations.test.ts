@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { createWorld, createEntity, destroyEntity } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import { createEntity, createWorld, destroyEntity } from '../src/index.js'
 import {
-  defineRelation,
-  addRelation,
-  removeRelation,
-  getRelationTargets,
   ChildOf,
+  addRelation,
+  defineRelation,
+  getRelationTargets,
+  removeRelation,
 } from '../src/relations.js'
 
 describe('relations', () => {

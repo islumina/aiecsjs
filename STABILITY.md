@@ -25,7 +25,8 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | Export | Stability | Since | Notes |
 |---|---|---|---|
 | `createWorld` | stable | 0.1.0 | |
-| `destroyWorld` | stable | 0.1.0 | |
+| `disposeWorld` | stable | 0.2.0 | Alias for `destroyWorld`; aligns with the ai*js ecosystem `dispose()` convention. Prefer this name in new code. |
+| `destroyWorld` | **deprecated** | 0.1.0 | Use `disposeWorld` instead. Scheduled for removal in 1.0. |
 | `resetWorld` | stable | 0.1.0 | |
 | `getWorldSize` | stable | 0.1.0 | |
 | `getWorldCapacity` | stable | 0.1.0 | |
@@ -33,8 +34,8 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `destroyEntity` | stable | 0.1.0 | |
 | `entityExists` | stable | 0.1.0 | |
 | `getEntityIndex` | stable | 0.1.0 | |
-| `getEntityGeneration` | stable | 0.1.0 | |
-| `packEntity` | stable | 0.1.0 | |
+| `getEntityGeneration` | **experimental** | 0.1.0 | Returns 0 in 0.x (generation tracked internally but not encoded in EntityId). Real values arrive with ABA-safe `EntityRef` in **0.3+**. |
+| `packEntity` | **experimental** | 0.1.0 | Identity helper in 0.x. Returns the index unchanged. Real packing arrives with `EntityRef` in **0.3+**. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
 | `defineObjectComponent` | stable | 0.1.0 | AoS components are main-thread only; not SAB-shareable. |
@@ -81,10 +82,10 @@ Component lifecycle hooks. The core does not require observers; install this sub
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
-| `observe` | stable | 0.1.0 | |
-| `onAdd` | stable | 0.1.0 | |
-| `onRemove` | stable | 0.1.0 | |
-| `onSet` | stable | 0.1.0 | |
+| `observe` | stable | 0.1.0 | Accepts `{ signal?: AbortSignal }` since 0.2.0. |
+| `onAdd` | stable | 0.1.0 | Accepts `{ signal?: AbortSignal }` since 0.2.0. |
+| `onRemove` | stable | 0.1.0 | Accepts `{ signal?: AbortSignal }` since 0.2.0. |
+| `onSet` | stable | 0.1.0 | Low-level mutation hook; NOT a reactive value-predicate query. Accepts `{ signal?: AbortSignal }` since 0.2.0. |
 
 ### `aiecsjs/serialize` (utility sub-path)
 
@@ -98,7 +99,7 @@ Component lifecycle hooks. The core does not require observers; install this sub
 
 ### `aiecsjs/worker` (experimental adapter sub-path)
 
-The entire subpath is **experimental** in 0.1. **In 0.1 the implementation is a snapshot-copy transport** — serialize the world into the SAB on send, deserialize into a fresh world on adopt. It is not true shared-memory column aliasing. The API surface matches the documented contract; true shared columns ship in 0.2. Snapshot layout and capability flags may change.
+The entire subpath is **experimental** in 0.x. **In 0.x the implementation is a snapshot-copy transport** — serialize the world into the SAB on send, deserialize into a fresh world on adopt. It is not true shared-memory column aliasing. The API surface matches the documented contract; true shared columns are targeted for **0.3+**. Snapshot layout and capability flags may change.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -128,7 +129,8 @@ Everything under this prefix is **internal**. It exists for the implementation's
 | Version | Focus | Stability shift |
 |---|---|---|
 | 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
-| 0.2.x | Relations & hierarchies | `aiecsjs/relations` becomes implemented; still experimental. |
+| 0.2.0 | Safety + alignment | Prototype-pollution hardening, observer `{ signal? }`, `disposeWorld` alias, `getEntityGeneration` / `packEntity` re-labelled experimental, `verify:llms` gate. See [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28). |
+| 0.3+ | Relations stabilisation + EntityRef + SAB | `aiecsjs/relations` graduates to stable; ABA-safe `EntityRef` lands and `getEntityGeneration` / `packEntity` start returning real values; `aiecsjs/worker` adopts true shared-memory column aliasing. |
 | 0.3.x | Hardening, relations stabilization, multi-threading polish | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
 | 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
 

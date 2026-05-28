@@ -12,7 +12,7 @@
       "name": "aiecsjs",
       "description": "Core entry point — world, entity, component, query, system, utilities.",
       "exports": [
-        "createWorld", "destroyWorld", "resetWorld", "getWorldSize", "getWorldCapacity",
+        "createWorld", "disposeWorld", "destroyWorld", "resetWorld", "getWorldSize", "getWorldCapacity",
         "createEntity", "destroyEntity", "entityExists", "getEntityIndex", "getEntityGeneration", "packEntity",
         "defineComponent", "defineTag", "defineObjectComponent",
         "addComponent", "removeComponent", "hasComponent", "getComponent", "setComponent",
@@ -84,13 +84,29 @@
       "kind": "function",
       "module": "aiecsjs",
       "since": "0.1.0",
-      "stability": "stable",
-      "deprecated": false,
+      "stability": "deprecated",
+      "deprecated": true,
+      "deprecatedSince": "0.2.0",
+      "replacedBy": "disposeWorld",
       "signature": "function destroyWorld(world: World): void",
-      "summary": "Release all internal buffers; the world reference becomes invalid.",
+      "summary": "Release all internal buffers; the world reference becomes invalid. Use `disposeWorld` in new code; this alias is retained for backwards compatibility and is scheduled for removal in 1.0.",
       "params": [{ "name": "world", "type": "World", "optional": false, "description": "World to destroy." }],
       "returns": { "type": "void", "description": "" },
-      "examples": [{ "title": "Cleanup", "code": "destroyWorld(world)" }],
+      "examples": [{ "title": "Cleanup (deprecated form)", "code": "destroyWorld(world) // prefer disposeWorld(world)" }],
+      "seeAlso": ["disposeWorld", "createWorld", "resetWorld"]
+    },
+    {
+      "name": "disposeWorld",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.2.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function disposeWorld(world: World): void",
+      "summary": "Release all internal buffers; the world reference becomes invalid. Aligns with the ai*js ecosystem `dispose()` convention (aifsmjs Runtime, aibridgejs Bridge).",
+      "params": [{ "name": "world", "type": "World", "optional": false, "description": "World to dispose." }],
+      "returns": { "type": "void", "description": "" },
+      "examples": [{ "title": "Cleanup", "code": "disposeWorld(world)" }],
       "seeAlso": ["createWorld", "resetWorld"]
     },
     {
@@ -203,12 +219,12 @@
       "kind": "function",
       "module": "aiecsjs",
       "since": "0.1.0",
-      "stability": "stable",
+      "stability": "experimental",
       "deprecated": false,
       "signature": "function getEntityGeneration(eid: EntityId): number",
-      "summary": "Extract the generation portion of a packed entity ID.",
+      "summary": "Returns 0 in 0.x — generation is tracked internally for slot reuse but not encoded in the EntityId. Real generation reads land with ABA-safe `EntityRef` in 0.3+.",
       "params": [{ "name": "eid", "type": "EntityId", "optional": false, "description": "Packed entity ID." }],
-      "returns": { "type": "number", "description": "Generation in [0, 2^generationBits)." },
+      "returns": { "type": "number", "description": "Generation; always 0 in 0.1." },
       "examples": [],
       "seeAlso": ["getEntityIndex", "packEntity"]
     },
@@ -217,15 +233,15 @@
       "kind": "function",
       "module": "aiecsjs",
       "since": "0.1.0",
-      "stability": "stable",
+      "stability": "experimental",
       "deprecated": false,
       "signature": "function packEntity(index: number, generation: number): EntityId",
-      "summary": "Compose an entity ID from its parts. Rarely needed.",
+      "summary": "Identity helper in 0.x — returns `index` unchanged because EntityId is a bare slot index. Real packing lands with ABA-safe `EntityRef` in 0.3+.",
       "params": [
         { "name": "index", "type": "number", "optional": false, "description": "Entity index." },
-        { "name": "generation", "type": "number", "optional": false, "description": "Entity generation." }
+        { "name": "generation", "type": "number", "optional": false, "description": "Entity generation (ignored in 0.1)." }
       ],
-      "returns": { "type": "EntityId", "description": "Branded composed ID." },
+      "returns": { "type": "EntityId", "description": "In 0.1 this equals `index`." },
       "examples": [],
       "seeAlso": ["getEntityIndex", "getEntityGeneration"]
     },
@@ -606,13 +622,14 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function observe(world: World, query: Query, event: 'add' | 'remove' | 'set', handler: (eid: EntityId) => void): () => void",
-      "summary": "General-purpose query observer. Returns a disposer.",
+      "signature": "function observe(world: World, query: Query, event: 'add' | 'remove' | 'set', handler: (eid: EntityId) => void, opts?: ObserverOptions): () => void",
+      "summary": "General-purpose query observer. Returns a disposer. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "query", "type": "Query", "optional": false, "description": "Query handle." },
         { "name": "event", "type": "'add'|'remove'|'set'", "optional": false, "description": "Event kind." },
-        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." }
+        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." },
+        { "name": "opts", "type": "ObserverOptions", "optional": true, "description": "Optional `{ signal?: AbortSignal }`. Added in 0.2.0." }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
       "examples": [],
@@ -625,12 +642,13 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function onAdd(world: World, component: ComponentLike, handler: (eid: EntityId) => void): () => void",
-      "summary": "Listen for component-add events on a specific component.",
+      "signature": "function onAdd(world: World, component: ComponentLike, handler: (eid: EntityId) => void, opts?: ObserverOptions): () => void",
+      "summary": "Listen for component-add events on a specific component. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." },
-        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." }
+        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." },
+        { "name": "opts", "type": "ObserverOptions", "optional": true, "description": "Optional `{ signal?: AbortSignal }`. Added in 0.2.0." }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
       "examples": [],
@@ -643,9 +661,14 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function onRemove(world: World, component: ComponentLike, handler: (eid: EntityId) => void): () => void",
-      "summary": "Listen for component-remove events.",
-      "params": [],
+      "signature": "function onRemove(world: World, component: ComponentLike, handler: (eid: EntityId) => void, opts?: ObserverOptions): () => void",
+      "summary": "Listen for component-remove events. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "component", "type": "ComponentLike", "optional": false, "description": "Component handle." },
+        { "name": "handler", "type": "(eid) => void", "optional": false, "description": "Callback." },
+        { "name": "opts", "type": "ObserverOptions", "optional": true, "description": "Optional `{ signal?: AbortSignal }`. Added in 0.2.0." }
+      ],
       "returns": { "type": "() => void", "description": "Disposer." },
       "examples": [],
       "seeAlso": ["onAdd", "onSet"]
@@ -657,9 +680,14 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function onSet<C extends ComponentLike>(world: World, component: C, handler: (eid: EntityId, value: unknown) => void): () => void",
-      "summary": "Listen for setComponent calls.",
-      "params": [],
+      "signature": "function onSet<C extends ComponentLike>(world: World, component: C, handler: (eid: EntityId, value: unknown) => void, opts?: ObserverOptions): () => void",
+      "summary": "Low-level mutation hook — fires after `setComponent` when the component is already present on the entity (an `addComponent` followed by `setComponent` fires onAdd then onSet). NOT a reactive value-predicate query. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "component", "type": "C", "optional": false, "description": "Component handle." },
+        { "name": "handler", "type": "(eid, value) => void", "optional": false, "description": "Callback receiving the new value." },
+        { "name": "opts", "type": "ObserverOptions", "optional": true, "description": "Optional `{ signal?: AbortSignal }`. Added in 0.2.0." }
+      ],
       "returns": { "type": "() => void", "description": "Disposer." },
       "examples": [],
       "seeAlso": ["onAdd", "onRemove"]

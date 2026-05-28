@@ -1,17 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  destroyEntity,
-  defineComponent,
-  defineTag,
-  defineQuery,
+  Types,
   addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  defineQuery,
+  defineTag,
+  destroyEntity,
   removeComponent,
   setComponent,
-  Types,
 } from '../src/index.js'
-import { onAdd, onRemove, onSet, observe } from '../src/observers.js'
+import { observe, onAdd, onRemove, onSet } from '../src/observers.js'
 
 describe('component observers', () => {
   const Position = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -115,5 +115,164 @@ describe('component observers', () => {
     const e = createEntity(w)
     addComponent(w, e, Unrelated) // not Position
     expect(seen.length).toBe(0)
+  })
+
+  it('onAdd { signal } unsubscribes when the signal aborts', () => {
+    const w = createWorld()
+    const ac = new AbortController()
+    const seen: number[] = []
+    onAdd(w, Position, (eid) => seen.push(eid as number), { signal: ac.signal })
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    ac.abort()
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seen.length).toBe(1)
+  })
+
+  it('onAdd with already-aborted signal never registers', () => {
+    const w = createWorld()
+    const ac = new AbortController()
+    ac.abort()
+    const seen: number[] = []
+    onAdd(w, Position, (eid) => seen.push(eid as number), { signal: ac.signal })
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seen.length).toBe(0)
+  })
+
+  it('onSet/onRemove/observe all honour { signal }', () => {
+    const w = createWorld()
+    const ac = new AbortController()
+    const setSeen: number[] = []
+    const removeSeen: number[] = []
+    const observeSeen: number[] = []
+    const q = defineQuery([Position])
+    onSet(w, Position, (eid) => setSeen.push(eid as number), { signal: ac.signal })
+    onRemove(w, Position, (eid) => removeSeen.push(eid as number), { signal: ac.signal })
+    observe(w, q, 'add', (eid) => observeSeen.push(eid as number), { signal: ac.signal })
+    ac.abort()
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    setComponent(w, e, Position, { x: 1, y: 1 })
+    removeComponent(w, e, Position)
+    expect(setSeen.length).toBe(0)
+    expect(removeSeen.length).toBe(0)
+    expect(observeSeen.length).toBe(0)
+  })
+
+  it('returned unsubscribe + signal abort are both safe (idempotent)', () => {
+    const w = createWorld()
+    const ac = new AbortController()
+    const seen: number[] = []
+    const off = onAdd(w, Position, (eid) => seen.push(eid as number), { signal: ac.signal })
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    off()
+    ac.abort() // should not throw
+    off() // idempotent
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seen.length).toBe(1)
+  })
+
+  it('handler unsubscribing during dispatch does not skip sibling observers', () => {
+    // Regression: a for-of over state.observers used to skip the next sibling
+    // when the running handler called its own unsubscribe (Array#splice during
+    // iteration). The dispatcher now iterates a snapshot.
+    const w = createWorld()
+    const seenA: number[] = []
+    const seenB: number[] = []
+    const seenC: number[] = []
+    let offA: () => void = () => {}
+    offA = onAdd(w, Position, (eid) => {
+      seenA.push(eid as number)
+      offA() // unsubscribe A while A's handler runs
+    })
+    onAdd(w, Position, (eid) => seenB.push(eid as number))
+    onAdd(w, Position, (eid) => seenC.push(eid as number))
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seenA.length).toBe(1) // A fired this round
+    expect(seenB.length).toBe(1) // B not skipped despite A's splice
+    expect(seenC.length).toBe(1) // C not skipped either
+    // Next add: A is unsubscribed and stays unsubscribed.
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seenA.length).toBe(1)
+    expect(seenB.length).toBe(2)
+    expect(seenC.length).toBe(2)
+  })
+
+  it('destroy Phase 2 uses pre-destroy mask snapshot — Phase 1 reentrant mutation cannot suppress query remove', () => {
+    // Regression for round-2: Phase 2 used to read live state.entityMask, so
+    // if a Phase 1 component-onRemove handler reentrant-mutated the entity's
+    // mask (e.g. by destroyEntity on another entity that triggers some cleanup),
+    // the wasMatch computation could miss queries the entity was matching at
+    // destroy entry.
+    const w = createWorld()
+    const Health = defineComponent({ hp: Types.i32 })
+    const q = defineQuery([Position, Health])
+    const seen: number[] = []
+    observe(w, q, 'remove', (eid) => seen.push(eid as number))
+    // Phase 1 component-onRemove handler that mutates Position bit on the
+    // dying entity (clear health, write something else). Since Phase 1 fires
+    // for each owned component bit using preMask, we cannot easily attach a
+    // mutating handler to the same entity — but we can use a setComponent on
+    // a sibling to force a mask churn through registerObserver path.
+    let triggered = false
+    onRemove(w, Position, () => {
+      if (!triggered) {
+        triggered = true
+        // Reentrant: create a fresh entity and destroy it. This churns the
+        // observer registry but does NOT remove our query observer.
+        const x = createEntity(w)
+        destroyEntity(w, x)
+      }
+    })
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    addComponent(w, e, Health, { hp: 100 })
+    destroyEntity(w, e)
+    // Despite the reentrant churn in Phase 1, Phase 2 must still see e as a
+    // pre-destroy match against query[Position, Health].
+    expect(seen).toContain(e)
+  })
+
+  it('query observer fires on destroyEntity (entity exits all matching queries)', () => {
+    // Regression: dispatchDestroyObservers used to walk component bits only;
+    // query-targeted observers were never fired on destroy, so an entity that
+    // matched a query silently left the matching set.
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const seen: number[] = []
+    observe(w, q, 'remove', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    destroyEntity(w, e)
+    expect(seen).toContain(e)
+  })
+
+  it('query observer fires on removeComponent (mask written before dispatch)', () => {
+    // Regression: fireRemoveObservers used to run before the entity's mask was
+    // updated, so dispatchQueryObservers saw the bit still set and the query
+    // still matched, suppressing the remove fire.
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const seenRemove: number[] = []
+    observe(w, q, 'remove', (eid) => seenRemove.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    removeComponent(w, e, Position)
+    expect(seenRemove).toContain(e)
+  })
+
+  it('handler that unsubscribes a later sibling within the same dispatch suppresses it', () => {
+    const w = createWorld()
+    const seenA: number[] = []
+    const seenB: number[] = []
+    let offB: () => void = () => {}
+    onAdd(w, Position, (eid) => {
+      seenA.push(eid as number)
+      offB() // mutate state.observers in-flight
+    })
+    offB = onAdd(w, Position, (eid) => seenB.push(eid as number))
+    addComponent(w, createEntity(w), Position, { x: 0, y: 0 })
+    expect(seenA.length).toBe(1)
+    // B was unsubscribed before its turn in the snapshot dispatch — must not fire.
+    expect(seenB.length).toBe(0)
   })
 })

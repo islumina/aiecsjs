@@ -1,22 +1,23 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  destroyWorld,
-  resetWorld,
-  getWorldSize,
-  getWorldCapacity,
-  isWorld,
-  createEntity,
-  defineComponent,
-  addComponent,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  destroyWorld,
+  disposeWorld,
+  getWorldCapacity,
+  getWorldSize,
+  isWorld,
+  resetWorld,
 } from '../src/index.js'
 
 describe('world', () => {
   it('creates a world with default options', () => {
     const w = createWorld()
     expect(w.id).toBeGreaterThan(0)
-    expect(w.version).toBe('0.1.4')
+    expect(w.version).toBe('0.2.0')
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(1024)
   })
@@ -45,6 +46,14 @@ describe('world', () => {
   it('destroyWorld removes the world', () => {
     const w = createWorld()
     destroyWorld(w)
+    expect(isWorld(w)).toBe(false)
+    expect(() => createEntity(w)).toThrow()
+  })
+
+  it('disposeWorld is an alias for destroyWorld', () => {
+    expect(disposeWorld).toBe(destroyWorld)
+    const w = createWorld()
+    disposeWorld(w)
     expect(isWorld(w)).toBe(false)
     expect(() => createEntity(w)).toThrow()
   })

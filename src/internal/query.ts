@@ -1,3 +1,5 @@
+import { createMask, isMaskZero, listBits, matches, setBit } from './bitmask.js'
+import { getComponentInfo } from './component.js'
 import type {
   Archetype,
   ComponentInfo,
@@ -11,22 +13,29 @@ import type {
   World,
   WorldState,
 } from './types.js'
-import { createMask, matches, setBit, isMaskZero, listBits } from './bitmask.js'
 import {
   getOrRegisterComponentBit,
   getWorldState,
   readEntityMask,
   tryGetComponentBit,
 } from './world.js'
-import { getComponentInfo } from './component.js'
 
 let nextQueryId = 1
 const moduleQueryCache = new Map<string, QueryInternal>()
 
 function descKey(d: QueryDescriptor): string {
-  const all = (d.all ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
-  const any = (d.any ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
-  const none = (d.none ?? []).map(c => c.__id).sort((a, b) => a - b).join('-')
+  const all = (d.all ?? [])
+    .map((c) => c.__id)
+    .sort((a, b) => a - b)
+    .join('-')
+  const any = (d.any ?? [])
+    .map((c) => c.__id)
+    .sort((a, b) => a - b)
+    .join('-')
+  const none = (d.none ?? [])
+    .map((c) => c.__id)
+    .sort((a, b) => a - b)
+    .join('-')
   return `A${all}|Y${any}|N${none}`
 }
 
@@ -47,9 +56,9 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
   const q: QueryInternal = {
     id: nextQueryId++,
     mask: [],
-    all: (desc.all ?? []).map(c => c.__id),
-    any: (desc.any ?? []).map(c => c.__id),
-    none: (desc.none ?? []).map(c => c.__id),
+    all: (desc.all ?? []).map((c) => c.__id),
+    any: (desc.any ?? []).map((c) => c.__id),
+    none: (desc.none ?? []).map((c) => c.__id),
     columnViewCache: [...(desc.all ?? []), ...(desc.any ?? [])],
     reactiveKind: 'normal',
     sourceQueryId: -1,
@@ -138,7 +147,11 @@ function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
   state.queryArchetypeStamp[q.id] = -1
 
   // Build bit → queries index for fast reactive lookup
-  const involvedBits: number[] = [...listBits(withMask), ...listBits(anyMask), ...listBits(noneMask)]
+  const involvedBits: number[] = [
+    ...listBits(withMask),
+    ...listBits(anyMask),
+    ...listBits(noneMask),
+  ]
   for (const b of involvedBits) {
     let s = state.bitToQueries.get(b)
     if (!s) {
@@ -160,10 +173,7 @@ function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
 
 function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
   ensureQueryRegistered(state, q)
-  if (
-    state.queryArchetypeCache[q.id] &&
-    state.queryArchetypeStamp[q.id] === state.queryVersion
-  ) {
+  if (state.queryArchetypeCache[q.id] && state.queryArchetypeStamp[q.id] === state.queryVersion) {
     return state.queryArchetypeCache[q.id]!
   }
   const bundle = state.queryMasks.get(q.id)!
@@ -171,7 +181,9 @@ function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
   const list: number[] = []
   for (let i = 0; i < state.archetypes.length; i++) {
     const arch = state.archetypes[i]!
-    if (matches(arch.mask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)) {
+    if (
+      matches(arch.mask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
+    ) {
       list.push(i)
     }
   }
@@ -277,16 +289,33 @@ export function forEachEntity(
   }
 }
 
-function callWithCols(fn: (eid: EntityId, ...cols: any[]) => void, eid: EntityId, cols: any[]): void {
+function callWithCols(
+  fn: (eid: EntityId, ...cols: any[]) => void,
+  eid: EntityId,
+  cols: any[],
+): void {
   // Specialise for low arities to avoid spread allocation.
   switch (cols.length) {
-    case 0: fn(eid); break
-    case 1: fn(eid, cols[0]); break
-    case 2: fn(eid, cols[0], cols[1]); break
-    case 3: fn(eid, cols[0], cols[1], cols[2]); break
-    case 4: fn(eid, cols[0], cols[1], cols[2], cols[3]); break
-    case 5: fn(eid, cols[0], cols[1], cols[2], cols[3], cols[4]); break
-    default: fn(eid, ...cols)
+    case 0:
+      fn(eid)
+      break
+    case 1:
+      fn(eid, cols[0])
+      break
+    case 2:
+      fn(eid, cols[0], cols[1])
+      break
+    case 3:
+      fn(eid, cols[0], cols[1], cols[2])
+      break
+    case 4:
+      fn(eid, cols[0], cols[1], cols[2], cols[3])
+      break
+    case 5:
+      fn(eid, cols[0], cols[1], cols[2], cols[3], cols[4])
+      break
+    default:
+      fn(eid, ...cols)
   }
 }
 
@@ -300,7 +329,10 @@ function buildColumnViews(state: WorldState, q: QueryInternal): any[] {
       continue
     }
     const storage = state.componentStorageByBit[bit]
-    if (!storage) { out.push(undefined); continue }
+    if (!storage) {
+      out.push(undefined)
+      continue
+    }
     if (storage.kind === 'soa') out.push(storage.soa)
     else if (storage.kind === 'aos') out.push(storage.aos)
     else out.push(true) // tag
@@ -335,8 +367,22 @@ export function recordEntityMaskChange(
     if (q.reactiveKind !== 'normal') continue
     const bundle = state.queryMasks.get(qid)
     if (!bundle) continue
-    const wasMatch = matches(prevMask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
-    const isMatch = matches(nextMask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
+    const wasMatch = matches(
+      prevMask,
+      bundle.withMask,
+      bundle.anyMask,
+      bundle.noneMask,
+      bundle.anyHasBits,
+      words,
+    )
+    const isMatch = matches(
+      nextMask,
+      bundle.withMask,
+      bundle.anyMask,
+      bundle.noneMask,
+      bundle.anyHasBits,
+      words,
+    )
     if (!wasMatch && isMatch) {
       pushReactive(state, qid, 'enter', eid)
     } else if (wasMatch && !isMatch) {
@@ -345,7 +391,12 @@ export function recordEntityMaskChange(
   }
 }
 
-function pushReactive(state: WorldState, queryId: number, kind: 'enter' | 'exit', eid: EntityId): void {
+function pushReactive(
+  state: WorldState,
+  queryId: number,
+  kind: 'enter' | 'exit',
+  eid: EntityId,
+): void {
   // Walk the module cache (not just state.queries) so reactive variants that
   // haven't been registered with this world yet still receive events.
   for (const r of moduleQueryCache.values()) {

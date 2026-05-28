@@ -1,21 +1,21 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  defineComponent,
-  defineTag,
-  defineObjectComponent,
-  addComponent,
-  hasComponent,
-  getComponent,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  defineObjectComponent,
+  defineTag,
+  getComponent,
+  hasComponent,
 } from '../src/index.js'
 import {
-  serializeWorld,
-  deserializeWorld,
-  toJSON,
-  fromJSON,
   createDeltaSerializer,
+  deserializeWorld,
+  fromJSON,
+  serializeWorld,
+  toJSON,
 } from '../src/serialize.js'
 
 describe('serialize', () => {
@@ -57,7 +57,7 @@ describe('serialize', () => {
   it('toJSON / fromJSON round-trip', () => {
     const { w, e1 } = setupWorld()
     const snap = toJSON(w)
-    expect(snap.version).toBe('0.1.4')
+    expect(snap.version).toBe('0.2.0')
     expect(snap.entities.length).toBe(3)
     const w2 = fromJSON(snap)
     expect(hasComponent(w2, e1 as any, Position)).toBe(true)
@@ -101,14 +101,20 @@ describe('serialize', () => {
     const { w } = setupWorld()
     const bytes = serializeWorld(w)
     // Bytes 4..7 are the little-endian uint32 format version. Corrupt it.
-    bytes[4] = 0xFF; bytes[5] = 0xFF; bytes[6] = 0xFF; bytes[7] = 0xFE
+    bytes[4] = 0xff
+    bytes[5] = 0xff
+    bytes[6] = 0xff
+    bytes[7] = 0xfe
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'throw' })).toThrow(/format version/)
   })
 
   it('onUnknownVersion=best-effort tolerates a format version mismatch', () => {
     const { w } = setupWorld()
     const bytes = serializeWorld(w)
-    bytes[4] = 0xFF; bytes[5] = 0xFF; bytes[6] = 0xFF; bytes[7] = 0xFE
+    bytes[4] = 0xff
+    bytes[5] = 0xff
+    bytes[6] = 0xff
+    bytes[7] = 0xfe
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).not.toThrow()
   })
 })

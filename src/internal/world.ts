@@ -1,15 +1,15 @@
 import { VERSION } from '../version.js'
-import {
-  type World,
-  type WorldOptions,
-  type ResolvedWorldOptions,
-  type WorldState,
-  type ArchetypeState,
-  type ComponentInfo,
-  type WorldComponentStorage,
-  type FieldInfo,
-} from './types.js'
 import { cloneMask, copyMask, createMask, maskHash } from './bitmask.js'
+import type {
+  ArchetypeState,
+  ComponentInfo,
+  FieldInfo,
+  ResolvedWorldOptions,
+  World,
+  WorldComponentStorage,
+  WorldOptions,
+  WorldState,
+} from './types.js'
 
 export const WORLD_BRAND = Symbol.for('aiecsjs.world')
 
@@ -56,8 +56,14 @@ function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
     throw new Error('aiecsjs: generationBits must be in [0, 16]')
   }
   const maxByIndex = 1 << indexBits
-  const initialCapacity = Math.max(1, Math.min(o.initialCapacity ?? DEFAULT_OPTIONS.initialCapacity, maxByIndex))
-  const maxEntities = Math.max(initialCapacity, Math.min(o.maxEntities ?? DEFAULT_OPTIONS.maxEntities, maxByIndex))
+  const initialCapacity = Math.max(
+    1,
+    Math.min(o.initialCapacity ?? DEFAULT_OPTIONS.initialCapacity, maxByIndex),
+  )
+  const maxEntities = Math.max(
+    initialCapacity,
+    Math.min(o.maxEntities ?? DEFAULT_OPTIONS.maxEntities, maxByIndex),
+  )
   return {
     initialCapacity,
     maxEntities,
@@ -135,7 +141,9 @@ export function createWorld(options?: WorldOptions): World {
 export function makePublicWorld(state: WorldState): World {
   return {
     id: state.id,
-    get capacity() { return state.capacity },
+    get capacity() {
+      return state.capacity
+    },
     version: state.version,
   } as World
 }
@@ -203,7 +211,9 @@ export function getWorldCapacity(world: World): number {
 export function ensureCapacity(state: WorldState, needed: number): void {
   if (needed <= state.capacity) return
   if (needed > state.options.maxEntities) {
-    throw new Error(`aiecsjs: requested capacity ${needed} exceeds maxEntities ${state.options.maxEntities}`)
+    throw new Error(
+      `aiecsjs: requested capacity ${needed} exceeds maxEntities ${state.options.maxEntities}`,
+    )
   }
   let newCap = state.capacity
   while (newCap < needed) newCap = Math.min(newCap * 2, state.options.maxEntities)
@@ -256,7 +266,10 @@ function growSoAColumns(soa: Record<string, any>, fields: FieldInfo[], newCap: n
 
 // --- Archetype management ---
 
-export function findOrCreateArchetype(state: WorldState, mask: Uint32Array): { archId: number; created: boolean } {
+export function findOrCreateArchetype(
+  state: WorldState,
+  mask: Uint32Array,
+): { archId: number; created: boolean } {
   const key = maskHash(mask)
   const existing = state.archetypeByMaskHash.get(key)
   if (existing !== undefined) return { archId: existing, created: false }

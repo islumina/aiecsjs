@@ -8,11 +8,47 @@
 
 ## [Unreleased]
 
-### 0.2 規劃
+### 0.3+ 規劃
 
-- 實作 `aiecsjs/relations`：`defineRelation`、`addRelation`、`removeRelation`、`getRelationTargets`、`ChildOf`。
+- 實作 ABA-safe `EntityRef`，把 `getEntityGeneration` / `packEntity` 從 experimental 升回 stable。
 - 加入 `pipeAsync` 以支援非同步系統組合。
 - 引入 doc-test 工具，使 README 中的程式碼區塊能被機械化驗證。
+- 將 `aiecsjs/relations` 與 `aiecsjs/worker`（真正 SAB 共享 columns）升為 stable。
+
+## [0.2.0] - 2026-05-28
+
+### 修復（correctness + security）
+
+- **AoS `writeInitial` 原型污染強化**（[src/internal/component.ts](src/internal/component.ts)）：以明確 own-key 複製取代 `Object.assign(inst, initial)`，過濾 `__proto__` / `constructor` / `prototype`。封堵惡意 `JSON.parse` payload 經由 `addComponent` / `setComponent` / `fromJSON` / `deserializeWorld` 攻破 per-instance prototype 的路徑。
+- **觀察者派送對 dispatch 中 unsubscribe 安全**（[src/observers.ts](src/observers.ts)）：每個 `fire*` 對 `state.observers` 取 snapshot（`Array.from(...)` + `includes` 守衛），handler 呼叫自己的 disposer 時不再跳過同一輪派送中後續的兄弟觀察者。
+- **`removeComponent` 先寫入新 mask，再 fire observers**（[src/internal/component.ts](src/internal/component.ts)）：query 觀察者讀 `state.entityMask` 判定 entity 是否離開匹配集合；舊順序在派送時 bit 仍在，導致 remove 不觸發。對齊 `addComponent` 的「先變更後派送」順序。
+- **`destroyEntity` 現在會送 query-targeted `remove`**（[src/observers.ts](src/observers.ts) `dispatchDestroyObservers`）：除原本逐 component 的 `onRemove`，現在追加 query 觀察者掃描，對 entity 在 destroy 前匹配的每個 query 都送 `remove`。
+- **`deserializeWorld` / `attachWorld` 二進位長度欄位含邊界檢查**（[src/serialize.ts](src/serialize.ts)）：`verLen` 與 `jsonLen` 加入 `off + len <= bytes.length` 與 64 MiB 上限。`attachWorld` 的 JSDoc 補上 SAB transport 的信任邊界說明。
+
+### 新增（API）
+
+- **`disposeWorld(world)`** ─ `destroyWorld` 的別名 export，與 ai*js 生態 `dispose()` 慣例（`aifsmjs.Runtime.dispose`、`aibridgejs.Bridge.dispose`）對齊。新程式碼請用 `disposeWorld`；`destroyWorld` 標 deprecated，預計 1.0 移除。
+- **觀察者新增 `{ signal?: AbortSignal }`**：`onAdd` / `onRemove` / `onSet` / `observe` 皆接受 options 物件。signal abort 時觀察者自動取消訂閱；回傳的 unsubscribe 仍為冪等可用。新增匯出型別 `ObserverOptions`。彌補 AI 生態稽核指出的長期缺口 ─ 接 UI 元件、async pipeline 等使用者控制生命週期的長期觀察者，不再需要手動接線清理。
+
+### 變更（穩定度）
+
+- `getEntityGeneration` 與 `packEntity` 由 `stable` 改為 `experimental`（同步更新 `STABILITY.md` 與 `api.json`）。0.1 至今行為始終為 0 / identity；relabel 是誠實承認 deferred encoding。真正值會在 ABA-safe `EntityRef` 上線時提供。
+- `destroyWorld` 由 `stable` 改為 `deprecated`。行為未變；deprecation 為上述命名對齊。請改用 `disposeWorld`。
+
+### 文件
+
+- `onSet` 加上 JSDoc 與 README 段，明確聲明它是 **low-level mutation hook**，非反應式 value-predicate query。`enterQuery` / `exitQuery` 仍是結構變化的反應介面；反應式 value 追蹤仍為核心的明示非目標。
+- README 觀察者段新增 `AbortController` 取消訂閱範例。
+
+### 建置與工具
+
+- 引入 [Biome](https://biomejs.dev/) lint + format（`biome.json`、`npm run lint`、`npm run format`），與 `aifsmjs` / `aibridgejs` 對齊。同時揭露既有 `src/internal/*` 的 `noExplicitAny` 警告以供後續清理。
+- 新增 `scripts/verify-exports.mjs` 與 `npm run verify:exports` 指令，gate `package.json#exports` 的每個入口都對應到實際 `dist/` 檔案。納入 `prepublishOnly`。
+- 新增 `CONTRIBUTING.md`（複用 `aifsmjs` 樣板）：quick start、scope policy、release flow。
+
+### 相容性
+
+執行期**完全不破壞**。既有呼叫 `destroyWorld(world)`、無 options 註冊觀察者、讀取 `getEntityGeneration` 的程式碼皆繼續運作。穩定度標籤變更純屬文件層面。
 
 ## [0.1.4] - 2026-05-28
 

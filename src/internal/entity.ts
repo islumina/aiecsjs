@@ -1,10 +1,6 @@
-import type { EntityId, World, WorldState } from './types.js'
-import {
-  ensureArchetypeCapacity,
-  ensureCapacity,
-  getWorldState,
-} from './world.js'
 import { clearAllEntityStorages } from './component.js'
+import type { EntityId, World, WorldState } from './types.js'
+import { ensureArchetypeCapacity, ensureCapacity, getWorldState } from './world.js'
 
 export function createEntity(world: World): EntityId {
   const state = getWorldState(world)
@@ -89,7 +85,7 @@ export function destroyEntity(world: World, eid: EntityId): void {
   for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
   // bump generation (Uint8Array wraps to 8 bits naturally; Uint16Array to 16)
   const idx = eid as number
-  state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & 0xFFFF
+  state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & 0xffff
 
   state.freeList.push(eid)
   state.size--

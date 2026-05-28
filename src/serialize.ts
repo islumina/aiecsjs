@@ -1,5 +1,16 @@
 // aiecsjs/serialize — binary, JSON, and delta serializers.
 
+import { testBit } from './internal/bitmask.js'
+import {
+  addComponent,
+  defineComponent,
+  defineObjectComponent,
+  defineTag,
+  getComponentByInternalId,
+  getComponentInfo,
+  listAllComponents,
+} from './internal/component.js'
+import { createEntity, destroyEntity, entityExists } from './internal/entity.js'
 import type {
   ComponentInfo,
   ComponentLike,
@@ -10,19 +21,8 @@ import type {
   World,
   WorldSnapshot,
 } from './internal/types.js'
+import { createWorld, getWorldState } from './internal/world.js'
 import { VERSION } from './version.js'
-import { getWorldState, createWorld } from './internal/world.js'
-import {
-  addComponent,
-  defineComponent,
-  defineObjectComponent,
-  defineTag,
-  getComponentInfo,
-  getComponentByInternalId,
-  listAllComponents,
-} from './internal/component.js'
-import { createEntity, destroyEntity, entityExists } from './internal/entity.js'
-import { testBit } from './internal/bitmask.js'
 
 const MAGIC = 'AIEC'
 const FORMAT_VERSION = 1
@@ -30,10 +30,10 @@ const FORMAT_VERSION = 1
 export function serializeWorld(world: World, options?: SerializeOptions): Uint8Array {
   const snapshot = toJSON(world)
   if (options?.components) {
-    snapshot.entities = snapshot.entities.map(e => ({
+    snapshot.entities = snapshot.entities.map((e) => ({
       eid: e.eid,
-      components: e.components.filter(c =>
-        options.components!.some(comp => comp.__id === c.id),
+      components: e.components.filter((c) =>
+        options.components!.some((comp) => comp.__id === c.id),
       ),
     }))
   }
@@ -151,10 +151,14 @@ function packBinary(snapshot: WorldSnapshot): Uint8Array {
   out[off++] = MAGIC.charCodeAt(1)
   out[off++] = MAGIC.charCodeAt(2)
   out[off++] = MAGIC.charCodeAt(3)
-  view.setUint32(off, FORMAT_VERSION, true); off += 4
-  view.setUint32(off, versionBytes.length, true); off += 4
-  out.set(versionBytes, off); off += versionBytes.length
-  view.setUint32(off, jsonBytes.length, true); off += 4
+  view.setUint32(off, FORMAT_VERSION, true)
+  off += 4
+  view.setUint32(off, versionBytes.length, true)
+  off += 4
+  out.set(versionBytes, off)
+  off += versionBytes.length
+  view.setUint32(off, jsonBytes.length, true)
+  off += 4
   out.set(jsonBytes, off)
   return out
 }
@@ -171,14 +175,37 @@ function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSna
     throw new Error('aiecsjs: invalid magic bytes')
   }
   let off = 4
-  const formatVersion = view.getUint32(off, true); off += 4
+  const formatVersion = view.getUint32(off, true)
+  off += 4
   const onUnknown = options?.onUnknownVersion ?? 'throw'
   if (formatVersion !== FORMAT_VERSION && onUnknown === 'throw') {
     throw new Error(`aiecsjs: format version ${formatVersion} not supported`)
   }
-  const verLen = view.getUint32(off, true); off += 4
+
+  // SECURITY: explicit bounds checks on every length field. DataView itself
+  // throws on out-of-range reads, but an attacker who controls the bytes can
+  // still craft a `verLen` that skips past data of their choosing — we make
+  // each step's invariant explicit and impose a sane cap to short-circuit
+  // pathological payloads early.
+  const MAX_FIELD_LEN = 64 * 1024 * 1024 // 64 MiB
+  if (off + 4 > bytes.length) {
+    throw new Error('aiecsjs: snapshot truncated before verLen')
+  }
+  const verLen = view.getUint32(off, true)
+  off += 4
+  if (verLen > MAX_FIELD_LEN || off + verLen > bytes.length) {
+    throw new Error(`aiecsjs: snapshot verLen=${verLen} out of bounds`)
+  }
   off += verLen // skip the aiecsjs version string
-  const jsonLen = view.getUint32(off, true); off += 4
+
+  if (off + 4 > bytes.length) {
+    throw new Error('aiecsjs: snapshot truncated before jsonLen')
+  }
+  const jsonLen = view.getUint32(off, true)
+  off += 4
+  if (jsonLen > MAX_FIELD_LEN || off + jsonLen > bytes.length) {
+    throw new Error(`aiecsjs: snapshot jsonLen=${jsonLen} out of bounds`)
+  }
   const jsonBytes = bytes.subarray(off, off + jsonLen)
   const json = new TextDecoder().decode(jsonBytes)
   return JSON.parse(json) as WorldSnapshot
@@ -192,13 +219,14 @@ interface DeltaState {
   lastSnapshot: WorldSnapshot | null
 }
 
-export function createDeltaSerializer(
-  world: World,
-  options?: SerializeOptions,
-): DeltaSerializer {
+export function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer {
   const state: DeltaState = {
     world,
-    components: options?.components ?? listAllComponents().map(i => getComponentHandle(i)!).filter(Boolean),
+    components:
+      options?.components ??
+      listAllComponents()
+        .map((i) => getComponentHandle(i)!)
+        .filter(Boolean),
     lastSnapshot: null,
   }
   return {
@@ -241,7 +269,7 @@ export function createDeltaSerializer(
 }
 
 function computeDelta(prev: WorldSnapshot, curr: WorldSnapshot): WorldSnapshot {
-  const prevByEid = new Map(prev.entities.map(e => [e.eid, e]))
+  const prevByEid = new Map(prev.entities.map((e) => [e.eid, e]))
   const changed: WorldSnapshot['entities'] = []
   for (const e of curr.entities) {
     const prevE = prevByEid.get(e.eid)

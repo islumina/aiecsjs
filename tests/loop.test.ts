@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createLoop } from '../src/loop.js'
 
 // Loop runs on RAF when available, falling back to setTimeout(16). In Node
@@ -30,7 +30,10 @@ describe('loop (fake-timer driven)', () => {
     const loop = createLoop({
       fixed: 0.05, // 50 ms per step
       maxSubSteps: 50,
-      onUpdate: (dt) => { count++; totalDt += dt },
+      onUpdate: (dt) => {
+        count++
+        totalDt += dt
+      },
     })
     loop.start()
     // Advance ~250 ms of simulated time. Each setTimeout fires every 16 ms.
@@ -63,7 +66,9 @@ describe('loop (fake-timer driven)', () => {
     const loop = createLoop({
       fixed: 0.001,
       maxSubSteps: 5,
-      onUpdate: () => { count++ },
+      onUpdate: () => {
+        count++
+      },
     })
     loop.start()
     // 500 ms of simulated time at 1 ms steps would call onUpdate 500 times if uncapped.
@@ -77,7 +82,9 @@ describe('loop (fake-timer driven)', () => {
     let count = 0
     const loop = createLoop({
       fixed: 0.05,
-      onUpdate: () => { count++ },
+      onUpdate: () => {
+        count++
+      },
     })
     loop.start()
     vi.advanceTimersByTime(200)

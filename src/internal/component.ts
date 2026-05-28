@@ -1,3 +1,5 @@
+import { clearBit, cloneMask, forEachSetBit, setBit, testBit } from './bitmask.js'
+import { isAliveInternal } from './entity.js'
 import type {
   AoSComponent,
   ComponentInfo,
@@ -5,16 +7,15 @@ import type {
   ComponentLike,
   EntityId,
   FieldInfo,
+  SoAColumns,
   SoAComponent,
   SoASchema,
   TagComponent,
   TypedArrayConstructor,
   World,
-  WorldState,
   WorldComponentStorage,
-  SoAColumns,
+  WorldState,
 } from './types.js'
-import { setBit, clearBit, testBit, cloneMask, forEachSetBit } from './bitmask.js'
 import {
   ensureArchetypeCapacity,
   findOrCreateArchetype,
@@ -24,7 +25,6 @@ import {
   tryGetComponentBit,
   writeEntityMask,
 } from './world.js'
-import { isAliveInternal } from './entity.js'
 
 // --- Component factories ---
 
@@ -89,7 +89,7 @@ export function defineTag(): TagComponent {
 
 export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
   const id = nextComponentId++
-  const fac = factory ?? (() => ({} as T))
+  const fac = factory ?? (() => ({}) as T)
   const info: ComponentInfo = { id, kind: 'aos', schema: null, fields: [], factory: fac as any }
   componentInfoById.set(id, info)
   return { __kind: 'aos', __id: id, __factory: fac }
@@ -97,7 +97,10 @@ export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
 
 export function getComponentInfo(component: ComponentLike): ComponentInfo {
   const info = componentInfoById.get(component.__id)
-  if (!info) throw new Error('aiecsjs: component is not registered (call defineComponent/defineTag/defineObjectComponent)')
+  if (!info)
+    throw new Error(
+      'aiecsjs: component is not registered (call defineComponent/defineTag/defineObjectComponent)',
+    )
   return info
 }
 
@@ -132,7 +135,11 @@ export function addComponent<C extends ComponentLike>(
   notifyMaskChange(state, eid, bit, prevMask, newMask)
 }
 
-export function removeComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): void {
+export function removeComponent<C extends ComponentLike>(
+  world: World,
+  eid: EntityId,
+  component: C,
+): void {
   const state = getWorldState(world)
   if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
   if (!isAliveInternal(state, eid)) return
@@ -142,11 +149,18 @@ export function removeComponent<C extends ComponentLike>(world: World, eid: Enti
   const prevMask = readEntityMask(state, eid)
   if (!testBit(prevMask, bit)) return
 
-  fireRemoveObservers(state, eid, bit)
-
+  // Write the new mask BEFORE firing observers so query-targeted observers
+  // reading `state.entityMask` see the post-removal state (and thus correctly
+  // detect "entity left this query"). Without this reorder, a query that
+  // requires the removed component would still match during dispatch and the
+  // remove observer would never fire. Component-targeted observers receive the
+  // bit directly and don't depend on mask timing. addComponent already follows
+  // this "mutate then fire" order; keeping removeComponent consistent.
   const newMask = cloneMask(prevMask)
   clearBit(newMask, bit)
   migrateEntity(state, eid, newMask)
+
+  fireRemoveObservers(state, eid, bit)
 
   const storage = state.componentStorageByBit[bit]
   if (storage?.kind === 'soa' && storage.soa) {
@@ -158,7 +172,11 @@ export function removeComponent<C extends ComponentLike>(world: World, eid: Enti
   notifyMaskChange(state, eid, bit, prevMask, newMask)
 }
 
-export function hasComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): boolean {
+export function hasComponent<C extends ComponentLike>(
+  world: World,
+  eid: EntityId,
+  component: C,
+): boolean {
   const state = getWorldState(world)
   if (!isAliveInternal(state, eid)) return false
   const info = getComponentInfo(component)
@@ -168,7 +186,11 @@ export function hasComponent<C extends ComponentLike>(world: World, eid: EntityI
   return testBit(mask, bit)
 }
 
-export function getComponent<C extends ComponentLike>(world: World, eid: EntityId, component: C): unknown {
+export function getComponent<C extends ComponentLike>(
+  world: World,
+  eid: EntityId,
+  component: C,
+): unknown {
   const state = getWorldState(world)
   if (!isAliveInternal(state, eid)) return undefined
   const info = getComponentInfo(component)
@@ -210,7 +232,12 @@ export function setComponent<C extends ComponentLike, V>(
 
 // --- Internals ---
 
-function writeInitial(state: WorldState, eid: number, component: ComponentLike, initial: unknown): void {
+function writeInitial(
+  state: WorldState,
+  eid: number,
+  component: ComponentLike,
+  initial: unknown,
+): void {
   const info = getComponentInfo(component)
   const bit = state.componentBitFor.get(info.id)
   if (bit === undefined) return
@@ -240,7 +267,19 @@ function writeInitial(state: WorldState, eid: number, component: ComponentLike, 
       storage.aos[eid] = inst
     }
     if (initial && typeof initial === 'object') {
-      Object.assign(inst as object, initial as object)
+      // SECURITY: do NOT use `Object.assign(inst, initial)` here. When `initial`
+      // comes from `JSON.parse(untrustedBytes)` — e.g. via `fromJSON`,
+      // `deserializeWorld`, or app code piping a bridge payload — the parsed
+      // object can carry an OWN `__proto__` property, and `Object.assign` uses
+      // [[Set]] semantics which would trigger the proto setter and clobber the
+      // instance's prototype chain. Explicit own-key copy with a deny-list
+      // closes the prototype-pollution path.
+      const src = initial as Record<string, unknown>
+      const target = inst as Record<string, unknown>
+      for (const key of Object.keys(src)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+        target[key] = src[key]
+      }
     }
   }
   // tag: nothing
@@ -329,12 +368,24 @@ let _dispatch: ObserversDispatchAPI = {
   fireSet: () => {},
 }
 
-type MaskChangeFn = (state: WorldState, eid: EntityId, bit: number, prev: Uint32Array, next: Uint32Array) => void
+type MaskChangeFn = (
+  state: WorldState,
+  eid: EntityId,
+  bit: number,
+  prev: Uint32Array,
+  next: Uint32Array,
+) => void
 let _maskChange: MaskChangeFn = () => {}
 export function registerMaskChangeDispatch(fn: MaskChangeFn): void {
   _maskChange = fn
 }
-function notifyMaskChange(state: WorldState, eid: number, bit: number, prev: Uint32Array, next: Uint32Array): void {
+function notifyMaskChange(
+  state: WorldState,
+  eid: number,
+  bit: number,
+  prev: Uint32Array,
+  next: Uint32Array,
+): void {
   _maskChange(state, eid as EntityId, bit, prev, next)
 }
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {

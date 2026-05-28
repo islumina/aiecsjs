@@ -10,7 +10,7 @@
 
 > A TypeScript-first archetype ECS for browser and Node, with SAB-ready snapshot transport and AI-readable documentation.
 
-aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs in 0.1 are bare slot indices; internal generation tracks slot reuse but is not encoded in the ID. ABA-safe `EntityRef` ships in 0.2.
+aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs in 0.x are bare slot indices; internal generation tracks slot reuse but is not encoded in the ID. ABA-safe `EntityRef` is targeted for **0.3+** (deferred from the 0.2 roadmap once the v0.2.0 scope froze on API stability + safety).
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -64,7 +64,7 @@ pipe(movement)(world, 1/60)
 | Storage | Archetype + SoA columns | SparseSet + bitmask + SoA/AoS | Archetype + JS objects | Configurable (packed/sparse/compact) + ArrayBuffer |
 | API style | Functional + `pipe` | Functional + `pipe` | Chainable OO | Decorator classes |
 | TS inference on query | Tuple-aware columns | Manual | Predicate inference | Class-based |
-| Multi-thread | SAB snapshot transport (0.1); true shared cols planned 0.2 | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
+| Multi-thread | SAB snapshot transport (0.x); true shared cols planned 0.3+ | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
 | AI docs | `llms.txt` + `llms-full.txt` + `api.json` | No | No | No |
 | Maintenance | Active (new) | Active | Slowed (~3y since npm release) | Active |
 
@@ -285,13 +285,21 @@ const stopAdd = onAdd(world, Position, (e) => console.log('positioned', e))
 const stopRemove = onRemove(world, Player, (e) => console.log('un-playered', e))
 const stopSet = onSet(world, Health, (e, val) => console.log('health set', e, val))
 
-// later
+// Auto-unsubscribe via AbortSignal (since 0.2.0):
+const ac = new AbortController()
+onAdd(world, Position, (e) => trackEntity(e), { signal: ac.signal })
+// later, abort once and all observers attached to this signal are removed
+ac.abort()
+
+// Or the returned unsubscribe — both are idempotent and may be combined:
 stopAdd()
 stopRemove()
 stopSet()
 ```
 
 Observers fire synchronously inside the mutation call. Use them for side effects that must happen at the exact moment of the change (debugging, replication). For batched UI updates, prefer reactive queries.
+
+**`onSet` is a low-level mutation hook**, not a reactive value-predicate query. It fires after `setComponent(world, eid, comp, value)` when the component is already present on the entity — `addComponent` does NOT trigger `onSet` (use `onAdd` for that path; an `addComponent` followed by `setComponent` fires both, in that order). `enterQuery` / `exitQuery` respond to structural component-set changes only; if you need a reactive "value crossed threshold" view, layer that in app code on top of `onSet`.
 
 ### Command buffers — when and why
 
@@ -335,7 +343,7 @@ addRelation(world, alice, ChildOf, parent)
 const parentOfAlice = getRelationTargets(world, alice, ChildOf)
 ```
 
-The 0.2 release adds exclusive relations (one target only), wildcard queries, and serialization of relation graphs.
+Relation graph stabilisation — exclusive relations (one target only), wildcard queries, and serialisation of relation graphs — is targeted for **0.3+**; 0.2.0 keeps the relations subpath in its existing experimental shape (no breaking changes).
 
 ## API Reference
 
@@ -346,7 +354,8 @@ Full machine-readable surface in [`api.json`](./api.json). Stability flags in [`
 | Function | Signature | Stability |
 |---|---|---|
 | `createWorld` | `(options?: WorldOptions) => World` | stable |
-| `destroyWorld` | `(world: World) => void` | stable |
+| `disposeWorld` | `(world: World) => void` | stable (since 0.2.0) |
+| `destroyWorld` | `(world: World) => void` | **deprecated** since 0.2.0 — alias of `disposeWorld`; scheduled for removal in 1.0 |
 | `resetWorld` | `(world: World) => void` | stable |
 | `getWorldSize` | `(world: World) => number` (alive count) | stable |
 | `getWorldCapacity` | `(world: World) => number` | stable |
@@ -371,8 +380,8 @@ type WorldOptions = {
 | `destroyEntity` | `(world: World, eid: EntityId) => void` | stable |
 | `entityExists` | `(world: World, eid: EntityId) => boolean` | stable |
 | `getEntityIndex` | `(eid: EntityId) => number` | stable |
-| `getEntityGeneration` | `(eid: EntityId) => number` | stable |
-| `packEntity` | `(index: number, generation: number) => EntityId` | stable |
+| `getEntityGeneration` | `(eid: EntityId) => number` | experimental (since 0.1) — returns `0` in 0.x; real generation lands with ABA-safe `EntityRef` in **0.3+** |
+| `packEntity` | `(index: number, generation: number) => EntityId` | experimental (since 0.1) — identity in 0.x; real packing lands with `EntityRef` in **0.3+** |
 
 ### Component — `aiecsjs`
 
@@ -429,10 +438,10 @@ const Types = { i8, u8, i16, u16, i32, u32, f32, f64, eid, bool } as const
 
 | Function | Signature | Stability |
 |---|---|---|
-| `observe` | `(world, q, event, handler) => () => void` | stable |
-| `onAdd` | `(world, comp, handler) => () => void` | stable |
-| `onRemove` | `(world, comp, handler) => () => void` | stable |
-| `onSet` | `(world, comp, handler) => () => void` | stable |
+| `observe` | `(world, q, event, handler, opts?: { signal? }) => () => void` | stable |
+| `onAdd` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable |
+| `onRemove` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable |
+| `onSet` | `(world, comp, handler, opts?: { signal? }) => () => void` | stable; low-level mutation hook, not reactive |
 
 ### Serialization — `aiecsjs/serialize`
 

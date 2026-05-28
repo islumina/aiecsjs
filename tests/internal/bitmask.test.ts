@@ -1,17 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createMask,
-  setBit,
   clearBit,
-  testBit,
-  copyMask,
   cloneMask,
+  copyMask,
+  createMask,
+  isMaskZero,
+  listBits,
   maskEquals,
   maskHash,
-  isMaskZero,
-  unionMask,
   matches,
-  listBits,
+  setBit,
+  testBit,
+  unionMask,
 } from '../../src/internal/bitmask.js'
 
 describe('createMask', () => {
@@ -95,14 +95,16 @@ describe('maskEquals', () => {
   it('returns true for identical contents', () => {
     const a = createMask(2)
     const b = createMask(2)
-    setBit(a, 5); setBit(b, 5)
+    setBit(a, 5)
+    setBit(b, 5)
     expect(maskEquals(a, b)).toBe(true)
   })
 
   it('returns false when contents differ', () => {
     const a = createMask(2)
     const b = createMask(2)
-    setBit(a, 5); setBit(b, 6)
+    setBit(a, 5)
+    setBit(b, 6)
     expect(maskEquals(a, b)).toBe(false)
   })
 
@@ -117,8 +119,10 @@ describe('maskHash', () => {
   it('produces the same key for equal masks', () => {
     const a = createMask(2)
     const b = createMask(2)
-    setBit(a, 3); setBit(a, 42)
-    setBit(b, 3); setBit(b, 42)
+    setBit(a, 3)
+    setBit(a, 42)
+    setBit(b, 3)
+    setBit(b, 42)
     expect(maskHash(a)).toBe(maskHash(b))
   })
 
@@ -152,8 +156,10 @@ describe('isMaskZero', () => {
 
   it('returns true after every set bit is cleared', () => {
     const m = createMask(2)
-    setBit(m, 1); setBit(m, 33)
-    clearBit(m, 1); clearBit(m, 33)
+    setBit(m, 1)
+    setBit(m, 33)
+    clearBit(m, 1)
+    clearBit(m, 33)
     expect(isMaskZero(m)).toBe(true)
   })
 })
@@ -162,8 +168,10 @@ describe('unionMask', () => {
   it('returns OR of two masks', () => {
     const a = createMask(2)
     const b = createMask(2)
-    setBit(a, 5); setBit(a, 33)
-    setBit(b, 6); setBit(b, 34)
+    setBit(a, 5)
+    setBit(a, 33)
+    setBit(b, 6)
+    setBit(b, 34)
     const u = unionMask(a, b)
     expect(testBit(u, 5)).toBe(true)
     expect(testBit(u, 6)).toBe(true)
@@ -176,7 +184,11 @@ describe('unionMask', () => {
 describe('matches (archetype query truth table)', () => {
   // Construct masks: with=[A,B], any=[C,D], none=[E]
   const words = 1
-  const A = 0, B = 1, C = 2, D = 3, E = 4
+  const A = 0
+  const B = 1
+  const C = 2
+  const D = 3
+  const E = 4
 
   function build(bits: number[]): Uint32Array {
     const m = createMask(words)

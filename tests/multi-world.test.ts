@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
-  createWorld,
-  createEntity,
-  defineComponent,
-  addComponent,
-  hasComponent,
-  defineQuery,
-  runQuery,
   Types,
+  addComponent,
+  createEntity,
+  createWorld,
+  defineComponent,
+  defineQuery,
+  hasComponent,
+  runQuery,
 } from '../src/index.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
