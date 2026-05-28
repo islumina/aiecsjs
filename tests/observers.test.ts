@@ -8,6 +8,7 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  getComponent,
   removeComponent,
   setComponent,
 } from '../src/index.js'
@@ -274,5 +275,39 @@ describe('component observers', () => {
     expect(seenA.length).toBe(1)
     // B was unsubscribed before its turn in the snapshot dispatch — must not fire.
     expect(seenB.length).toBe(0)
+  })
+
+  it('addComponent does not trigger onSet (even with initial value)', () => {
+    const w = createWorld()
+    const setSeen: any[] = []
+    onSet(w, Position, (eid, v) => setSeen.push({ eid, v }))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 42, y: 7 })
+    // addComponent must NOT fire onSet
+    expect(setSeen.length).toBe(0)
+  })
+
+  it('setComponent on a component not yet present falls through to addComponent and does not fire onSet', () => {
+    const w = createWorld()
+    const setSeen: any[] = []
+    onSet(w, Position, (eid, v) => setSeen.push({ eid, v }))
+    const e = createEntity(w)
+    // setComponent when component absent → addComponent path → no onSet
+    setComponent(w, e, Position, { x: 1, y: 2 })
+    expect(setSeen.length).toBe(0)
+  })
+
+  it('direct write to column view returned by getComponent does not trigger onSet', () => {
+    const w = createWorld()
+    const setSeen: any[] = []
+    onSet(w, Position, (eid, v) => setSeen.push({ eid, v }))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    setSeen.length = 0 // clear any previous fires
+    // Anti-pattern: write directly to column — must NOT fire onSet
+    const col = getComponent(w, e, Position) as { x: Float32Array; y: Float32Array }
+    const idx = (e as number) & 0x00ffffff // default 24-bit mask
+    col.x[idx] = 99
+    expect(setSeen.length).toBe(0)
   })
 })

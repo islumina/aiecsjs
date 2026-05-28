@@ -66,9 +66,22 @@ export function onRemove(
 
 /**
  * Low-level mutation hook. Fires after `setComponent(world, eid, comp, value)`
- * when the component is already present on the entity (`addComponent` does
- * NOT trigger `onSet` — use `onAdd` for that path; an `addComponent` followed
- * by `setComponent` will fire `onAdd` then `onSet`).
+ * when the component is already present on the entity.
+ *
+ * Does NOT fire for:
+ * - `addComponent` (use `onAdd` for that path; `addComponent + setComponent`
+ *   fires `onAdd` then `onSet`)
+ * - Direct writes to a column view returned by `getComponent`. The column
+ *   array is the raw `TypedArray` / object — mutations bypass observer
+ *   dispatch.
+ *
+ * @example
+ * // ❌ Anti-pattern: no `onSet` callback fires.
+ * const col = getComponent(world, eid, Position)   // raw column object
+ * col.x[getEntityIndex(eid)] = 5
+ *
+ * // ✅ Correct: triggers `onSet`.
+ * setComponent(world, eid, Position, { x: 5 })
  *
  * This is NOT a reactive value-predicate query — see `enterQuery` /
  * `exitQuery` for structural change tracking, and validate value predicates
@@ -185,7 +198,7 @@ function dispatchQueryObservers(
   _current: unknown,
 ): void {
   const w = state.options.maskWordCount
-  const base = (eid as number) * w
+  const base = ((eid as number) & state.options.indexMask) * w
   const snapshot = Array.from(state.observers)
   for (const obs of snapshot) {
     if (obs.event !== event) continue
@@ -218,7 +231,7 @@ registerObserverDispatch({ fireAdd, fireRemove, fireSet })
 registerObserversAPI({
   dispatchDestroyObservers(state: WorldState, eid: EntityId): void {
     const w = state.options.maskWordCount
-    const base = (eid as number) * w
+    const base = ((eid as number) & state.options.indexMask) * w
 
     // Snapshot the pre-destroy mask so Phase 2's `wasMatch` is computed
     // against the state at destroy entry — Phase 1 handlers might reentrant-
