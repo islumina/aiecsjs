@@ -33,8 +33,13 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `destroyEntity` | stable | 0.1.0 | |
 | `entityExists` | stable | 0.1.0 | |
 | `getEntityIndex` | stable | 0.1.0 | |
-| `getEntityGeneration` | stable | 0.1.0 | |
-| `packEntity` | stable | 0.1.0 | |
+| `getEntityGeneration` | stable | 0.3.0 | 回傳 EntityId 中實際打包的 generation 值（預設 24-bit index、8-bit generation）。若使用非預設 `createWorld({ indexBits, generationBits })`，請改用 `EntityRef` + `deref`。 |
+| `packEntity` | stable | 0.3.0 | 使用預設 24/8 bit 佈局將 index + generation 打包為 EntityId。若使用非預設 bit 大小，請改用 `EntityRef` + `deref`。 |
+| `refOf` | stable | 0.3.0 | entity 不存活時拋出 `EntityNotAliveError`。 |
+| `deref` | stable | 0.3.0 | 對過期或跨 world 的 ref 回傳 null；絕不拋出錯誤。 |
+| `aliveRef` | stable | 0.3.0 | `deref` 的布林 guard 形式；絕不拋出錯誤。 |
+| `EntityRef`（type） | stable | 0.3.0 | 僅限記憶體內使用；不可序列化。 |
+| `EntityNotAliveError` | stable | 0.3.0 | 僅由 `refOf` 拋出。 |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
 | `defineObjectComponent` | stable | 0.1.0 | AoS 元件僅限主執行緒；不可跨 SAB 共享。 |
@@ -129,7 +134,9 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 |---|---|---|
 | 0.1.x | 核心表面（world、entity、component、query、system、loop、commands、observers、serialize） | 初次發佈；package 整體標 experimental，但各 export 表中列為 stable 者皆穩定。 |
 | 0.2.0 | 安全與生態對齊 | 原型污染強化、observer `{ signal? }`、`disposeWorld` 別名、`getEntityGeneration` / `packEntity` 改 experimental、`verify:llms` gate。詳見 [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28)。 |
-| 0.3+ | Relations 穩定化 + EntityRef + SAB | `aiecsjs/relations` 升為 stable；ABA-safe `EntityRef` 上線，`getEntityGeneration` / `packEntity` 開始回傳真值；`aiecsjs/worker` 採用真正 shared-memory column aliasing。 |
+| 0.3.x | EntityRef + generation packing | ABA-safe；`getEntityGeneration` / `packEntity` → stable。 |
+| 0.4+ | Relations 穩定化 + 真正 SAB worker | `aiecsjs/relations` 與 `aiecsjs/worker` → stable。 |
+| 0.6+ | Multi-World snapshot diff transport（佔位） | experimental — 設計待定。 |
 | 1.0.0 | API 凍結 | 所有 `stable` 匯出於 1.x 系列凍結。 |
 
 ## 在執行時檢查穩定度

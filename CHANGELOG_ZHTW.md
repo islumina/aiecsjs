@@ -8,12 +8,70 @@
 
 ## [Unreleased]
 
-### 0.3+ 規劃
+### 0.4+ 規劃
 
-- 實作 ABA-safe `EntityRef`，把 `getEntityGeneration` / `packEntity` 從 experimental 升回 stable。
 - 加入 `pipeAsync` 以支援非同步系統組合。
 - 引入 doc-test 工具，使 README 中的程式碼區塊能被機械化驗證。
 - 將 `aiecsjs/relations` 與 `aiecsjs/worker`（真正 SAB 共享 columns）升為 stable。
+- 在 [STABILITY.md](./STABILITY_ZHTW.md) 中說明 8-bit generation wrap 的注意事項：
+  預設 `generationBits=8` 下，同一 slot 連續回收 256 次後 generation wrap 回原值，
+  ABA 防護視窗會短暫失效。對 v0.5 飛行射擊試做工作負載安全（60 fps × ~1k destroy/sec
+  下單 slot 約需 5000 frame 才 wrap）；高生滅率 pool 建議改用
+  `createWorld({ generationBits: 16 })`。對應測試見
+  [tests/ref.test.ts](./tests/ref.test.ts) 的 `generation wrap` describe block。
+
+## [0.3.0] - 2026-05-29
+
+### 新增（API）
+
+- **`EntityRef<T>`** — ABA-safe entity reference。`refOf(world, eid)` 建立 ref；
+  `deref(world, ref)` 在 entity 仍存活（generation 符合）時回傳 entity id，
+  否則回傳 `null`；`aliveRef(world, ref)` 為布林 guard 形式。
+  Phantom type `T` 讓呼叫方在型別系統中區分 ref 種類（如 `EntityRef<'bullet'>`），
+  不產生任何執行期開銷。Ref 僅限記憶體內使用，不可序列化至 worker / 磁碟。
+- **`EntityNotAliveError`** — `refOf` 在 entity 已死亡或無效時拋出此錯誤。
+  `deref` / `aliveRef` 絕不拋出。
+
+### 變更
+
+- **`EntityId` 現在將 index + generation 打包**為單一 32-bit 數字
+  `(generation << indexBits) | index`（預設 `indexBits=24, generationBits=8`）。
+  `EntityId` 依 STABILITY 契約仍為 opaque；佈局屬實作細節。
+  **遷移注意**：請勿直接比對 `EntityId` 數字（`eid === 42` 在 slot 回收後會失效）；
+  改用 `getEntityIndex(eid)` 進行 index 比對，或用 `refOf(world, eid).id` 做
+  能跨 slot 回收的 identity 比對。
+- **`getEntityGeneration` / `packEntity` 升為 `stable`**（自 0.2.0 起為 experimental）。
+  兩者現回傳真實值，使用預設 24/8 bit 佈局；
+  若使用非預設 `createWorld({ indexBits, generationBits })`，
+  請改用 `EntityRef` + `deref` 取代手動拆解。
+
+### 修復
+
+- **entity slot 回收的 ABA bug**：舊版 `entityExists` 與 `isAliveInternal` 僅
+  檢查 archetype 成員資格；指向已回收 slot 的過期 `EntityId` 會誤報為存活。
+  透過打包 generation + `deref` 的 generation 比對，過期 ref 現在可正確失效。
+- **`destroyEntity` generation wrap mask 改為對應 `options.generationBits`**
+  （原為 hard-coded `& 0xffff`）。mask 現在正確使用 `state.options.generationMask`，
+  修正非預設 `generationBits` 下的不一致問題。
+
+### 文件
+
+- `onSet` JSDoc 說明 `addComponent` **不會**觸發 `onSet`，且
+  直接寫入 `getComponent` 回傳的 column view（如 `col.x[idx] = 5`）
+  同樣**不會**觸發 `onSet`。只有 `setComponent` 對已存在的 component 才會
+  觸發 callback。加入 anti-pattern 範例。
+
+### 相容性
+
+- `EntityId` 佈局變更在型別系統層面**不屬於 breaking change**（opaque branded number），
+  但依賴 `eid === N` 直接比對的消費者需遷移（見上方遷移注意）。
+- 所有既有 `stable` 匯出簽名不變。
+- `aiecsjs/worker` snapshot wire format 不變（仍使用 raw index）。
+- `aiecsjs/serialize` wire format 不變。
+
+### 建置與工具
+
+- `VERSION` 常數升至 `0.3.0`。
 
 ## [0.2.1] - 2026-05-28
 

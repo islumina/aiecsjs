@@ -8,12 +8,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned for 0.3+
+### Planned for 0.4+
 
-- Implement ABA-safe `EntityRef` and graduate `getEntityGeneration` / `packEntity` from experimental → stable.
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
 - Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+- Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
+  default `generationBits=8`, a single slot recycled 256 times wraps back to its
+  starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
+  workloads (~5000 frame to wrap a single slot at 60 fps × ~1k destroys); high-churn
+  pools should set `createWorld({ generationBits: 16 })`. See test
+  [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
+
+## [0.3.0] - 2026-05-29
+
+### Added (API)
+
+- **`EntityRef<T>`** — ABA-safe entity reference. `refOf(world, eid)` builds one;
+  `deref(world, ref)` returns the entity id when still alive (generation match)
+  or `null` otherwise; `aliveRef(world, ref)` is the boolean guard form. Phantom
+  type `T` lets callers distinguish ref kinds (e.g. `EntityRef<'bullet'>`) without
+  runtime cost. Refs are in-memory only — not serializable across worker / disk.
+- **`EntityNotAliveError`** — thrown by `refOf` when the entity is dead or invalid.
+  `deref` / `aliveRef` never throw.
+
+### Changed
+
+- **`EntityId` now packs index + generation** into a single 32-bit number
+  `(generation << indexBits) | index` (default `indexBits=24, generationBits=8`).
+  `EntityId` remains opaque per STABILITY contract; the layout is implementation
+  detail. **Migration note**: do not compare `EntityId` numbers directly
+  (`eid === 42` will break across slot recycles); use
+  `getEntityIndex(eid)` for index comparison or `refOf(world, eid).id` for
+  identity matching that survives slot reuse.
+- **`getEntityGeneration` / `packEntity` graduate to `stable`** (were `experimental`
+  since 0.2.0). Both now return real values. These functions use default 24/8 bit
+  layout; for non-default `createWorld({ indexBits, generationBits })`, use
+  `EntityRef` and `deref` instead of manual unpacking.
+
+### Fixed
+
+- **ABA bug on entity slot recycle**: previously `entityExists` and `isAliveInternal`
+  only checked archetype membership; a stale `EntityId` pointing at a recycled slot
+  would silently report alive. With packed generation + `deref` generation match,
+  stale refs now correctly invalidate.
+- **`destroyEntity` generation wrap mask aligned with `options.generationBits`**
+  (was hard-coded `& 0xffff`). The mask now correctly uses
+  `state.options.generationMask`, fixing inconsistency for non-default
+  `generationBits` values.
+
+### Documentation
+
+- `onSet` JSDoc clarifies that `addComponent` does NOT trigger `onSet`, and
+  direct writes to column views returned by `getComponent` (e.g. `col.x[idx] = 5`)
+  also do NOT trigger `onSet`. Only `setComponent` on an already-present
+  component fires the callback. Anti-pattern example included.
+
+### Compatibility
+
+- `EntityId` layout change is **not** breaking at the type system level (opaque
+  branded number), but consumers who relied on `eid === N` direct comparison
+  will need to migrate (see Migration note above).
+- All existing `stable` exports unchanged.
+- `aiecsjs/worker` snapshot wire format unchanged (still uses raw indices).
+- `aiecsjs/serialize` wire format unchanged.
+
+### Build & tooling
+
+- `VERSION` constant bumped to `0.3.0`.
 
 ## [0.2.1] - 2026-05-28
 

@@ -34,8 +34,13 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `destroyEntity` | stable | 0.1.0 | |
 | `entityExists` | stable | 0.1.0 | |
 | `getEntityIndex` | stable | 0.1.0 | |
-| `getEntityGeneration` | **experimental** | 0.1.0 | Returns 0 in 0.x (generation tracked internally but not encoded in EntityId). Real values arrive with ABA-safe `EntityRef` in **0.3+**. |
-| `packEntity` | **experimental** | 0.1.0 | Identity helper in 0.x. Returns the index unchanged. Real packing arrives with `EntityRef` in **0.3+**. |
+| `getEntityGeneration` | stable | 0.3.0 | Returns real generation value packed into EntityId (default 24-bit index, 8-bit generation). For non-default `createWorld({ indexBits, generationBits })`, use `EntityRef` + `deref` instead. |
+| `packEntity` | stable | 0.3.0 | Packs index + generation into an EntityId using default 24/8 bit layout. For non-default bit sizes, use `EntityRef` + `deref` instead. |
+| `refOf` | stable | 0.3.0 | Throws `EntityNotAliveError` for dead entity. |
+| `deref` | stable | 0.3.0 | Returns null for stale / cross-world refs; never throws. |
+| `aliveRef` | stable | 0.3.0 | Boolean guard form of `deref`; never throws. |
+| `EntityRef` (type) | stable | 0.3.0 | In-memory only; not serializable. |
+| `EntityNotAliveError` | stable | 0.3.0 | Thrown only by `refOf`. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
 | `defineObjectComponent` | stable | 0.1.0 | AoS components are main-thread only; not SAB-shareable. |
@@ -130,8 +135,9 @@ Everything under this prefix is **internal**. It exists for the implementation's
 |---|---|---|
 | 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
 | 0.2.0 | Safety + alignment | Prototype-pollution hardening, observer `{ signal? }`, `disposeWorld` alias, `getEntityGeneration` / `packEntity` re-labelled experimental, `verify:llms` gate. See [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28). |
-| 0.3+ | Relations stabilisation + EntityRef + SAB | `aiecsjs/relations` graduates to stable; ABA-safe `EntityRef` lands and `getEntityGeneration` / `packEntity` start returning real values; `aiecsjs/worker` adopts true shared-memory column aliasing. |
-| 0.3.x | Hardening, relations stabilization, multi-threading polish | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.3.x | EntityRef + generation packing | ABA-safe; `getEntityGeneration` / `packEntity` → stable. |
+| 0.4+ | Relations stabilisation + true SAB worker | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.6+ | Multi-World snapshot diff transport (placeholder) | experimental — design TBD. |
 | 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
 
 ## How to check stability at runtime
