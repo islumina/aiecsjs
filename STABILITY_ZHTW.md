@@ -1,6 +1,6 @@
 # 穩定度契約
 
-🌐 [English](STABILITY.md) | [繁體中文](STABILITY.zh-TW.md)
+🌐 [English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
 
 本文件為 `aiecsjs` 中各匯出的穩定度承諾。AI 工具與人類使用者可依此契約來鎖定版本與書寫 import 路徑。
 

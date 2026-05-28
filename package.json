@@ -48,9 +48,9 @@
   "files": [
     "dist",
     "README.md",
-    "README.zh-TW.md",
+    "README_ZHTW.md",
     "STABILITY.md",
-    "STABILITY.zh-TW.md",
+    "STABILITY_ZHTW.md",
     "CHANGELOG.md",
     "llms.txt",
     "llms-full.txt",

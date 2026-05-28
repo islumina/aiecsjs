@@ -1,6 +1,6 @@
 # Changelog
 
-🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG.zh-TW.md)
+🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
 
 All notable changes to `aiecsjs` are recorded in this file.
 
@@ -39,12 +39,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `README.md` (English) and `README.zh-TW.md` (Traditional Chinese) with quick start, guide, API reference, performance notes, multi-threading guide, WebGPU interop section, serialization guide, migration guides, and "For AI Agents" section.
+- `README.md` (English) and `README_ZHTW.md` (Traditional Chinese) with quick start, guide, API reference, performance notes, multi-threading guide, WebGPU interop section, serialization guide, migration guides, and "For AI Agents" section.
 - `llms.txt` — Jeremy Howard format AI-discovery file.
 - `llms-full.txt` — Single-file complete reference for LLM consumption.
 - `api.json` — Machine-readable export manifest with stability and `since` fields on every entry.
-- `STABILITY.md` and `STABILITY.zh-TW.md` — Per-export stability contract.
-- `docs/MIGRATION.md` and `docs/MIGRATION.zh-TW.md` — Migration guides from bitECS 0.4, miniplex 2.0, and ECSY.
+- `STABILITY.md` and `STABILITY_ZHTW.md` — Per-export stability contract.
+- `docs/MIGRATION.md` and `docs/MIGRATION_ZHTW.md` — Migration guides from bitECS 0.4, miniplex 2.0, and ECSY.
 
 ### API surface declared
 

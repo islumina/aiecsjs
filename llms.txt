@@ -28,4 +28,4 @@ aiecsjs uses archetype tables with TypedArray columns and bitmask queries. The A
 - [For AI Agents](https://github.com/yshengliao/aiecsjs/blob/main/README.md#for-ai-agents): Decision matrix, common patterns, anti-patterns, invariants, glossary
 - [Stability contract](https://github.com/yshengliao/aiecsjs/blob/main/STABILITY.md): Per-export `stable | experimental | internal | deprecated` tags and version pinning policy
 - [Changelog](https://github.com/yshengliao/aiecsjs/blob/main/CHANGELOG.md): Keep-a-Changelog format
-- [Traditional Chinese README](https://github.com/yshengliao/aiecsjs/blob/main/README.zh-TW.md): 繁體中文版主文件
+- [Traditional Chinese README](https://github.com/yshengliao/aiecsjs/blob/main/README_ZHTW.md): 繁體中文版主文件

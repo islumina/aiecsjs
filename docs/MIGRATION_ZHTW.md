@@ -1,6 +1,6 @@
 # 移轉指引
 
-🌐 [English](MIGRATION.md) | [繁體中文](MIGRATION.zh-TW.md)
+🌐 [English](MIGRATION.md) | [繁體中文](MIGRATION_ZHTW.md)
 
 從其他 JavaScript ECS 函式庫切換到 `aiecsjs` 的具體名稱對照與心態調整筆記。
 

@@ -1,6 +1,6 @@
 # Migration Guide
 
-🌐 [English](MIGRATION.md) | [繁體中文](MIGRATION.zh-TW.md)
+🌐 [English](MIGRATION.md) | [繁體中文](MIGRATION_ZHTW.md)
 
 Concrete name-mapping tables and mental-model notes for switching to `aiecsjs` from other JavaScript ECS libraries.
 

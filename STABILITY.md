@@ -1,6 +1,6 @@
 # Stability Contract
 
-🌐 [English](STABILITY.md) | [繁體中文](STABILITY.zh-TW.md)
+🌐 [English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
 
 This document is the per-export stability promise for `aiecsjs`. It is the contract AI tools and human users can rely on when pinning versions and writing import paths.
 

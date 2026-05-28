@@ -1,6 +1,6 @@
 # aiecsjs
 
-🌐 [English](README.md) | [繁體中文](README.zh-TW.md)
+🌐 [English](README.md) | [繁體中文](README_ZHTW.md)
 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)

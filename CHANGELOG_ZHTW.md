@@ -1,6 +1,6 @@
 # 變更紀錄
 
-🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG.zh-TW.md)
+🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
 
 `aiecsjs` 的所有重要變更都記錄在本檔案。
 
@@ -39,12 +39,12 @@
 
 ### 新增
 
-- `README.md`（英文）與 `README.zh-TW.md`（繁體中文）：含快速上手、使用指引、API 參考、效能、多執行緒指引、WebGPU 互通區段、序列化指引、移轉指引以及「給 AI 助手」區段。
+- `README.md`（英文）與 `README_ZHTW.md`（繁體中文）：含快速上手、使用指引、API 參考、效能、多執行緒指引、WebGPU 互通區段、序列化指引、移轉指引以及「給 AI 助手」區段。
 - `llms.txt` — Jeremy Howard 格式 AI 探索檔。
 - `llms-full.txt` — LLM 直接吃整份 API 與範例的單檔。
 - `api.json` — 機器可讀的匯出清單，每筆都有 stability 與 `since` 欄位。
-- `STABILITY.md` 與 `STABILITY.zh-TW.md` — 各 export 的穩定度契約。
-- `docs/MIGRATION.md` 與 `docs/MIGRATION.zh-TW.md` — 從 bitECS 0.4、miniplex 2.0、ECSY 移轉的指引。
+- `STABILITY.md` 與 `STABILITY_ZHTW.md` — 各 export 的穩定度契約。
+- `docs/MIGRATION.md` 與 `docs/MIGRATION_ZHTW.md` — 從 bitECS 0.4、miniplex 2.0、ECSY 移轉的指引。
 
 ### API 表面公告
 
