@@ -25,6 +25,14 @@
 - 凍結 1.x 系列的 API。
 - 移除 experimental 狀態標籤。
 
+## [0.1.2] - 2026-05-28
+
+CI/CD smoke-test 版本。自 0.1.1 起無使用者可見的程式碼或行為變動；本次 bump 純粹用來端對端驗證 tag 觸發的 publish workflow（見 `.github/workflows/publish.yml`）能成功把套件帶 provenance 證明發到 npm registry。
+
+### 建置與工具
+
+- 確認 push `v*.*.*` tag 會觸發 `.github/workflows/publish.yml`、跑完 `prepublishOnly`（typecheck + 測試 + build + size 預算），並以 sigstore provenance 發佈到 npm。
+
 ## [0.1.1] - 2026-05-28
 
 「文件誠實化 + 測試補強」版本。沒有新增公開 API；本版讓 0.1.0 公開的表面、文件與測試覆蓋三者完全一致。

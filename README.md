@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
 ![Status](https://img.shields.io/badge/status-experimental-orange.svg)
-![Version](https://img.shields.io/badge/version-0.1.1-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
 ![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
 
 > A TypeScript-first archetype ECS for browser and Node, with SAB-ready snapshot transport and AI-readable documentation.

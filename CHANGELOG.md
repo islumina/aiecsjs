@@ -25,6 +25,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - API freeze for the 1.x line.
 - Drop the experimental status label.
 
+## [0.1.2] - 2026-05-28
+
+CI/CD smoke-test release. No user-facing source or behavioural changes since 0.1.1; this bump exists solely to validate the tag-triggered publish workflow (see `.github/workflows/publish.yml`) end-to-end against the npm registry with provenance attestation.
+
+### Build & tooling
+
+- Confirmed that pushing a `v*.*.*` tag triggers `.github/workflows/publish.yml`, runs `prepublishOnly` (typecheck + tests + build + size budget), and publishes to npm with sigstore provenance.
+
 ## [0.1.1] - 2026-05-28
 
 The "documentation honesty + test backstop" release. No new public APIs; this is the version of 0.1.0 that ships with the public surface, the documentation, and the test coverage in agreement.
