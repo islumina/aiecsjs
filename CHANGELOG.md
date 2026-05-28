@@ -8,21 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Changed (post-0.1.0 docs hygiene)
-
-- README and STABILITY now describe `aiecsjs/worker` honestly as a snapshot-copy transport for 0.1; true shared columns remain a 0.2 target. README description and `package.json` description updated accordingly.
-- README clarifies that 0.1 `EntityId` is a bare slot index; internal generation is tracked for slot reuse but not encoded in the ID. ABA-safe `EntityRef` is on the 0.2 roadmap.
-- Sub-paths (`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`) re-positioned in STABILITY as utility / adapter sub-paths; the root `aiecsjs` is the stable core surface. Tree-shakers should drop any sub-path the app does not import.
-- README adds a "What aiecsjs does NOT do" section listing explicit non-goals (system scheduler, render binding, physics, network replication, value-predicate reactive queries, prefab/inheritance).
-- Language version filenames renamed from `*.zh-TW.md` to `*_ZHTW.md`. Cross-links, `llms.txt`, and `package.json` `files` updated. Future language variants follow the same uppercase ISO 639-1 pattern.
-- Removed emoji from documentation prose (language switchers, status banners).
-
-### Build & tooling
-
-- tsup build now runs with `minify: true`.
-- size-limit added as a dev dependency; CI now enforces a budget per export: core ≤ 8 kB gzip, every sub-path budgeted. Current measurements: core 5.49 kB, all sub-paths combined 12.6 kB gzip.
-- GitHub Actions CI workflow added: typecheck → test → build → size check on push and PR to `main`.
-
 ### Planned for 0.2
 
 - Implement `aiecsjs/relations`: `defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `ChildOf`.
@@ -39,6 +24,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - API freeze for the 1.x line.
 - Drop the experimental status label.
+
+## [0.1.1] - 2026-05-28
+
+The "documentation honesty + test backstop" release. No new public APIs; this is the version of 0.1.0 that ships with the public surface, the documentation, and the test coverage in agreement.
+
+### Fixed
+
+- `destroyEntity` now clears the SoA columns and undefines the AoS slots that the destroyed entity owned. Previously only the entity mask was cleared, leaving stale data at the slot visible to debug snapshots and the serialisation path. Public `hasComponent` / query behaviour was already correct, so user-visible behaviour is unchanged; this closes the gap surfaced by the new `destroyEntity zeroes the destroyed entity’s SoA slot` test.
+
+### Changed (docs hygiene)
+
+- README and STABILITY now describe `aiecsjs/worker` honestly as a snapshot-copy transport for 0.1; true shared columns remain a 0.2 target. README description and `package.json` description updated accordingly.
+- README clarifies that 0.1 `EntityId` is a bare slot index; internal generation is tracked for slot reuse but not encoded in the ID. ABA-safe `EntityRef` is on the 0.2 roadmap.
+- Sub-paths (`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`) re-positioned in STABILITY as utility / adapter sub-paths; the root `aiecsjs` is the stable core surface. Tree-shakers should drop any sub-path the app does not import.
+- README adds a "What aiecsjs does NOT do" section listing explicit non-goals (system scheduler, render binding, physics, network replication, value-predicate reactive queries, prefab/inheritance).
+- Language version filenames renamed from `*.zh-TW.md` to `*_ZHTW.md`. Cross-links, `llms.txt`, and `package.json` `files` updated. Future language variants follow the same uppercase ISO 639-1 pattern.
+- Removed emoji from documentation prose (language switchers, status banners).
+
+### Build & tooling
+
+- tsup build now runs with `minify: true`.
+- `size-limit` added as a dev dependency; per-export gzip budgets enforced via `npm run size`. Current measurements: core 5.49 kB, all sub-paths combined 12.6 kB gzip.
+- GitHub Actions CI workflow added: typecheck → test → build → size check on push and PR to `main`.
+- `prepublishOnly` now runs typecheck, tests, build, and the size budget gate before allowing publish.
+
+### Tests
+
+- Test count increased from 84 to 140. New file `tests/internal/bitmask.test.ts` covers the multi-word bitmask helpers in isolation (27 cases including `matches` truth table). New file `tests/multi-world.test.ts` covers per-world isolation when the same component is reused. Existing files gained: naive linear-filter cross-check against `runQuery` for all clause combinations, archetype migration boundary path, query mid-traversal stability and lazy cache behaviour, SoA field clear assertions on both `removeComponent` and `destroyEntity`, SoA vector-length round trip, `maxEntities` / `maxComponents` boundary throws, observer fan-out for destroy across multiple components, `onSet` value content, query observer ignores unrelated mutation, relation source-side destroy cleanup, exclusive relation storage resize, worker `readOnly` rejects add / remove / destroy, serialize `options.components` filter, `onUnknownVersion: throw | best-effort` paths, command buffer placeholder resolves into a queryable entity, slot-reuse limitation made explicit. Loop tests rewritten on top of `vi.useFakeTimers({ toFake: ['performance', ...] })` for deterministic dt validation.
 
 ## [0.1.0] - 2026-05-27
 

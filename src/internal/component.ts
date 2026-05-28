@@ -259,6 +259,30 @@ function clearSoAEntity(soa: SoAColumns, fields: FieldInfo[], eid: number): void
   }
 }
 
+// Clear every component-storage slot that the entity currently owns.
+// Walks the entity's mask; for each set bit, zeroes the SoA columns or
+// undefines the AoS slot at the entity index. Tag storages are bit-only.
+// Caller (e.g. destroyEntity) is expected to clear the mask separately.
+export function clearAllEntityStorages(state: WorldState, eid: EntityId): void {
+  const wordCount = state.options.maskWordCount
+  const base = (eid as number) * wordCount
+  for (let wi = 0; wi < wordCount; wi++) {
+    let word = state.entityMask[base + wi] ?? 0
+    while (word !== 0) {
+      const lsb = word & -word
+      const bit = (wi << 5) + (31 - Math.clz32(lsb))
+      const storage = state.componentStorageByBit[bit]
+      const info = state.componentInfoByBit[bit]
+      if (storage?.kind === 'soa' && storage.soa && info) {
+        clearSoAEntity(storage.soa, info.fields, eid as number)
+      } else if (storage?.kind === 'aos' && storage.aos) {
+        storage.aos[eid as number] = undefined
+      }
+      word &= word - 1
+    }
+  }
+}
+
 function migrateEntity(state: WorldState, eid: number, newMask: Uint32Array): void {
   const srcArchId = state.entityArchetype[eid] ?? 0
   const srcArch = state.archetypes[srcArchId]

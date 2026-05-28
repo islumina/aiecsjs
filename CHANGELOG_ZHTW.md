@@ -8,22 +8,6 @@
 
 ## [Unreleased]
 
-### 變更（0.1.0 後文件誠實化）
-
-- README 與 STABILITY 現以「snapshot-copy 傳輸」誠實描述 `aiecsjs/worker` 在 0.1 的實作；真正的共享欄位仍為 0.2 目標。README 與 `package.json` description 同步更新。
-- README 註明 0.1 的 `EntityId` 為純索引值；內部世代計數用於追蹤槽位重用但不編入 ID。具 ABA 安全的 `EntityRef` 列入 0.2 roadmap。
-- STABILITY 重新定位 sub-path（`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`）為 utility / adapter sub-path；根目錄 `aiecsjs` 才是穩定核心。應用未引用的 sub-path 可被 tree-shake 移除。
-- README 新增「aiecsjs 明確不做的事」章節，列出非目標：系統排程、render 綁定、物理、網路複製、value-predicate 反應式查詢、prefab / 繼承。
-- 語言版本檔名由 `*.zh-TW.md` 改名為 `*_ZHTW.md`。跨檔連結、`llms.txt`、`package.json` `files` 同步更新。未來其他語言版本依相同的大寫 ISO 639-1 規則命名。
-- 文件移除 emoji（語言切換器、狀態旗標等）。
-
-### 建置與工具
-
-- tsup 建置開啟 `minify: true`。
-- 新增 size-limit dev 相依；CI 對每個 export 加 budget gate：core ≤ 8 kB gzip，每個 sub-path 各自設限。實測：core 5.49 kB，全 sub-paths 合計 12.6 kB gzip。
-- 新增 GitHub Actions CI workflow：在 push 與 PR 至 `main` 時跑 typecheck → test → build → size check。
-
-
 ### 0.2 規劃
 
 - 實作 `aiecsjs/relations`：`defineRelation`、`addRelation`、`removeRelation`、`getRelationTargets`、`ChildOf`。
@@ -40,6 +24,34 @@
 
 - 凍結 1.x 系列的 API。
 - 移除 experimental 狀態標籤。
+
+## [0.1.1] - 2026-05-28
+
+「文件誠實化 + 測試補強」版本。沒有新增公開 API；本版讓 0.1.0 公開的表面、文件與測試覆蓋三者完全一致。
+
+### 修正
+
+- `destroyEntity` 現在會清零該實體所擁有的 SoA 欄位、並把 AoS 槽位設為 undefined。先前僅清除實體 mask，導致殘留資料殘留於欄位中、會被 debug snapshot 與序列化路徑看見。公開 API（`hasComponent` / query）行為原本就正確，所以對使用者不可見；本次補上新測試「`destroyEntity` zeroes the destroyed entity’s SoA slot」覆蓋之。
+
+### 變更（文件誠實化）
+
+- README 與 STABILITY 現以「snapshot-copy 傳輸」誠實描述 `aiecsjs/worker` 在 0.1 的實作；真正的共享欄位仍為 0.2 目標。README 與 `package.json` description 同步更新。
+- README 註明 0.1 的 `EntityId` 為純索引值；內部世代計數用於追蹤槽位重用但不編入 ID。具 ABA 安全的 `EntityRef` 列入 0.2 roadmap。
+- STABILITY 重新定位 sub-path（`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`）為 utility / adapter sub-path；根目錄 `aiecsjs` 才是穩定核心。應用未引用的 sub-path 可被 tree-shake 移除。
+- README 新增「aiecsjs 明確不做的事」章節，列出非目標：系統排程、render 綁定、物理、網路複製、value-predicate 反應式查詢、prefab / 繼承。
+- 語言版本檔名由 `*.zh-TW.md` 改名為 `*_ZHTW.md`。跨檔連結、`llms.txt`、`package.json` `files` 同步更新。未來其他語言版本依相同的大寫 ISO 639-1 規則命名。
+- 文件移除 emoji（語言切換器、狀態旗標等）。
+
+### 建置與工具
+
+- tsup 建置開啟 `minify: true`。
+- 新增 `size-limit` dev 相依；以 `npm run size` 強制每個 export 的 gzip 預算。實測：core 5.49 kB、全 sub-paths 合計 12.6 kB gzip。
+- 新增 GitHub Actions CI workflow：在 push 與 PR 至 `main` 時跑 typecheck → test → build → size check。
+- `prepublishOnly` 現在會依序跑 typecheck、test、build、size gate，全綠才允許發佈。
+
+### 測試
+
+- 測試數由 84 增至 140。新增 `tests/internal/bitmask.test.ts`（27 個案例，含 `matches` 真值表）覆蓋多字位元遮罩 helper；新增 `tests/multi-world.test.ts` 覆蓋同 component 跨 world 隔離。現有檔案補上：runQuery 與 naive 線性 filter 全 clause 對照、archetype migration 邊界、查詢迭代中變動的穩定性與 lazy cache、`removeComponent` 與 `destroyEntity` 後 SoA 欄位清零斷言、SoA vectorLen round-trip、`maxEntities` / `maxComponents` 上限拋錯、destroy 多 component 觸發 onRemove fan-out、`onSet` value 內容、query observer 不被無關 mutation 觸發、relation 來源側 destroy 清理、exclusive relation 儲存 resize、worker `readOnly` 阻止 add/remove/destroy、serialize `options.components` filter、`onUnknownVersion: throw | best-effort` 兩種路徑、command buffer placeholder 解析後可被查詢、slot 重用限制明文化。Loop 測試改寫於 `vi.useFakeTimers({ toFake: ['performance', ...] })` 之上以達 deterministic dt 驗證。
 
 ## [0.1.0] - 2026-05-27
 

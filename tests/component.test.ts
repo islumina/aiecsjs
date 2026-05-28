@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   createWorld,
   createEntity,
+  destroyEntity,
   defineComponent,
   defineTag,
   defineObjectComponent,
@@ -118,5 +119,89 @@ describe('component ops (Tag)', () => {
     expect(hasComponent(w, e, Player)).toBe(true)
     removeComponent(w, e, Player)
     expect(hasComponent(w, e, Player)).toBe(false)
+  })
+})
+
+describe('SoA field clear on remove / destroy', () => {
+  const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+
+  it('removeComponent zeroes scalar SoA fields at the entity slot', () => {
+    const w = createWorld()
+    const survivor = createEntity(w)
+    addComponent(w, survivor, Position, { x: 7, y: 8 })
+    const removed = createEntity(w)
+    addComponent(w, removed, Position, { x: 99, y: 88 })
+    // Sanity: data was written
+    const colsBefore = getComponent(w, survivor, Position) as any
+    expect(colsBefore.x[removed]).toBeCloseTo(99)
+    // Now remove and verify the slot is cleared
+    removeComponent(w, removed, Position)
+    const colsAfter = getComponent(w, survivor, Position) as any
+    expect(colsAfter.x[removed]).toBe(0)
+    expect(colsAfter.y[removed]).toBe(0)
+    // Survivor's slot is untouched
+    expect(colsAfter.x[survivor]).toBeCloseTo(7)
+    expect(colsAfter.y[survivor]).toBeCloseTo(8)
+  })
+
+  it('destroyEntity zeroes the destroyed entity’s SoA slot for all its components', () => {
+    const w = createWorld()
+    const survivor = createEntity(w)
+    addComponent(w, survivor, Position, { x: 1, y: 2 })
+    const victim = createEntity(w)
+    addComponent(w, victim, Position, { x: 50, y: 60 })
+
+    destroyEntity(w, victim)
+    const cols = getComponent(w, survivor, Position) as any
+    expect(cols.x[victim]).toBe(0)
+    expect(cols.y[victim]).toBe(0)
+  })
+})
+
+describe('SoA vector-length round trip', () => {
+  it('writes a fixed-length vector field at the correct offset', () => {
+    const Transform = defineComponent({ pos: [Types.f32, 3], scale: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Transform, { pos: [1, 2, 3], scale: 4 })
+    const cols = getComponent(w, e, Transform) as any
+    const base = (e as number) * 3
+    expect(cols.pos[base]).toBeCloseTo(1)
+    expect(cols.pos[base + 1]).toBeCloseTo(2)
+    expect(cols.pos[base + 2]).toBeCloseTo(3)
+    expect(cols.scale[e]).toBeCloseTo(4)
+  })
+
+  it('vector field round trips when the entity is the second one in its archetype', () => {
+    const Vec3 = defineComponent({ v: [Types.f32, 3] })
+    const w = createWorld()
+    const e1 = createEntity(w)
+    addComponent(w, e1, Vec3, { v: [10, 20, 30] })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Vec3, { v: [11, 22, 33] })
+    const cols = getComponent(w, e2, Vec3) as any
+    const base = (e2 as number) * 3
+    expect(cols.v[base]).toBeCloseTo(11)
+    expect(cols.v[base + 1]).toBeCloseTo(22)
+    expect(cols.v[base + 2]).toBeCloseTo(33)
+  })
+})
+
+describe('component boundary errors', () => {
+  it('throws once maxComponents is reached for a single world', () => {
+    const w = createWorld()
+    // Default maxComponents is 256. Allocate 256 distinct components into this
+    // world (via addComponent so a bit is allocated). A fresh world starts at 0.
+    const ents: number[] = []
+    for (let i = 0; i < 256; i++) {
+      const c = defineComponent({ v: Types.i32 })
+      const e = createEntity(w)
+      ents.push(e as number)
+      addComponent(w, e, c, { v: i })
+    }
+    // The 257th should fail to register
+    const overflow = defineComponent({ v: Types.i32 })
+    const eo = createEntity(w)
+    expect(() => addComponent(w, eo, overflow, { v: 0 })).toThrow(/maxComponents/)
   })
 })

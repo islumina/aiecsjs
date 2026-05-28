@@ -77,4 +77,43 @@ describe('component observers', () => {
     addComponent(w, e, Position, { x: 0, y: 0 })
     expect(seen).toContain(e)
   })
+
+  it('destroyEntity fires onRemove once per component the entity owned', () => {
+    const w = createWorld()
+    const Health = defineComponent({ hp: Types.i32 })
+    const seen: string[] = []
+    onRemove(w, Position, (eid) => seen.push(`pos:${eid}`))
+    onRemove(w, Health, (eid) => seen.push(`hp:${eid}`))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    addComponent(w, e, Health, { hp: 5 })
+    destroyEntity(w, e)
+    expect(seen).toContain(`pos:${e}`)
+    expect(seen).toContain(`hp:${e}`)
+  })
+
+  it('onSet receives the value passed to setComponent', () => {
+    const w = createWorld()
+    const captured: Array<{ eid: number; v: any }> = []
+    onSet(w, Position, (eid, v) => captured.push({ eid: eid as number, v }))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    setComponent(w, e, Position, { x: 17, y: 25 })
+    expect(captured.length).toBe(1)
+    const c0 = captured[0]!
+    expect(c0.eid).toBe(e)
+    expect(c0.v.x).toBe(17)
+    expect(c0.v.y).toBe(25)
+  })
+
+  it('unrelated component mutation does not fire a query observer', () => {
+    const w = createWorld()
+    const Unrelated = defineTag()
+    const q = defineQuery([Position])
+    const seen: number[] = []
+    observe(w, q, 'add', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, Unrelated) // not Position
+    expect(seen.length).toBe(0)
+  })
 })

@@ -63,6 +63,19 @@ describe('command buffer', () => {
     // Use a query in a later test pattern.
   })
 
+  it('cb.create() resolves so the new entity appears in subsequent queries', async () => {
+    const { defineQuery, runQuery } = await import('../src/index.js')
+    const w = createWorld()
+    const cb = createCommandBuffer(w)
+    const before = runQuery(w, defineQuery([Position]))
+    expect(before.length).toBe(0)
+    const placeholder = cb.create()
+    cb.add(placeholder, Position, { x: 11, y: 22 })
+    flush(cb)
+    const after = runQuery(w, defineQuery([Position]))
+    expect(after.length).toBe(1)
+  })
+
   it('withCommandBuffer auto-flushes and returns callback value', () => {
     const w = createWorld()
     const e = createEntity(w)

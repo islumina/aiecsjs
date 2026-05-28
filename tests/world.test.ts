@@ -16,7 +16,7 @@ describe('world', () => {
   it('creates a world with default options', () => {
     const w = createWorld()
     expect(w.id).toBeGreaterThan(0)
-    expect(w.version).toBe('0.1.0')
+    expect(w.version).toBe('0.1.1')
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(1024)
   })
@@ -69,5 +69,15 @@ describe('world', () => {
   it('throws when indexBits is out of range', () => {
     expect(() => createWorld({ indexBits: 0 })).toThrow()
     expect(() => createWorld({ indexBits: 25 })).toThrow()
+  })
+
+  it('throws when entity allocation exceeds maxEntities', () => {
+    const w = createWorld({ initialCapacity: 4, maxEntities: 4 })
+    for (let i = 0; i < 3; i++) createEntity(w) // indices 1..3 (0 reserved)
+    // The 4th allocation should bring nextFreshIndex to 4 (the cap), then throw
+    expect(() => {
+      createEntity(w)
+      createEntity(w)
+    }).toThrow(/maxEntities/)
   })
 })

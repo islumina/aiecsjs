@@ -57,7 +57,7 @@ describe('serialize', () => {
   it('toJSON / fromJSON round-trip', () => {
     const { w, e1 } = setupWorld()
     const snap = toJSON(w)
-    expect(snap.version).toBe('0.1.0')
+    expect(snap.version).toBe('0.1.1')
     expect(snap.entities.length).toBe(3)
     const w2 = fromJSON(snap)
     expect(hasComponent(w2, e1 as any, Position)).toBe(true)
@@ -86,5 +86,29 @@ describe('serialize', () => {
     const next = tx.capture()
     // After reset, capture is full again
     expect(next.byteLength).toBeGreaterThan(20)
+  })
+
+  it('options.components filters out components not in the allowlist', () => {
+    const { w, e1 } = setupWorld()
+    // Serialise only Position; Velocity and Player should not survive
+    const bytes = serializeWorld(w, { components: [Position] })
+    const w2 = deserializeWorld(bytes)
+    expect(hasComponent(w2, e1 as any, Position)).toBe(true)
+    expect(hasComponent(w2, e1 as any, Velocity)).toBe(false)
+  })
+
+  it('onUnknownVersion=throw rejects a format version mismatch', () => {
+    const { w } = setupWorld()
+    const bytes = serializeWorld(w)
+    // Bytes 4..7 are the little-endian uint32 format version. Corrupt it.
+    bytes[4] = 0xFF; bytes[5] = 0xFF; bytes[6] = 0xFF; bytes[7] = 0xFE
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'throw' })).toThrow(/format version/)
+  })
+
+  it('onUnknownVersion=best-effort tolerates a format version mismatch', () => {
+    const { w } = setupWorld()
+    const bytes = serializeWorld(w)
+    bytes[4] = 0xFF; bytes[5] = 0xFF; bytes[6] = 0xFF; bytes[7] = 0xFE
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).not.toThrow()
   })
 })

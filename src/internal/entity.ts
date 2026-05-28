@@ -4,6 +4,7 @@ import {
   ensureCapacity,
   getWorldState,
 } from './world.js'
+import { clearAllEntityStorages } from './component.js'
 
 export function createEntity(world: World): EntityId {
   const state = getWorldState(world)
@@ -57,6 +58,11 @@ export function destroyEntity(world: World, eid: EntityId): void {
 
   // Clean up relations referring to this entity
   cleanupRelationsOnDestroy(state, eid)
+
+  // Zero the SoA columns / undefine the AoS slots the entity owned, before
+  // the mask is cleared. Without this, destroyed entities leave stale data
+  // visible to snapshots and serialisation.
+  clearAllEntityStorages(state, eid)
 
   // Swap-pop from its archetype
   const archId = state.entityArchetype[eid] ?? 0

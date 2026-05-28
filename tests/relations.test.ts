@@ -78,4 +78,29 @@ describe('relations', () => {
     expect(ChildOf.__kind).toBe('relation')
     expect(ChildOf.__exclusive).toBe(true)
   })
+
+  it('destroyEntity on the source side cleans up its outgoing edges', () => {
+    const Likes = defineRelation()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    const c = createEntity(w)
+    addRelation(w, a, Likes, b)
+    addRelation(w, a, Likes, c)
+    destroyEntity(w, a)
+    // After source is destroyed, querying its targets returns nothing
+    expect(getRelationTargets(w, a, Likes)).toEqual([])
+  })
+
+  it('exclusive relation resizes its storage when source index exceeds initial capacity', () => {
+    const w = createWorld({ initialCapacity: 4 })
+    // Force the world to grow past initialCapacity then use ChildOf on a high-index entity
+    const parents: number[] = []
+    for (let i = 0; i < 12; i++) parents.push(createEntity(w) as number)
+    const target = createEntity(w)
+    // The ChildOf storage's exclusive Int32Array is sized to initial capacity; this
+    // exercises the resize branch in addRelation.
+    addRelation(w, parents[parents.length - 1] as any, ChildOf, target)
+    expect(getRelationTargets(w, parents[parents.length - 1] as any, ChildOf)).toEqual([target])
+  })
 })
