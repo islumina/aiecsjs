@@ -1,6 +1,6 @@
 # Stability Contract
 
-🌐 [English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
+[English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
 
 This document is the per-export stability promise for `aiecsjs`. It is the contract AI tools and human users can rely on when pinning versions and writing import paths.
 
@@ -18,7 +18,9 @@ The full machine-readable export list lives in [`api.json`](./api.json), with th
 
 ## By module
 
-### `aiecsjs` (root)
+The **root** entry (`aiecsjs`) is the stable core: world, entity, component, query, system. Everything under a sub-path (`aiecsjs/<name>`) is a **utility or adapter sub-path** — useful but non-essential, decoupled from the core, and importable a la carte. Tree-shakers should be able to drop any sub-path the application does not import.
+
+### `aiecsjs` (root core)
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -55,13 +57,17 @@ The full machine-readable export list lives in [`api.json`](./api.json), with th
 | `isWorld` | stable | 0.1.0 | |
 | `isEntity` | stable | 0.1.0 | |
 
-### `aiecsjs/loop`
+### `aiecsjs/loop` (utility sub-path)
+
+Fixed-timestep accumulator loop. Drop this sub-path if you already drive frame updates yourself (PixiJS `Ticker`, requestAnimationFrame, server-side simulation).
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
 | `createLoop` | stable | 0.1.0 | |
 
-### `aiecsjs/commands`
+### `aiecsjs/commands` (utility sub-path)
+
+Deferred structural mutations so systems can mutate world structure mid-iteration without invalidating queries.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -69,7 +75,9 @@ The full machine-readable export list lives in [`api.json`](./api.json), with th
 | `flush` | stable | 0.1.0 | |
 | `withCommandBuffer` | stable | 0.1.0 | |
 
-### `aiecsjs/observers`
+### `aiecsjs/observers` (utility sub-path)
+
+Component lifecycle hooks. The core does not require observers; install this sub-path only if a system needs add/remove/set callbacks.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -78,7 +86,7 @@ The full machine-readable export list lives in [`api.json`](./api.json), with th
 | `onRemove` | stable | 0.1.0 | |
 | `onSet` | stable | 0.1.0 | |
 
-### `aiecsjs/serialize`
+### `aiecsjs/serialize` (utility sub-path)
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -88,9 +96,9 @@ The full machine-readable export list lives in [`api.json`](./api.json), with th
 | `fromJSON` | stable | 0.1.0 | |
 | `createDeltaSerializer` | **experimental** | 0.1.0 | Wire format may change before 1.0. |
 
-### `aiecsjs/worker`
+### `aiecsjs/worker` (experimental adapter sub-path)
 
-The entire subpath is **experimental** in 0.1. Snapshot layout and capability flags may change.
+The entire subpath is **experimental** in 0.1. **In 0.1 the implementation is a snapshot-copy transport** — serialize the world into the SAB on send, deserialize into a fresh world on adopt. It is not true shared-memory column aliasing. The API surface matches the documented contract; true shared columns ship in 0.2. Snapshot layout and capability flags may change.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
@@ -99,7 +107,7 @@ The entire subpath is **experimental** in 0.1. Snapshot layout and capability fl
 | `attachWorld` | experimental | 0.1.0 | |
 | `detachWorld` | experimental | 0.1.0 | |
 
-### `aiecsjs/relations`
+### `aiecsjs/relations` (experimental adapter sub-path)
 
 The entire subpath is **experimental** in 0.1 but implemented. Targeted for stabilization in 0.3.
 

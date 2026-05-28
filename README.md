@@ -1,6 +1,6 @@
 # aiecsjs
 
-🌐 [English](README.md) | [繁體中文](README_ZHTW.md)
+[English](README.md) | [繁體中文](README_ZHTW.md)
 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
@@ -8,9 +8,9 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 ![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
 
-> A TypeScript-first archetype ECS for browser and Node, with SharedArrayBuffer multi-threading and AI-readable documentation.
+> A TypeScript-first archetype ECS for browser and Node, with SAB-ready snapshot transport and AI-readable documentation.
 
-aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs are **versioned** to prevent dangling references.
+aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs in 0.1 are bare slot indices; internal generation tracks slot reuse but is not encoded in the ID. ABA-safe `EntityRef` ships in 0.2.
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -29,7 +29,7 @@ const movement = (w, dt) => { forEachEntity(w, movers, (e, pos, vel) => { pos.x[
 pipe(movement)(world, 1/60)
 ```
 
-> ⚠️ **Status: experimental (v0.1.x).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
+> **Status: experimental (v0.1.x).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
 
 ## Table of contents
 
@@ -64,7 +64,7 @@ pipe(movement)(world, 1/60)
 | Storage | Archetype + SoA columns | SparseSet + bitmask + SoA/AoS | Archetype + JS objects | Configurable (packed/sparse/compact) + ArrayBuffer |
 | API style | Functional + `pipe` | Functional + `pipe` | Chainable OO | Decorator classes |
 | TS inference on query | Tuple-aware columns | Manual | Predicate inference | Class-based |
-| Multi-thread | SAB + Worker docs in-box | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
+| Multi-thread | SAB snapshot transport (0.1); true shared cols planned 0.2 | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
 | AI docs | `llms.txt` + `llms-full.txt` + `api.json` | No | No | No |
 | Maintenance | Active (new) | Active | Slowed (~3y since npm release) | Active |
 
@@ -74,6 +74,17 @@ pipe(movement)(world, 1/60)
 - **You want plain JS objects as entities with full DX freedom.** Use [miniplex](https://github.com/hmans/miniplex). It's the DX champion at the cost of a 2–4× iteration penalty.
 - **You need automatic system scheduling with declared read/write entitlements.** Use [@lastolivegames/becsy](https://github.com/LastOliveGames/becsy). aiecsjs systems are just functions in `pipe()` order.
 - **Your workload is entity-churn dominated (>50% of entities change shape per frame).** A sparse-set ECS will beat an archetype ECS here. Use bitECS or goodluck.
+
+### What aiecsjs does NOT do
+
+The core stays narrow on purpose. The following are explicit non-goals; reach for a dedicated tool or write app-layer code:
+
+- **System scheduler with declared read/write entitlements.** `pipe()` runs systems in declared order. Use `@lastolivegames/becsy` if you need parallel scheduling.
+- **Render component / scene-graph sync.** ECS holds data only. Pair with PixiJS, Three.js, or your renderer of choice.
+- **Physics / spatial partition.** No broad-phase, no collision. Use Rapier, Matter, or a dedicated quadtree.
+- **Network replication.** `aiecsjs/serialize` produces snapshot bytes; how they cross the wire is your app's choice.
+- **Reactive value-predicate queries.** `enterQuery` / `exitQuery` fire on component-set membership change only. Component value mutations are not tracked.
+- **Prefab / entity inheritance / hierarchy.** `aiecsjs/relations` provides plain entity-to-entity references, not inheritance.
 
 ## Install
 

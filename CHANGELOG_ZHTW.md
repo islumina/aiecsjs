@@ -1,12 +1,28 @@
 # 變更紀錄
 
-🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
+[English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
 
 `aiecsjs` 的所有重要變更都記錄在本檔案。
 
 格式基於 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，並遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
 ## [Unreleased]
+
+### 變更（0.1.0 後文件誠實化）
+
+- README 與 STABILITY 現以「snapshot-copy 傳輸」誠實描述 `aiecsjs/worker` 在 0.1 的實作；真正的共享欄位仍為 0.2 目標。README 與 `package.json` description 同步更新。
+- README 註明 0.1 的 `EntityId` 為純索引值；內部世代計數用於追蹤槽位重用但不編入 ID。具 ABA 安全的 `EntityRef` 列入 0.2 roadmap。
+- STABILITY 重新定位 sub-path（`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`）為 utility / adapter sub-path；根目錄 `aiecsjs` 才是穩定核心。應用未引用的 sub-path 可被 tree-shake 移除。
+- README 新增「aiecsjs 明確不做的事」章節，列出非目標：系統排程、render 綁定、物理、網路複製、value-predicate 反應式查詢、prefab / 繼承。
+- 語言版本檔名由 `*.zh-TW.md` 改名為 `*_ZHTW.md`。跨檔連結、`llms.txt`、`package.json` `files` 同步更新。未來其他語言版本依相同的大寫 ISO 639-1 規則命名。
+- 文件移除 emoji（語言切換器、狀態旗標等）。
+
+### 建置與工具
+
+- tsup 建置開啟 `minify: true`。
+- 新增 size-limit dev 相依；CI 對每個 export 加 budget gate：core ≤ 8 kB gzip，每個 sub-path 各自設限。實測：core 5.49 kB，全 sub-paths 合計 12.6 kB gzip。
+- 新增 GitHub Actions CI workflow：在 push 與 PR 至 `main` 時跑 typecheck → test → build → size check。
+
 
 ### 0.2 規劃
 

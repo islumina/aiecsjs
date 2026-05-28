@@ -1,6 +1,6 @@
 # aiecsjs
 
-🌐 [English](README.md) | [繁體中文](README_ZHTW.md)
+[English](README.md) | [繁體中文](README_ZHTW.md)
 
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 ![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
@@ -8,9 +8,9 @@
 ![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 ![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
 
-> 為 TypeScript 而設計的原型式 ECS，支援瀏覽器與 Node，內建 SharedArrayBuffer 多執行緒與 AI 可讀文件。
+> 為 TypeScript 而設計的原型式 ECS，支援瀏覽器與 Node，內建 SAB 快照傳輸（snapshot transport）與 AI 可讀文件。
 
-aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。實體 ID **內建世代計數**，避免懸吊參考的錯誤。
+aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。0.1 的實體 ID 為純索引值；世代計數在內部追蹤槽位重用，但不編入 ID。具 ABA 安全的 `EntityRef` 預計 0.2 推出。
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -29,7 +29,7 @@ const movement = (w, dt) => { forEachEntity(w, movers, (e, pos, vel) => { pos.x[
 pipe(movement)(world, 1/60)
 ```
 
-> ⚠️ **狀態：實驗版（v0.1.x）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
+> **狀態：實驗版（v0.1.x）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
 
 ## 目錄
 
@@ -64,7 +64,7 @@ pipe(movement)(world, 1/60)
 | 儲存模型 | 原型 + SoA 欄位 | SparseSet + bitmask + SoA/AoS | 原型 + JS 物件 | 可選（packed/sparse/compact）+ ArrayBuffer |
 | API 風格 | 函式式 + `pipe` | 函式式 + `pipe` | 鏈式 OO | 裝飾器 class |
 | 查詢 TS 推導 | 欄位元組支援 | 手動 | 述詞推導 | class-based |
-| 多執行緒 | SAB + Worker 內建文件 | SAB-ready，排程自理 | 單執行緒 | Roadmap（未實作） |
+| 多執行緒 | SAB 快照傳輸（0.1）；真共享欄位預計 0.2 | SAB-ready，排程自理 | 單執行緒 | Roadmap（未實作） |
 | AI 文件 | `llms.txt` + `llms-full.txt` + `api.json` | 無 | 無 | 無 |
 | 維護狀態 | 活躍（新） | 活躍 | 趨緩（npm 已 ~3 年） | 活躍 |
 
@@ -81,6 +81,17 @@ pipe(movement)(world, 1/60)
 - **想用任意 JS 物件當實體、追求最大 DX 彈性。** 改用 [miniplex](https://github.com/hmans/miniplex)。它是 DX 冠軍，代價是 2-4 倍的迭代開銷。
 - **需要自動排程系統並宣告 read/write 權限。** 改用 [@lastolivegames/becsy](https://github.com/LastOliveGames/becsy)。aiecsjs 的系統只是 `pipe()` 順序的函式。
 - **工作負載以實體變動為主（> 50% 實體每幀變動）。** Sparse-set 風格的 ECS 在此情境會勝過原型式 ECS。改用 bitECS 或 goodluck。
+
+### aiecsjs 明確不做的事
+
+核心刻意保持窄範圍。以下為明確的非目標；請改用專屬工具或在應用層自行處理：
+
+- **自動排程系統並宣告 read/write 權限。** `pipe()` 依宣告順序執行系統。需要並行排程請改用 `@lastolivegames/becsy`。
+- **渲染元件 / 場景圖同步。** ECS 只持有資料。請搭配 PixiJS、Three.js 或其他渲染器。
+- **物理 / 空間分割。** 無 broad-phase、無碰撞偵測。請使用 Rapier、Matter 或專用 quadtree。
+- **網路複製。** `aiecsjs/serialize` 產生快照 byte 流；如何送上線路由應用層決定。
+- **反應式 value-predicate query。** `enterQuery` / `exitQuery` 只在元件集合 membership 變動時觸發。元件值變動不追蹤。
+- **Prefab / 實體繼承 / 階層。** `aiecsjs/relations` 提供純粹的實體對實體關聯，不是繼承。
 
 ## 安裝
 

@@ -1,6 +1,6 @@
 # 穩定度契約
 
-🌐 [English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
+[English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
 
 本文件為 `aiecsjs` 中各匯出的穩定度承諾。AI 工具與人類使用者可依此契約來鎖定版本與書寫 import 路徑。
 
@@ -18,7 +18,9 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 
 ## 依模組分類
 
-### `aiecsjs`（根目錄）
+**根目錄** entry（`aiecsjs`）為穩定核心：world、entity、component、query、system。任何 sub-path（`aiecsjs/<名稱>`）為 **utility 或 adapter sub-path** — 實用但非核心，與 core 解耦，可單獨 a la carte import。Tree-shaker 應能丟掉未引用的任何 sub-path。
+
+### `aiecsjs`（根核心）
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -55,13 +57,17 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `isWorld` | stable | 0.1.0 | |
 | `isEntity` | stable | 0.1.0 | |
 
-### `aiecsjs/loop`
+### `aiecsjs/loop`（utility sub-path）
+
+定步長累加迴圈。若應用層已自有 frame 更新驅動（PixiJS `Ticker`、requestAnimationFrame、伺服端模擬），可直接略過本 sub-path。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
 | `createLoop` | stable | 0.1.0 | |
 
-### `aiecsjs/commands`
+### `aiecsjs/commands`（utility sub-path）
+
+延後的結構性變更，讓系統可在迭代中安全改動 world 結構而不會讓查詢失效。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -69,7 +75,9 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `flush` | stable | 0.1.0 | |
 | `withCommandBuffer` | stable | 0.1.0 | |
 
-### `aiecsjs/observers`
+### `aiecsjs/observers`（utility sub-path）
+
+元件生命週期 hook。Core 不依賴 observers；只在系統需要 add/remove/set callback 時才安裝本 sub-path。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -78,7 +86,7 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `onRemove` | stable | 0.1.0 | |
 | `onSet` | stable | 0.1.0 | |
 
-### `aiecsjs/serialize`
+### `aiecsjs/serialize`（utility sub-path）
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -88,9 +96,9 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `fromJSON` | stable | 0.1.0 | |
 | `createDeltaSerializer` | **experimental** | 0.1.0 | Wire format 在 1.0 之前可能改變。 |
 
-### `aiecsjs/worker`
+### `aiecsjs/worker`（experimental adapter sub-path）
 
-整個 subpath 在 0.1 為 **experimental**。Snapshot 佈局與能力旗標可能改變。
+整個 subpath 在 0.1 為 **experimental**。**0.1 的實作為 snapshot-copy 傳輸**——傳送時將 world 序列化進 SAB，接收端反序列化成全新 world，並非真正的共享記憶體欄位 aliasing。API 表面符合文件契約；真正的共享欄位將於 0.2 推出。Snapshot 佈局與能力旗標可能改變。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
@@ -99,7 +107,7 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `attachWorld` | experimental | 0.1.0 | |
 | `detachWorld` | experimental | 0.1.0 | |
 
-### `aiecsjs/relations`
+### `aiecsjs/relations`（experimental adapter sub-path）
 
 整個 subpath 在 0.1 為 **experimental** 但已實作。預期於 0.3 穩定。
 

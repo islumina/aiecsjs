@@ -1,7 +1,7 @@
 {
   "name": "aiecsjs",
   "version": "0.1.0",
-  "description": "TypeScript-first archetype ECS with TypedArray SoA, SharedArrayBuffer multi-threading, and AI-readable docs.",
+  "description": "TypeScript-first archetype ECS with TypedArray SoA, SAB-ready snapshot transport, and AI-readable docs.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -81,9 +81,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+    "size": "size-limit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build && npm run size"
   },
   "devDependencies": {
+    "@size-limit/file": "^12.1.0",
+    "size-limit": "^12.1.0",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
     "vitest": "^1.6.0"

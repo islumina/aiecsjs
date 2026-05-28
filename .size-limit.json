@@ -1,0 +1,44 @@
+[
+  {
+    "name": "core (aiecsjs)",
+    "path": "dist/index.js",
+    "limit": "8 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/loop",
+    "path": "dist/loop.js",
+    "limit": "1 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/commands",
+    "path": "dist/commands.js",
+    "limit": "4 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/observers",
+    "path": "dist/observers.js",
+    "limit": "2 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/serialize",
+    "path": "dist/serialize.js",
+    "limit": "5 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/worker",
+    "path": "dist/worker.js",
+    "limit": "5 kB",
+    "gzip": true
+  },
+  {
+    "name": "aiecsjs/relations",
+    "path": "dist/relations.js",
+    "limit": "1.5 kB",
+    "gzip": true
+  }
+]

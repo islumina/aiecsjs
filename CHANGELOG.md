@@ -1,12 +1,27 @@
 # Changelog
 
-🌐 [English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
+[English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
 
 All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Changed (post-0.1.0 docs hygiene)
+
+- README and STABILITY now describe `aiecsjs/worker` honestly as a snapshot-copy transport for 0.1; true shared columns remain a 0.2 target. README description and `package.json` description updated accordingly.
+- README clarifies that 0.1 `EntityId` is a bare slot index; internal generation is tracked for slot reuse but not encoded in the ID. ABA-safe `EntityRef` is on the 0.2 roadmap.
+- Sub-paths (`loop` / `commands` / `observers` / `serialize` / `worker` / `relations`) re-positioned in STABILITY as utility / adapter sub-paths; the root `aiecsjs` is the stable core surface. Tree-shakers should drop any sub-path the app does not import.
+- README adds a "What aiecsjs does NOT do" section listing explicit non-goals (system scheduler, render binding, physics, network replication, value-predicate reactive queries, prefab/inheritance).
+- Language version filenames renamed from `*.zh-TW.md` to `*_ZHTW.md`. Cross-links, `llms.txt`, and `package.json` `files` updated. Future language variants follow the same uppercase ISO 639-1 pattern.
+- Removed emoji from documentation prose (language switchers, status banners).
+
+### Build & tooling
+
+- tsup build now runs with `minify: true`.
+- size-limit added as a dev dependency; CI now enforces a budget per export: core ≤ 8 kB gzip, every sub-path budgeted. Current measurements: core 5.49 kB, all sub-paths combined 12.6 kB gzip.
+- GitHub Actions CI workflow added: typecheck → test → build → size check on push and PR to `main`.
 
 ### Planned for 0.2
 
