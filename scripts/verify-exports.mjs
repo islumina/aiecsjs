@@ -4,8 +4,8 @@
 // Handles both object-condition form ({ types, import, require }) and string form
 // (e.g. "./package.json": "./package.json").
 
-import { readFile, access } from 'node:fs/promises'
-import { resolve, dirname } from 'node:path'
+import { access, readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')

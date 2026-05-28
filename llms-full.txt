@@ -936,12 +936,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned for 0.3+
+### Planned for 0.4+
 
-- Implement ABA-safe `EntityRef` and graduate `getEntityGeneration` / `packEntity` from experimental → stable.
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
 - Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+
+## [0.3.0] - 2026-05-29
+
+### Added (API)
+
+- **`EntityRef<T>`** — ABA-safe entity reference. `refOf(world, eid)` builds one;
+  `deref(world, ref)` returns the entity id when still alive (generation match)
+  or `null` otherwise; `aliveRef(world, ref)` is the boolean guard form. Phantom
+  type `T` lets callers distinguish ref kinds (e.g. `EntityRef<'bullet'>`) without
+  runtime cost. Refs are in-memory only — not serializable across worker / disk.
+- **`EntityNotAliveError`** — thrown by `refOf` when the entity is dead or invalid.
+  `deref` / `aliveRef` never throw.
+
+### Changed
+
+- **`EntityId` now packs index + generation** into a single 32-bit number
+  `(generation << indexBits) | index` (default `indexBits=24, generationBits=8`).
+  `EntityId` remains opaque per STABILITY contract; the layout is implementation
+  detail. **Migration note**: do not compare `EntityId` numbers directly
+  (`eid === 42` will break across slot recycles); use
+  `getEntityIndex(eid)` for index comparison or `refOf(world, eid).id` for
+  identity matching that survives slot reuse.
+- **`getEntityGeneration` / `packEntity` graduate to `stable`** (were `experimental`
+  since 0.2.0). Both now return real values. These functions use default 24/8 bit
+  layout; for non-default `createWorld({ indexBits, generationBits })`, use
+  `EntityRef` and `deref` instead of manual unpacking.
+
+### Fixed
+
+- **ABA bug on entity slot recycle**: previously `entityExists` and `isAliveInternal`
+  only checked archetype membership; a stale `EntityId` pointing at a recycled slot
+  would silently report alive. With packed generation + `deref` generation match,
+  stale refs now correctly invalidate.
+- **`destroyEntity` generation wrap mask aligned with `options.generationBits`**
+  (was hard-coded `& 0xffff`). The mask now correctly uses
+  `state.options.generationMask`, fixing inconsistency for non-default
+  `generationBits` values.
+
+### Documentation
+
+- `onSet` JSDoc clarifies that `addComponent` does NOT trigger `onSet`, and
+  direct writes to column views returned by `getComponent` (e.g. `col.x[idx] = 5`)
+  also do NOT trigger `onSet`. Only `setComponent` on an already-present
+  component fires the callback. Anti-pattern example included.
+
+### Compatibility
+
+- `EntityId` layout change is **not** breaking at the type system level (opaque
+  branded number), but consumers who relied on `eid === N` direct comparison
+  will need to migrate (see Migration note above).
+- All existing `stable` exports unchanged.
+- `aiecsjs/worker` snapshot wire format unchanged (still uses raw indices).
+- `aiecsjs/serialize` wire format unchanged.
+
+### Build & tooling
+
+- `VERSION` constant bumped to `0.3.0`.
 
 ## [0.2.1] - 2026-05-28
 
@@ -1154,8 +1210,13 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `destroyEntity` | stable | 0.1.0 | |
 | `entityExists` | stable | 0.1.0 | |
 | `getEntityIndex` | stable | 0.1.0 | |
-| `getEntityGeneration` | **experimental** | 0.1.0 | Returns 0 in 0.x (generation tracked internally but not encoded in EntityId). Real values arrive with ABA-safe `EntityRef` in **0.3+**. |
-| `packEntity` | **experimental** | 0.1.0 | Identity helper in 0.x. Returns the index unchanged. Real packing arrives with `EntityRef` in **0.3+**. |
+| `getEntityGeneration` | stable | 0.3.0 | Returns real generation value packed into EntityId (default 24-bit index, 8-bit generation). For non-default `createWorld({ indexBits, generationBits })`, use `EntityRef` + `deref` instead. |
+| `packEntity` | stable | 0.3.0 | Packs index + generation into an EntityId using default 24/8 bit layout. For non-default bit sizes, use `EntityRef` + `deref` instead. |
+| `refOf` | stable | 0.3.0 | Throws `EntityNotAliveError` for dead entity. |
+| `deref` | stable | 0.3.0 | Returns null for stale / cross-world refs; never throws. |
+| `aliveRef` | stable | 0.3.0 | Boolean guard form of `deref`; never throws. |
+| `EntityRef` (type) | stable | 0.3.0 | In-memory only; not serializable. |
+| `EntityNotAliveError` | stable | 0.3.0 | Thrown only by `refOf`. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
 | `defineObjectComponent` | stable | 0.1.0 | AoS components are main-thread only; not SAB-shareable. |
@@ -1250,8 +1311,9 @@ Everything under this prefix is **internal**. It exists for the implementation's
 |---|---|---|
 | 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
 | 0.2.0 | Safety + alignment | Prototype-pollution hardening, observer `{ signal? }`, `disposeWorld` alias, `getEntityGeneration` / `packEntity` re-labelled experimental, `verify:llms` gate. See [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28). |
-| 0.3+ | Relations stabilisation + EntityRef + SAB | `aiecsjs/relations` graduates to stable; ABA-safe `EntityRef` lands and `getEntityGeneration` / `packEntity` start returning real values; `aiecsjs/worker` adopts true shared-memory column aliasing. |
-| 0.3.x | Hardening, relations stabilization, multi-threading polish | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.3.x | EntityRef + generation packing | ABA-safe; `getEntityGeneration` / `packEntity` → stable. |
+| 0.4+ | Relations stabilisation + true SAB worker | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.6+ | Multi-World snapshot diff transport (placeholder) | experimental — design TBD. |
 | 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
 
 ## How to check stability at runtime
