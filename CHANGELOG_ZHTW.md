@@ -15,6 +15,21 @@
 - 引入 doc-test 工具，使 README 中的程式碼區塊能被機械化驗證。
 - 將 `aiecsjs/relations` 與 `aiecsjs/worker`（真正 SAB 共享 columns）升為 stable。
 
+## [0.2.1] - 2026-05-28
+
+### 安全
+
+- **解掉兩個 Dependabot moderate 報告**，升級 `vitest` 1.6.0 → 4.1.7。新增 `vite` 8.0.14 為直接 devDependency 以滿足 vitest 4 的 peer 範圍（`^6 || ^7 || ^8`）。皆為 dev-only ─ 執行階段表面無變動。
+  - [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) `esbuild <=0.24.2` 開發伺服器 CORS 資料外洩（0.25.0 修正）。
+  - [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) `vite <=6.4.1` 在 optimized deps `.map` 處理的路徑遍歷（6.4.2 / 7.3.2 / 8.0.5 修正）。
+
+### 變更
+
+- **README 開頭統一為 ai*js 家族同款**：五徽章樣式（npm + CI + License + AI Generated + 語言切換）、單行 tagline 引用、生態系 footer 互連。取代過去的混搭風格。
+- **`VERSION` constant 升至 0.2.1**（[src/version.ts](src/version.ts)），讓 `world.version` 與 snapshot meta 反映本次發版。
+
+執行階段表面未變動。Production bundles 與 0.2.0 一致。
+
 ## [0.2.0] - 2026-05-28
 
 ### 修復（correctness + security）

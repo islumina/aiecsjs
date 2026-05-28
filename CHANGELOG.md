@@ -15,6 +15,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Doc-test harness so README code blocks are mechanically verified.
 - Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
 
+## [0.2.1] - 2026-05-28
+
+### Security
+
+- **Resolve two Dependabot moderate advisories** on the transitive dev-only graph by upgrading `vitest` 1.6.0 → 4.1.7. Adds `vite` 8.0.14 as a direct devDependency to satisfy vitest 4's peer range (`^6 || ^7 || ^8`). These are dev-only — runtime surface unchanged.
+  - [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) `esbuild <=0.24.2` CORS development server data leak (fixed in 0.25.0).
+  - [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) `vite <=6.4.1` path traversal in optimized deps `.map` handling (fixed in 6.4.2 / 7.3.2 / 8.0.5).
+
+### Changed
+
+- **README opening unified across the ai*js family**: five-badge shields row (npm + CI + License + AI Generated + 繁體中文/English), one-line tagline as blockquote, ecosystem footer linking to the other two packages. Replaces the previous mixed style (text language switcher + 5 ad-hoc badges).
+- **`VERSION` constant bumped to 0.2.1** ([src/version.ts](src/version.ts)) so `world.version` and snapshot meta reflect this release.
+
+Runtime surface unchanged. Production bundles are byte-identical to 0.2.0.
+
 ## [0.2.0] - 2026-05-28
 
 ### Fixed (correctness + security)

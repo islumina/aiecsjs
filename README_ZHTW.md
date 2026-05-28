@@ -1,14 +1,14 @@
 # aiecsjs
 
-[English](README.md) | [繁體中文](README_ZHTW.md)
-
+[![npm version](https://img.shields.io/npm/v/aiecsjs.svg)](https://www.npmjs.com/package/aiecsjs)
+[![CI](https://github.com/yshengliao/aiecsjs/actions/workflows/ci.yml/badge.svg)](https://github.com/yshengliao/aiecsjs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
-![Status](https://img.shields.io/badge/status-experimental-orange.svg)
-![Version](https://img.shields.io/badge/version-0.1.4-blue.svg)
-![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
+[![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
 
 > 為 TypeScript 而設計的原型式 ECS，支援瀏覽器與 Node，內建 SAB 快照傳輸（snapshot transport）與 AI 可讀文件。
+
+隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）與 [aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）。
 
 aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。0.x 的實體 ID 為純索引值；世代計數在內部追蹤槽位重用，但不編入 ID。具 ABA 安全的 `EntityRef` 預計 **0.3+** 推出（0.2 為求 API 穩定與安全性收尾而延後）。
 

@@ -1,14 +1,14 @@
 # aiecsjs
 
-[English](README.md) | [繁體中文](README_ZHTW.md)
-
+[![npm version](https://img.shields.io/npm/v/aiecsjs.svg)](https://www.npmjs.com/package/aiecsjs)
+[![CI](https://github.com/yshengliao/aiecsjs/actions/workflows/ci.yml/badge.svg)](https://github.com/yshengliao/aiecsjs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)
-![Status](https://img.shields.io/badge/status-experimental-orange.svg)
-![Version](https://img.shields.io/badge/version-0.1.4-blue.svg)
-![Types](https://img.shields.io/badge/types-TypeScript-3178c6.svg)
+[![AI Generated](https://img.shields.io/badge/AI_Generated-Claude_Code_Opus_4.7_Max-blueviolet.svg)](https://www.anthropic.com/claude-code)
+[![繁體中文](https://img.shields.io/badge/lang-繁體中文-red.svg)](README_ZHTW.md)
 
 > A TypeScript-first archetype ECS for browser and Node, with SAB-ready snapshot transport and AI-readable documentation.
+
+Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM) and [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC).
 
 aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs in 0.x are bare slot indices; internal generation tracks slot reuse but is not encoded in the ID. ABA-safe `EntityRef` is targeted for **0.3+** (deferred from the 0.2 roadmap once the v0.2.0 scope froze on API stability + safety).
 
