@@ -325,7 +325,7 @@ describe('worker.ts: error paths', () => {
       meta: {
         magic: 0xdeadbeef,
         formatVersion: 1,
-        aiecsjsVersion: '0.4.1',
+        aiecsjsVersion: '0.5.0',
         indexBits: 24,
         generationBits: 8,
         maxComponents: 256,
@@ -343,7 +343,7 @@ describe('worker.ts: error paths', () => {
       meta: {
         magic: 0x41494543,
         formatVersion: 99,
-        aiecsjsVersion: '0.4.1',
+        aiecsjsVersion: '0.5.0',
         indexBits: 24,
         generationBits: 8,
         maxComponents: 256,
@@ -841,7 +841,7 @@ describe('worker.ts: transferableSnapshot is callable', () => {
     const e = createEntity(w)
     addComponent(w, e, Position, { x: 1 })
     const snap = transferableSnapshot(w)
-    expect(snap.meta.aiecsjsVersion).toBe('0.4.1')
+    expect(snap.meta.aiecsjsVersion).toBe('0.5.0')
     expect(snap.meta.formatVersion).toBe(1)
     expect(snap.meta.capacity).toBeGreaterThan(0)
   })
