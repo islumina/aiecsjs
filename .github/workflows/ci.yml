@@ -36,5 +36,8 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify dist subpaths
+        run: npm run verify:dist
+
       - name: Size check
         run: npm run size

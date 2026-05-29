@@ -84,11 +84,12 @@
     "lint": "biome check src tests",
     "format": "biome format --write src tests",
     "verify:exports": "node scripts/verify-exports.mjs",
+    "verify:dist": "node scripts/check-dist-subpaths.mjs",
     "build:llms": "node scripts/build-llms-full.mjs",
     "verify:llms": "node scripts/build-llms-full.mjs --check",
     "size": "size-limit",
     "coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run coverage && npm run build && npm run verify:exports && npm run verify:llms && npm run size"
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run coverage && npm run build && npm run verify:dist && npm run verify:exports && npm run verify:llms && npm run size"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
