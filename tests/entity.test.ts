@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  Types,
+  addComponent,
   createEntity,
   createWorld,
+  defineComponent,
+  defineQuery,
   destroyEntity,
   entityExists,
+  forEachEntity,
   getEntityGeneration,
   getEntityIndex,
   isEntity,
   packEntity,
+  runQuery,
 } from '../src/index.js'
+import { refOf } from '../src/index.js'
 
 describe('entity', () => {
   it('createEntity never returns 0', () => {
@@ -114,5 +121,33 @@ describe('entity', () => {
     expect(entityExists(w, -1 as any)).toBe(false)
     expect(entityExists(w, 1.5 as any)).toBe(false)
     expect(entityExists(w, 0 as any)).toBe(false)
+  })
+
+  // P0 regression: signed-overflow for generation >= 128
+  // pre-fix: createEntity returned a negative eid; arch.entities (Uint32Array)
+  // stored it unsigned; runQuery/forEachEntity returned the unsigned value which
+  // did NOT match the negative eid stored in entityRow, so entityExists/refOf broke.
+  it('query iteration and refOf agree for high-generation entities (gen >= 128)', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    let e = createEntity(w)
+    addComponent(w, e, Position, { x: 1 })
+    for (let i = 0; i < 200; i++) {
+      destroyEntity(w, e)
+      e = createEntity(w)
+      addComponent(w, e, Position, { x: 1 })
+    }
+    expect(getEntityGeneration(e)).toBeGreaterThanOrEqual(128)
+    const q = defineQuery([Position])
+    const ids = runQuery(w, q)
+    expect(ids.length).toBe(1)
+    expect(ids[0]).toBe(e) // pre-fix FAILS: unsigned readback ≠ negative e
+    expect(entityExists(w, ids[0]!)).toBe(true) // pre-fix FAILS: entityRow keyed negative
+    expect(() => refOf(w, ids[0]!)).not.toThrow() // pre-fix THROWS on live entity
+    let seen: number | null = null
+    forEachEntity(w, q, (eid) => {
+      seen = eid as number
+    })
+    expect(seen).toBe(e)
   })
 })

@@ -13,7 +13,12 @@ export const DEFAULT_GENERATION_MASK = (1 << DEFAULT_GENERATION_BITS) - 1
 // --- Internal pack/unpack helpers (world-options-aware) ---
 
 export function packEid(idx: number, gen: number, opts: ResolvedWorldOptions): EntityId {
-  return (((gen & opts.generationMask) << opts.indexBits) | (idx & opts.indexMask)) as EntityId
+  // `>>> 0` normalises to unsigned: for generation ≥ 128 (default 8-bit gen) the
+  // signed `<<`/`|` would yield a negative number that diverges from the unsigned
+  // value stored in `arch.entities` (Uint32Array), breaking entityRow lookups for
+  // query-iterated high-generation entities. Keep EntityId a non-negative int32.
+  return ((((gen & opts.generationMask) << opts.indexBits) | (idx & opts.indexMask)) >>>
+    0) as EntityId
 }
 
 export function unpackIdx(eid: number, opts: ResolvedWorldOptions): number {
@@ -165,8 +170,10 @@ export function getEntityGeneration(eid: EntityId): number {
  * Use `EntityRef` and `deref` for portable cross-world identity matching.
  */
 export function packEntity(index: number, generation: number): EntityId {
-  return (((generation & DEFAULT_GENERATION_MASK) << DEFAULT_INDEX_BITS) |
-    (index & DEFAULT_INDEX_MASK)) as EntityId
+  // `>>> 0` normalises to unsigned — see packEid. Keeps EntityId a non-negative int32.
+  return ((((generation & DEFAULT_GENERATION_MASK) << DEFAULT_INDEX_BITS) |
+    (index & DEFAULT_INDEX_MASK)) >>>
+    0) as EntityId
 }
 
 export function isEntity(world: World, x: unknown): x is EntityId {
