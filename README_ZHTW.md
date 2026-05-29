@@ -10,7 +10,7 @@
 
 隸屬 [ai\*js micro-runtime 生態系](https://github.com/yshengliao) ─ 另見 [aifsmjs](https://github.com/yshengliao/aifsmjs)（FSM）與 [aibridgejs](https://github.com/yshengliao/aibridgejs)（cross-context RPC）。
 
-aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。0.x 的實體 ID 為純索引值；世代計數在內部追蹤槽位重用，但不編入 ID。具 ABA 安全的 `EntityRef` 預計 **0.3+** 推出（0.2 為求 API 穩定與安全性收尾而延後）。
+aiecsjs 採用 **原型表格搭配 TypedArray 欄位** 與 **位元遮罩查詢**，這正是 piecs 與 wolf-ecs 在公開效能評測中名列前茅所採用的架構。API 為 **函式式且可 tree-shake**，以 `pipe()` 組合。元件（Component）同時支援 SoA（結構陣列）與 AoS（結構物件）兩種佈局。自 0.3 起，`EntityId` 將 index 與 generation 打包為單一 32-bit 數字；具 ABA 安全的 `EntityRef` API 已於 0.3.0 正式推出。
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -387,8 +387,13 @@ type WorldOptions = {
 | `destroyEntity` | `(world: World, eid: EntityId) => void` | stable |
 | `entityExists` | `(world: World, eid: EntityId) => boolean` | stable |
 | `getEntityIndex` | `(eid: EntityId) => number` | stable |
-| `getEntityGeneration` | `(eid: EntityId) => number` | stable |
-| `packEntity` | `(index: number, generation: number) => EntityId` | stable |
+| `getEntityGeneration` | `(eid: EntityId) => number` | stable（自 0.3.0）— 回傳 8-bit generation 欄位；使用預設 24/8 佈局 |
+| `packEntity` | `(index: number, generation: number) => EntityId` | stable（自 0.3.0）— 使用預設 24/8 佈局打包 index + generation |
+| `refOf` | `<T>(world: World, eid: EntityId) => EntityRef<T>` | stable（自 0.3.0）— 建立 ABA-safe ref；entity 已死亡時拋出 `EntityNotAliveError` |
+| `deref` | `<T>(world: World, ref: EntityRef<T>) => EntityId \| null` | stable（自 0.3.0）— 回傳存活的 `EntityId`，否則回傳 `null`；絕不拋出 |
+| `aliveRef` | `<T>(world: World, ref: EntityRef<T>) => boolean` | stable（自 0.3.0）— `deref` 的布林 guard 形式；絕不拋出 |
+| `EntityRef` | `interface EntityRef<T> { id: EntityId; worldId: number }` | stable（自 0.3.0）— 不透明的 ABA-safe 參照；僅限記憶體內使用 |
+| `EntityNotAliveError` | `class EntityNotAliveError extends Error { eid: number }` | stable（自 0.3.0）— `refOf` 在 entity 不存活時拋出 |
 
 ### Component — `aiecsjs`
 

@@ -6,6 +6,31 @@ All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-29
+
+### Fixed
+
+- **Packed EntityId signed-overflow for generation ≥ 128**: `createEntity` returned a negative number diverging from the unsigned value stored in archetype row arrays (`Uint32Array`), so query iteration (`runQuery`/`iterQuery`/`forEachEntity`) yielded an eid that failed `entityRow` lookups; `refOf`/`entityExists`/`deref` on a query-iterated high-generation entity misbehaved (`refOf` threw on a live entity). `packEid`/`packEntity` now normalise with `>>> 0`. No public-bundle behaviour change beyond the corrected eid representation (EntityId is opaque + in-memory-only).
+- **`toJSON` silently dropped high-generation entities** (gen ≥ 128 with default 8-bit generation): `toJSON` contained its own inline pack expression that produced a signed (negative) result, diverging from the unsigned key stored in `arch.entityRow`. The affected entity passed the archetype check but failed `entityRow.has()`, so it was omitted from every snapshot and `serializeWorld` call. Fixed by replacing the inline expression with the canonical `packEid` (which applies `>>> 0`). SPOT principle: one pack source of truth.
+- **Cross-subpath registry isolation** (`tsup splitting: false` → `splitting: true`): each compiled entry point (`dist/index.js`, `dist/serialize.js`, etc.) previously bundled its own private copy of `internal/world.ts`, including the module-scope `worldRegistry`. A world created via the core subpath was invisible to `serializeWorld`/`getRelationTargets`/`transferableSnapshot` imported from their respective subpaths, causing `world N is destroyed or unknown` at runtime. With `splitting: true`, esbuild extracts a shared chunk used by all entries; ESM and CJS are both verified by the new `scripts/check-dist-subpaths.mjs` smoke script.
+- **`getRelationTargets` returned raw index as `EntityId`** (gen always 0): `addRelation` stores the target as a raw slot index (`& indexMask`). The previous return path cast this raw index directly to `EntityId`, which is equivalent to a packed id with generation 0. For any target that had been recycled (gen > 0), callers received a stale id that failed `entityExists`, `entityRow` lookups, and component access. Fixed by re-packing each raw index against the current generation via `packEid` before returning.
+- **`resolveOptions` did not validate `indexBits + generationBits ≤ 32`**: the individual range checks (`indexBits ∈ [1, 24]`, `generationBits ∈ [0, 16]`) allowed combinations such as `indexBits=24, generationBits=16` (40 bits), where `gen << 24` silently overflowed and high-generation bits were lost. A sum check is now enforced with a clear error message. The `[Unreleased]` example corrected accordingly (`indexBits: 16, generationBits: 16` = 32 bits).
+
+### Known Limitations
+
+- **`createDeltaSerializer.apply` with a recycled target world**: `apply` uses the raw entity index from the delta snapshot as the `EntityId` directly. When the target world has already recycled any of those slots (generation > 0), component operations silently act on the wrong packed id. This is a known limitation of the experimental delta API; the common usage (delta → a fresh gen-0 render-mirror world) is unaffected. A proper raw-index-to-packed-id mapping is planned for 0.4. Avoid `apply` against a world that has previously destroyed entities.
+
+### Documentation
+
+- README / README_ZHTW updated to reflect the shipped 0.3.0 `EntityRef` API: the previous README still described EntityRef as "targeted for 0.3+" and `getEntityGeneration`/`packEntity` as experimental. Both files now correctly state EntityId has been packed since 0.3, and `EntityRef` / `refOf` / `deref` / `aliveRef` / `EntityNotAliveError` are all stable since 0.3.0. API table entries for these symbols added.
+
+### Build & Tooling
+
+- Coverage gate: `@vitest/coverage-v8` installed and wired into `prepublishOnly` (replaces `npm run test`) and CI. Thresholds: statements 95 / branches 80 / functions 97 / lines 98 — the achievable bar on pristine source. The branch figure honours the `?? 0` / `noUncheckedIndexedAccess` idiom on TypedArray reads (nullish-fallback branches unreachable by design); thresholds are raised only by adding tests, never by stripping defensive guards or scattering `/* v8 ignore */`.
+- `fast-check` property tests (`tests/properties.test.ts`): pack/unpack round-trip invariant (asserts `e >= 0` to guard the P0 regression) and ABA-deref always-null invariant.
+- Dispose three-cycle tests, error-path tests, and observer handler-throw behaviour documented in `tests/world.test.ts` / `tests/observers.test.ts`.
+- `scripts/check-dist-subpaths.mjs` (`npm run verify:dist`): post-build smoke test that imports `createWorld`+`createEntity` from the core subpath and calls `serializeWorld`, `addRelation`/`getRelationTargets`, and `transferableSnapshot` from their respective subpaths for both ESM (`dist/*.js`) and CJS (`dist/*.cjs`). Wired into `prepublishOnly` (after `build`) and CI.
+
 ## [Unreleased]
 
 ### Planned for 0.4+
@@ -17,7 +42,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   default `generationBits=8`, a single slot recycled 256 times wraps back to its
   starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
   workloads (~5000 frame to wrap a single slot at 60 fps × ~1k destroys); high-churn
-  pools should set `createWorld({ generationBits: 16 })`. See test
+  pools should set `createWorld({ indexBits: 16, generationBits: 16 })` (16 + 16 = 32 bits;
+  65 536 entities × 65 536 generations). See test
   [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
 ## [0.3.0] - 2026-05-29

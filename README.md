@@ -10,7 +10,7 @@
 
 Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — see also [aifsmjs](https://github.com/yshengliao/aifsmjs) (FSM) and [aibridgejs](https://github.com/yshengliao/aibridgejs) (cross-context RPC).
 
-aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Entity IDs in 0.x are bare slot indices; internal generation tracks slot reuse but is not encoded in the ID. ABA-safe `EntityRef` is targeted for **0.3+** (deferred from the 0.2 roadmap once the v0.2.0 scope froze on API stability + safety).
+aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Since 0.3, `EntityId` packs index + generation into a single 32-bit number; the ABA-safe `EntityRef` API shipped in 0.3.0.
 
 ```ts
 import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
@@ -380,8 +380,13 @@ type WorldOptions = {
 | `destroyEntity` | `(world: World, eid: EntityId) => void` | stable |
 | `entityExists` | `(world: World, eid: EntityId) => boolean` | stable |
 | `getEntityIndex` | `(eid: EntityId) => number` | stable |
-| `getEntityGeneration` | `(eid: EntityId) => number` | experimental (since 0.1) — returns `0` in 0.x; real generation lands with ABA-safe `EntityRef` in **0.3+** |
-| `packEntity` | `(index: number, generation: number) => EntityId` | experimental (since 0.1) — identity in 0.x; real packing lands with `EntityRef` in **0.3+** |
+| `getEntityGeneration` | `(eid: EntityId) => number` | stable (since 0.3.0) — returns the 8-bit generation field; uses default 24/8 layout |
+| `packEntity` | `(index: number, generation: number) => EntityId` | stable (since 0.3.0) — packs index + generation using default 24/8 layout |
+| `refOf` | `<T>(world: World, eid: EntityId) => EntityRef<T>` | stable (since 0.3.0) — creates ABA-safe ref; throws `EntityNotAliveError` if entity is dead |
+| `deref` | `<T>(world: World, ref: EntityRef<T>) => EntityId \| null` | stable (since 0.3.0) — returns live `EntityId` or `null` if stale/cross-world; never throws |
+| `aliveRef` | `<T>(world: World, ref: EntityRef<T>) => boolean` | stable (since 0.3.0) — boolean guard form of `deref`; never throws |
+| `EntityRef` | `interface EntityRef<T> { id: EntityId; worldId: number }` | stable (since 0.3.0) — opaque ABA-safe reference; in-memory only |
+| `EntityNotAliveError` | `class EntityNotAliveError extends Error { eid: number }` | stable (since 0.3.0) — thrown by `refOf` when entity is not alive |
 
 ### Component — `aiecsjs`
 

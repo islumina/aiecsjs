@@ -6,6 +6,31 @@
 
 格式基於 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，並遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.3.1] - 2026-05-29
+
+### 修復
+
+- **packed EntityId 有號溢位（generation ≥ 128）**：`createEntity` 在 generation ≥ 128 時回傳負數，與 archetype row 陣列（`Uint32Array`）儲存的 unsigned 值不一致，導致查詢迭代（`runQuery`/`iterQuery`/`forEachEntity`）吐出的 eid 無法通過 `entityRow` 查詢；對查詢迭代出的高 generation entity 呼叫 `refOf`/`entityExists`/`deref` 行為異常（對活著的 entity，`refOf` 拋出例外）。`packEid`/`packEntity` 現以 `>>> 0` 正規化為 unsigned。公開 bundle 行為除修正後的 eid 表示外無其他改動（EntityId 為 opaque + 僅限記憶體內）。
+- **`toJSON` 靜默遺漏高 generation entity（gen ≥ 128，預設 8-bit generation）**：`toJSON` 有自己的 inline pack 算式，對 gen ≥ 128 產生負數，與 `arch.entityRow` 儲存的 unsigned key 不一致。受影響的 entity 雖通過 archetype 檢查，卻無法通過 `entityRow.has()`，導致它從所有 snapshot 與 `serializeWorld` 呼叫中遺失。修正：以 `packEid`（含 `>>> 0`）取代 inline 算式（SPOT 原則：唯一的 pack 來源）。
+- **跨 subpath registry 隔離**（`tsup splitting: false` → `splitting: true`）：每個編譯後的 entry（`dist/index.js`、`dist/serialize.js` 等）原本各自捆一份 `internal/world.ts` 的私有副本，包含 module-scope 的 `worldRegistry`。透過核心 subpath 建立的 world，對從其他 subpath import 的 `serializeWorld`/`getRelationTargets`/`transferableSnapshot` 均不可見，導致 `world N is destroyed or unknown`。改為 `splitting: true` 後，esbuild 抽出共用 chunk；ESM 與 CJS 皆由新的 `scripts/check-dist-subpaths.mjs` 冒煙測試驗證。
+- **`getRelationTargets` 回傳 raw index 當作 `EntityId`（generation 永遠為 0）**：`addRelation` 以 raw slot index（`& indexMask`）儲存 target。舊版回傳路徑直接將此 raw index 轉型為 `EntityId`，等同於 generation=0 的 packed id。對任何已回收的 target（gen > 0），呼叫端拿到的是過期 id，導致 `entityExists`、`entityRow` 查詢、component 存取全部失敗。修正：回傳前以 `packEid` 將每個 raw index 與當前 generation 重新 pack。
+- **`resolveOptions` 未驗證 `indexBits + generationBits ≤ 32`**：各自的範圍檢查（`indexBits ∈ [1, 24]`、`generationBits ∈ [0, 16]`）允許 `indexBits=24, generationBits=16`（40 bits），此時 `gen << 24` 靜默溢位，高 generation bits 遺失。現在加入加總上限驗證，並附上清楚的錯誤訊息。`[Unreleased]` 中的範例同步修正（`indexBits: 16, generationBits: 16` = 32 bits）。
+
+### 已知限制
+
+- **`createDeltaSerializer.apply` 與已回收 target world**：`apply` 直接以 delta snapshot 內的 raw entity index 作為 `EntityId` 使用。若 target world 已回收任何 slot（generation > 0），component 操作會靜默作用在錯誤的 packed id 上。這是 experimental delta API 的已知限制；常見用途（delta → 全新 gen-0 render mirror world）不受影響。正確的 raw-index-to-packed-id 映射留待 0.4 修正。避免對已有 destroy entity 的 world 使用 `apply`。
+
+### 文件
+
+- README / README_ZHTW 同步更新以反映已出貨的 0.3.0 `EntityRef` API：先前 README 仍將 EntityRef 描述為「0.3+ 預計推出」，並將 `getEntityGeneration`/`packEntity` 標為 experimental。兩份文件現均正確說明 EntityId 自 0.3 起已打包，且 `EntityRef` / `refOf` / `deref` / `aliveRef` / `EntityNotAliveError` 均已於 0.3.0 升為 stable。API table 補齊上述符號的條目。
+
+### 建置與工具
+
+- Coverage gate：安裝 `@vitest/coverage-v8` 並接入 `prepublishOnly`（取代 `npm run test`）及 CI。門檻：statements 95 / branches 80 / functions 97 / lines 98 — 純淨原始碼上可達的實際標準。branch 數字尊重 TypedArray 讀取的 `?? 0` / `noUncheckedIndexedAccess` 慣用法（nullish fallback 分支依設計不可達）；門檻只透過補測試提升，絕不靠移除防禦碼或灑 `/* v8 ignore */`。
+- `fast-check` property test（`tests/properties.test.ts`）：pack/unpack round-trip 不變式（斷言 `e >= 0` 以防守 P0 回歸）與 ABA-deref 必為 null 不變式。
+- dispose 三循環測試、error-path 測試、observer handler throw 行為文件化，分別加入 `tests/world.test.ts` 與 `tests/observers.test.ts`。
+- `scripts/check-dist-subpaths.mjs`（`npm run verify:dist`）：build 後冒煙測試，從核心 subpath import `createWorld`+`createEntity`，再從各自 subpath 呼叫 `serializeWorld`、`addRelation`/`getRelationTargets`、`transferableSnapshot`；ESM（`dist/*.js`）與 CJS（`dist/*.cjs`）均驗證。納入 `prepublishOnly`（`build` 之後）及 CI。
+
 ## [Unreleased]
 
 ### 0.4+ 規劃
@@ -17,7 +42,8 @@
   預設 `generationBits=8` 下，同一 slot 連續回收 256 次後 generation wrap 回原值，
   ABA 防護視窗會短暫失效。對 v0.5 飛行射擊試做工作負載安全（60 fps × ~1k destroy/sec
   下單 slot 約需 5000 frame 才 wrap）；高生滅率 pool 建議改用
-  `createWorld({ generationBits: 16 })`。對應測試見
+  `createWorld({ indexBits: 16, generationBits: 16 })`（16 + 16 = 32 bits；
+  65 536 個 entity × 65 536 個 generation）。對應測試見
   [tests/ref.test.ts](./tests/ref.test.ts) 的 `generation wrap` describe block。
 
 ## [0.3.0] - 2026-05-29
