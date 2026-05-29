@@ -372,7 +372,7 @@ describe('worker.ts: error paths', () => {
 describe('world.ts: growEntityArrays with different generation sizes', () => {
   it('generationBits=16 world grows arrays correctly past initial capacity', () => {
     const Position = defineComponent({ x: Types.f32 })
-    const w = createWorld({ initialCapacity: 4, generationBits: 16 })
+    const w = createWorld({ initialCapacity: 4, indexBits: 16, generationBits: 16 })
     for (let i = 0; i < 10; i++) {
       const e = createEntity(w)
       addComponent(w, e, Position, { x: i })

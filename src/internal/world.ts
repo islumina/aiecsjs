@@ -55,6 +55,11 @@ function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
   if (generationBits < 0 || generationBits > 16) {
     throw new Error('aiecsjs: generationBits must be in [0, 16]')
   }
+  if (indexBits + generationBits > 32) {
+    throw new Error(
+      `aiecsjs: indexBits (${indexBits}) + generationBits (${generationBits}) must be <= 32`,
+    )
+  }
   const maxByIndex = 1 << indexBits
   const initialCapacity = Math.max(
     1,

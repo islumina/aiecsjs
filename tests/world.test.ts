@@ -5,6 +5,7 @@ import {
   createEntity,
   createWorld,
   defineComponent,
+  destroyEntity,
   destroyWorld,
   disposeWorld,
   getWorldCapacity,
@@ -78,6 +79,25 @@ describe('world', () => {
   it('throws when indexBits is out of range', () => {
     expect(() => createWorld({ indexBits: 0 })).toThrow()
     expect(() => createWorld({ indexBits: 25 })).toThrow()
+  })
+
+  // Regression [P1-A]: resolveOptions only checked each dimension independently.
+  // indexBits=24 + generationBits=16 = 40 bits > 32 → packEid overflow. The sum check
+  // now throws early with a clear message.
+  it('throws when indexBits + generationBits exceeds 32', () => {
+    expect(() => createWorld({ indexBits: 24, generationBits: 16 })).toThrow(
+      /indexBits.*generationBits.*must be <= 32/,
+    )
+  })
+
+  it('accepts indexBits + generationBits exactly equal to 32', () => {
+    const w = createWorld({ indexBits: 16, generationBits: 16 })
+    expect(w).toBeTruthy()
+    const e = createEntity(w)
+    expect(e).toBeGreaterThanOrEqual(0)
+    destroyEntity(w, e)
+    const e2 = createEntity(w)
+    expect(e2).toBeGreaterThanOrEqual(0)
   })
 
   it('throws when entity allocation exceeds maxEntities', () => {

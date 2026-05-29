@@ -354,8 +354,8 @@ describe('component observers', () => {
     expect(true).toBe(true) // no crash is the main assertion
   })
 
-  it('ABA correct for non-default generationBits: refOf+deref under createWorld({ generationBits: 12 })', () => {
-    const w = createWorld({ generationBits: 12 })
+  it('ABA correct for non-default generationBits: refOf+deref under createWorld({ indexBits: 20, generationBits: 12 })', () => {
+    const w = createWorld({ indexBits: 20, generationBits: 12 })
     const e = createEntity(w)
     const ref = refOf(w, e)
     expect(deref(w, ref)).toBe(e)

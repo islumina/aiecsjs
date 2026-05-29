@@ -102,7 +102,7 @@ describe('entity', () => {
   })
 
   it('generationBits=16 boundary: spawn/destroy works', () => {
-    const w = createWorld({ generationBits: 16 })
+    const w = createWorld({ indexBits: 16, generationBits: 16 })
     const e = createEntity(w)
     expect(entityExists(w, e)).toBe(true)
     destroyEntity(w, e)
