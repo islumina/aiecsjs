@@ -341,21 +341,22 @@ forEachEntity(world, q, (e) => { cb.remove(e, SomeTag) })
 flush(cb)
 ```
 
-### Relations and hierarchies (experimental)
+### Relations and hierarchies
 
-> ⚠️ The Relations API is implemented but tagged `experimental` in 0.1; signatures may shift before stabilization in 0.3.
+> The Relations API is **stable since 0.4.0**. The graph API (`defineRelation` / `addRelation` / `removeRelation` / `getRelationTargets` / `getRelationData`) and the built-in `ChildOf` relation are frozen for the 1.x track.
 
 ```ts
-import { defineRelation, addRelation, ChildOf, getRelationTargets } from 'aiecsjs/relations'
+import { defineRelation, addRelation, ChildOf, getRelationTargets, getRelationData } from 'aiecsjs/relations'
 
-const Likes = defineRelation()
-addRelation(world, alice, Likes, bob)
+const Likes = defineRelation<{ since: number }>()
+addRelation(world, alice, Likes, bob, { since: 2020 })
 addRelation(world, alice, ChildOf, parent)
 
 const parentOfAlice = getRelationTargets(world, alice, ChildOf)
+const likedSince = getRelationData(world, alice, Likes, bob) // { since: 2020 }
 ```
 
-Relation graph stabilisation — exclusive relations (one target only), wildcard queries, and serialisation of relation graphs — is targeted for **0.3+**; 0.2.0 keeps the relations subpath in its existing experimental shape (no breaking changes).
+Exclusive relations (one target only) and the `getRelationData` reader are stable as of 0.4.0. Wildcard relation queries and serialisation of relation graphs remain future work and are not part of the frozen surface.
 
 ## API Reference
 
@@ -479,15 +480,16 @@ const Types = { i8, u8, i16, u16, i32, u32, f32, f64, eid, bool } as const
 | `attachWorld` | `(buffer, opts?) => World` | experimental |
 | `detachWorld` | `(world) => void` | experimental |
 
-### Relations — `aiecsjs/relations` (experimental)
+### Relations — `aiecsjs/relations`
 
 | Function | Signature | Stability |
 |---|---|---|
-| `defineRelation` | `<T>(opts?) => Relation<T>` | experimental |
-| `addRelation` | `(world, src, rel, tgt, data?) => void` | experimental |
-| `removeRelation` | `(world, src, rel, tgt) => void` | experimental |
-| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | experimental |
-| `ChildOf` (constant) | `Relation` | experimental |
+| `defineRelation` | `<T>(opts?) => Relation<T>` | stable |
+| `addRelation` | `(world, src, rel, tgt, data?) => void` | stable |
+| `removeRelation` | `(world, src, rel, tgt) => void` | stable |
+| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | stable |
+| `getRelationData` | `<T>(world, src, rel, tgt) => T \| undefined` | stable (since 0.4.0) |
+| `ChildOf` (constant) | `Relation` | stable |
 
 ### Utility — `aiecsjs`
 
@@ -864,7 +866,7 @@ if (VERSION.startsWith('0.')) {
 
 ### Stability contract
 
-See [`STABILITY.md`](./STABILITY.md). In short: imports from `aiecsjs` (root) are **stable** within 0.x minors. Imports from `aiecsjs/relations` and `aiecsjs/worker` are **experimental** in 0.1. Anything in `aiecsjs/internal` is **internal** — do not import.
+See [`STABILITY.md`](./STABILITY.md). In short: imports from `aiecsjs` (root) are **stable** within 0.x minors. `aiecsjs/relations` is **stable** since 0.4.0; `aiecsjs/worker` is **experimental**. Anything in `aiecsjs/internal` is **internal** — do not import.
 
 ### Telemetry / privacy
 
@@ -909,7 +911,7 @@ A: It will be on first stable publish. Until then, the docs are the contract.
 
 - **Max entity count** is capped by `indexBits` × `generationBits`. Default 24 + 8 = 16M entities × 256 recycles.
 - **No automatic system scheduler / parallel execution** in 0.1. Systems run in `pipe()` order on one thread (you can launch additional workers manually).
-- **Relations API is implemented but tagged experimental**; signatures may shift before 0.3 stabilization.
+- **Relations API (`aiecsjs/relations`) is stable since 0.4.0.** Wildcard relation queries and relation-graph serialisation remain future work.
 - **AoS components** not SAB-shareable across workers.
 - **Network delta serializer** wire format is experimental in 0.1; may change.
 - **WebGPU integration is one-way** (CPU → GPU). No compute-shader system generation.
@@ -939,14 +941,22 @@ All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-05-29
+
+### Added
+
+- **`getRelationData(world, source, rel, target)`**: new stable export on `aiecsjs/relations`. Returns the `data` payload attached via `addRelation`, or `undefined` when no such edge exists or no data was stored. Closes the write-only-data asymmetry present since 0.1: `addRelation` accepted a data argument but there was no corresponding public read path.
+
+### Changed
+
+- **`aiecsjs/relations` graduated from experimental to stable.** The graph API (`defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `getRelationData`) and the built-in `ChildOf` relation are now frozen for the 1.x track. See [`STABILITY.md`](./STABILITY.md) for the full stability contract, including the raw slot-keying ABA semantic.
+- **`aiecsjs/worker` remains experimental.** True SAB shared-memory column aliasing is deferred; the worker sub-path continues on snapshot-copy semantics.
 
 ### Build & Tooling
 
 - **size-limit → `scripts/check-size.mjs`**: replaced the `size-limit` + `@size-limit/file` dev dependencies with a zero-dependency script that measures transitive chunk-closure gzip size per ESM entry. Required because `tsup splitting: true` (introduced in 0.3.1) makes each entry a thin re-export shell; the vanilla single-file measurement reported ~899 B for index when the true closure is ~7295 B. The new script resolves chunk imports recursively via BFS, sums per-file gzip, and enforces per-entry budgets.
 - **npm → pnpm**: migrated from `package-lock.json` to `pnpm-lock.yaml`. Added `"packageManager": "pnpm@9.12.3"` and `"publishConfig": { "access": "public" }`. CI and publish workflows updated to use `pnpm/action-setup@v6` + `pnpm install --frozen-lockfile`. `npm publish --provenance --access public` in the publish workflow is intentionally preserved (OIDC trusted publishing requires npm CLI, not pnpm publish).
 - **Coverage tests added + unreachable gaps documented**: new tests cover previously-unreachable paths in `serialize.ts`, `component.ts`, `query.ts`, and `loop.ts`. Thresholds updated to the honestly-achieved floor (statements 95 / branches 81 / functions 98 / lines 99). Unreachable-by-design gaps are now documented in `vitest.config.ts` with Chesterton rationale.
-- **No consumer-facing runtime API change in this commit.** Relations stabilisation and `getRelationData` come in a subsequent commit.
 
 ## [0.3.1] - 2026-05-29
 
@@ -979,7 +989,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
-- Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+- Promote `aiecsjs/worker` to `stable` once true SAB shared-memory column aliasing is implemented.
 - Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
   default `generationBits=8`, a single slot recycled 256 times wraps back to its
   starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
@@ -1335,17 +1345,20 @@ The entire subpath is **experimental** in 0.x. **In 0.x the implementation is a 
 | `attachWorld` | experimental | 0.1.0 | |
 | `detachWorld` | experimental | 0.1.0 | |
 
-### `aiecsjs/relations` (experimental adapter sub-path)
+### `aiecsjs/relations` (stable sub-path since 0.4.0)
 
-The entire subpath is **experimental** in 0.1 but implemented. Targeted for stabilization in 0.3.
+The relations sub-path is **stable** as of 0.4.0. The graph API (`defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `getRelationData`) and the built-in `ChildOf` relation are frozen for the 1.x track.
+
+**Raw slot-keying ABA semantic:** relation storage keys edges by raw entity slot index (`entityId & indexMask`), not by the full packed EntityId (which includes a generation counter). If entity A is destroyed and a different entity B is later created occupying the same slot, B will inherit A's outgoing and incoming edges unless the destroy cleanup hook ran. The cleanup hook fires automatically when `destroyEntity` is called, so normal usage is safe. Callers holding cached EntityId values across destroy/recreate cycles should validate liveness with `entityExists` before reading relation data if ABA is a concern.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
-| `defineRelation` | experimental | 0.1.0 | |
-| `addRelation` | experimental | 0.1.0 | |
-| `removeRelation` | experimental | 0.1.0 | |
-| `getRelationTargets` | experimental | 0.1.0 | |
-| `ChildOf` (constant) | experimental | 0.1.0 | Built-in exclusive relation. |
+| `defineRelation` | stable | 0.1.0 | |
+| `addRelation` | stable | 0.1.0 | |
+| `removeRelation` | stable | 0.1.0 | |
+| `getRelationTargets` | stable | 0.1.0 | |
+| `ChildOf` (constant) | stable | 0.1.0 | Built-in exclusive relation. |
+| `getRelationData` | stable | 0.4.0 | Returns the data payload attached via `addRelation`, or `undefined` if no such edge or no data was stored. Subject to the raw slot-keying ABA semantic described above. |
 
 ### `aiecsjs/internal/*`
 
@@ -1358,7 +1371,7 @@ Everything under this prefix is **internal**. It exists for the implementation's
 | 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
 | 0.2.0 | Safety + alignment | Prototype-pollution hardening, observer `{ signal? }`, `disposeWorld` alias, `getEntityGeneration` / `packEntity` re-labelled experimental, `verify:llms` gate. See [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28). |
 | 0.3.x | EntityRef + generation packing | ABA-safe; `getEntityGeneration` / `packEntity` → stable. |
-| 0.4+ | Relations stabilisation + true SAB worker | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.4.0 | Relations stabilisation | `aiecsjs/relations` graduated to stable; `getRelationData` added. `aiecsjs/worker` remains experimental (true SAB shared-memory columns deferred). |
 | 0.6+ | Multi-World snapshot diff transport (placeholder) | experimental — design TBD. |
 | 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
 

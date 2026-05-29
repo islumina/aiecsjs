@@ -10,6 +10,7 @@ import {
   ChildOf,
   addRelation,
   defineRelation,
+  getRelationData,
   getRelationTargets,
   removeRelation,
 } from '../src/relations.js'
@@ -59,14 +60,76 @@ describe('relations', () => {
     expect(getRelationTargets(w, alice, ChildOf)).toEqual([mom])
   })
 
-  it('relation data is retrievable per edge (non-exclusive)', () => {
+  it('getRelationData returns the payload passed to addRelation (non-exclusive)', () => {
     const Likes = defineRelation<{ since: number }>()
     const w = createWorld()
     const a = createEntity(w)
     const b = createEntity(w)
     addRelation(w, a, Likes, b, { since: 2024 })
-    // Data retrieval API isn't directly exposed in 0.1; verify targets still tracked
-    expect(getRelationTargets(w, a, Likes)).toContain(b)
+    expect(getRelationData(w, a, Likes, b)).toEqual({ since: 2024 })
+  })
+
+  it('getRelationData returns undefined for an edge with no data', () => {
+    const Likes = defineRelation<{ since: number }>()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    addRelation(w, a, Likes, b) // no data argument
+    expect(getRelationData(w, a, Likes, b)).toBeUndefined()
+  })
+
+  it('getRelationData returns undefined for a non-existent edge', () => {
+    const Likes = defineRelation<{ since: number }>()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    expect(getRelationData(w, a, Likes, b)).toBeUndefined()
+  })
+
+  it('getRelationData returns undefined after removeRelation', () => {
+    const Likes = defineRelation<{ since: number }>()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    addRelation(w, a, Likes, b, { since: 2024 })
+    expect(getRelationData(w, a, Likes, b)).toEqual({ since: 2024 })
+    removeRelation(w, a, Likes, b)
+    expect(getRelationData(w, a, Likes, b)).toBeUndefined()
+  })
+
+  it('getRelationData works for exclusive relations (data round-trip)', () => {
+    const Owns = defineRelation<{ qty: number }>({ exclusive: true })
+    const w = createWorld()
+    const owner = createEntity(w)
+    const item = createEntity(w)
+    addRelation(w, owner, Owns, item, { qty: 3 })
+    expect(getRelationData(w, owner, Owns, item)).toEqual({ qty: 3 })
+  })
+
+  it('getRelationData returns undefined for a relation whose storage was never created', () => {
+    const Unrelated = defineRelation<{ x: number }>()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    // addRelation never called for this world — storage Map entry doesn't exist
+    expect(getRelationData(w, a, Unrelated, b)).toBeUndefined()
+  })
+
+  it('getRelationData drops stale data when an exclusive relation is redirected', () => {
+    const Equipped = defineRelation<{ slot: string }>({ exclusive: true })
+    const w = createWorld()
+    const hero = createEntity(w)
+    const sword = createEntity(w)
+    const shield = createEntity(w)
+    addRelation(w, hero, Equipped, sword, { slot: 'main' })
+    expect(getRelationData(w, hero, Equipped, sword)).toEqual({ slot: 'main' })
+    // Redirect the exclusive relation to a different target.
+    addRelation(w, hero, Equipped, shield, { slot: 'off' })
+    // Topology reports only the new target...
+    expect(getRelationTargets(w, hero, Equipped)).toEqual([shield])
+    // ...and the data view agrees: new target has data, old target is cleared.
+    expect(getRelationData(w, hero, Equipped, shield)).toEqual({ slot: 'off' })
+    expect(getRelationData(w, hero, Equipped, sword)).toBeUndefined()
   })
 
   it('destroyEntity cleans up relations involving the entity', () => {

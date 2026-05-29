@@ -6,14 +6,22 @@ All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-05-29
+
+### Added
+
+- **`getRelationData(world, source, rel, target)`**: new stable export on `aiecsjs/relations`. Returns the `data` payload attached via `addRelation`, or `undefined` when no such edge exists or no data was stored. Closes the write-only-data asymmetry present since 0.1: `addRelation` accepted a data argument but there was no corresponding public read path.
+
+### Changed
+
+- **`aiecsjs/relations` graduated from experimental to stable.** The graph API (`defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `getRelationData`) and the built-in `ChildOf` relation are now frozen for the 1.x track. See [`STABILITY.md`](./STABILITY.md) for the full stability contract, including the raw slot-keying ABA semantic.
+- **`aiecsjs/worker` remains experimental.** True SAB shared-memory column aliasing is deferred; the worker sub-path continues on snapshot-copy semantics.
 
 ### Build & Tooling
 
 - **size-limit → `scripts/check-size.mjs`**: replaced the `size-limit` + `@size-limit/file` dev dependencies with a zero-dependency script that measures transitive chunk-closure gzip size per ESM entry. Required because `tsup splitting: true` (introduced in 0.3.1) makes each entry a thin re-export shell; the vanilla single-file measurement reported ~899 B for index when the true closure is ~7295 B. The new script resolves chunk imports recursively via BFS, sums per-file gzip, and enforces per-entry budgets.
 - **npm → pnpm**: migrated from `package-lock.json` to `pnpm-lock.yaml`. Added `"packageManager": "pnpm@9.12.3"` and `"publishConfig": { "access": "public" }`. CI and publish workflows updated to use `pnpm/action-setup@v6` + `pnpm install --frozen-lockfile`. `npm publish --provenance --access public` in the publish workflow is intentionally preserved (OIDC trusted publishing requires npm CLI, not pnpm publish).
 - **Coverage tests added + unreachable gaps documented**: new tests cover previously-unreachable paths in `serialize.ts`, `component.ts`, `query.ts`, and `loop.ts`. Thresholds updated to the honestly-achieved floor (statements 95 / branches 81 / functions 98 / lines 99). Unreachable-by-design gaps are now documented in `vitest.config.ts` with Chesterton rationale.
-- **No consumer-facing runtime API change in this commit.** Relations stabilisation and `getRelationData` come in a subsequent commit.
 
 ## [0.3.1] - 2026-05-29
 
@@ -46,7 +54,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
-- Promote `aiecsjs/relations` and `aiecsjs/worker` (true SAB-shared columns) to `stable`.
+- Promote `aiecsjs/worker` to `stable` once true SAB shared-memory column aliasing is implemented.
 - Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
   default `generationBits=8`, a single slot recycled 256 times wraps back to its
   starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup

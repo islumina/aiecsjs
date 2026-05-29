@@ -113,17 +113,20 @@ The entire subpath is **experimental** in 0.x. **In 0.x the implementation is a 
 | `attachWorld` | experimental | 0.1.0 | |
 | `detachWorld` | experimental | 0.1.0 | |
 
-### `aiecsjs/relations` (experimental adapter sub-path)
+### `aiecsjs/relations` (stable sub-path since 0.4.0)
 
-The entire subpath is **experimental** in 0.1 but implemented. Targeted for stabilization in 0.3.
+The relations sub-path is **stable** as of 0.4.0. The graph API (`defineRelation`, `addRelation`, `removeRelation`, `getRelationTargets`, `getRelationData`) and the built-in `ChildOf` relation are frozen for the 1.x track.
+
+**Raw slot-keying ABA semantic:** relation storage keys edges by raw entity slot index (`entityId & indexMask`), not by the full packed EntityId (which includes a generation counter). If entity A is destroyed and a different entity B is later created occupying the same slot, B will inherit A's outgoing and incoming edges unless the destroy cleanup hook ran. The cleanup hook fires automatically when `destroyEntity` is called, so normal usage is safe. Callers holding cached EntityId values across destroy/recreate cycles should validate liveness with `entityExists` before reading relation data if ABA is a concern.
 
 | Export | Stability | Since | Notes |
 |---|---|---|---|
-| `defineRelation` | experimental | 0.1.0 | |
-| `addRelation` | experimental | 0.1.0 | |
-| `removeRelation` | experimental | 0.1.0 | |
-| `getRelationTargets` | experimental | 0.1.0 | |
-| `ChildOf` (constant) | experimental | 0.1.0 | Built-in exclusive relation. |
+| `defineRelation` | stable | 0.1.0 | |
+| `addRelation` | stable | 0.1.0 | |
+| `removeRelation` | stable | 0.1.0 | |
+| `getRelationTargets` | stable | 0.1.0 | |
+| `ChildOf` (constant) | stable | 0.1.0 | Built-in exclusive relation. |
+| `getRelationData` | stable | 0.4.0 | Returns the data payload attached via `addRelation`, or `undefined` if no such edge or no data was stored. Subject to the raw slot-keying ABA semantic described above. |
 
 ### `aiecsjs/internal/*`
 
@@ -136,7 +139,7 @@ Everything under this prefix is **internal**. It exists for the implementation's
 | 0.1.x | Core surface (world, entity, component, query, system, loop, commands, observers, serialize) | Initial publish; all marked experimental at the package level but per-export stable where listed. |
 | 0.2.0 | Safety + alignment | Prototype-pollution hardening, observer `{ signal? }`, `disposeWorld` alias, `getEntityGeneration` / `packEntity` re-labelled experimental, `verify:llms` gate. See [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28). |
 | 0.3.x | EntityRef + generation packing | ABA-safe; `getEntityGeneration` / `packEntity` → stable. |
-| 0.4+ | Relations stabilisation + true SAB worker | `aiecsjs/relations` and `aiecsjs/worker` → stable. |
+| 0.4.0 | Relations stabilisation | `aiecsjs/relations` graduated to stable; `getRelationData` added. `aiecsjs/worker` remains experimental (true SAB shared-memory columns deferred). |
 | 0.6+ | Multi-World snapshot diff transport (placeholder) | experimental — design TBD. |
 | 1.0.0 | API freeze | All `stable` exports frozen for 1.x. |
 

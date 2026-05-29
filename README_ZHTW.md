@@ -336,21 +336,22 @@ forEachEntity(world, q, (e) => { cb.remove(e, SomeTag) })
 flush(cb)
 ```
 
-### Relations 與階層（實驗中）
+### Relations 與階層
 
-> ⚠️ Relations API 已在 0.1 實作，但標記為 `experimental`；signature 可能在 0.3 穩定化之前微調。
+> Relations API **自 0.4.0 起穩定（stable）**。graph API（`defineRelation` / `addRelation` / `removeRelation` / `getRelationTargets` / `getRelationData`）與內建的 `ChildOf` relation 已凍結至 1.x 軌道。
 
 ```ts
-import { defineRelation, addRelation, ChildOf, getRelationTargets } from 'aiecsjs/relations'
+import { defineRelation, addRelation, ChildOf, getRelationTargets, getRelationData } from 'aiecsjs/relations'
 
-const Likes = defineRelation()
-addRelation(world, alice, Likes, bob)
+const Likes = defineRelation<{ since: number }>()
+addRelation(world, alice, Likes, bob, { since: 2020 })
 addRelation(world, alice, ChildOf, parent)
 
 const parentOfAlice = getRelationTargets(world, alice, ChildOf)
+const likedSince = getRelationData(world, alice, Likes, bob) // { since: 2020 }
 ```
 
-Relations 穩定化 ─ 獨佔關係（只允許一個目標）、wildcard 查詢、以及關係圖的序列化 ─ 預計 **0.3+** 落地；0.2.0 保留 relations subpath 現有 experimental 形狀（無破壞變更）。
+獨佔關係（exclusive，只允許一個目標）與 `getRelationData` 讀取器自 0.4.0 起穩定。wildcard relation 查詢與關係圖序列化仍屬未來工作，不在凍結表面內。
 
 ## API 參考
 
@@ -474,15 +475,16 @@ const Types = { i8, u8, i16, u16, i32, u32, f32, f64, eid, bool } as const
 | `attachWorld` | `(buffer, opts?) => World` | experimental |
 | `detachWorld` | `(world) => void` | experimental |
 
-### Relations — `aiecsjs/relations`（實驗中）
+### Relations — `aiecsjs/relations`
 
 | 函式 | Signature | 穩定度 |
 |---|---|---|
-| `defineRelation` | `<T>(opts?) => Relation<T>` | experimental |
-| `addRelation` | `(world, src, rel, tgt, data?) => void` | experimental |
-| `removeRelation` | `(world, src, rel, tgt) => void` | experimental |
-| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | experimental |
-| `ChildOf`（常數） | `Relation` | experimental |
+| `defineRelation` | `<T>(opts?) => Relation<T>` | stable |
+| `addRelation` | `(world, src, rel, tgt, data?) => void` | stable |
+| `removeRelation` | `(world, src, rel, tgt) => void` | stable |
+| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | stable |
+| `getRelationData` | `<T>(world, src, rel, tgt) => T \| undefined` | stable（自 0.4.0） |
+| `ChildOf`（常數） | `Relation` | stable |
 
 ### 工具 — `aiecsjs`
 
@@ -861,7 +863,7 @@ if (VERSION.startsWith('0.')) {
 
 ### 穩定度契約
 
-請見 [`STABILITY_ZHTW.md`](./STABILITY_ZHTW.md)。簡言之：從 `aiecsjs`（根目錄）匯入者在 0.x minor 內為 **stable**。從 `aiecsjs/relations` 與 `aiecsjs/worker` 匯入者在 0.1 為 **experimental**。任何 `aiecsjs/internal` 內的東西為 **internal**，請勿引用。
+請見 [`STABILITY_ZHTW.md`](./STABILITY_ZHTW.md)。簡言之：從 `aiecsjs`（根目錄）匯入者在 0.x minor 內為 **stable**。`aiecsjs/relations` 自 0.4.0 起為 **stable**；`aiecsjs/worker` 仍為 **experimental**。任何 `aiecsjs/internal` 內的東西為 **internal**，請勿引用。
 
 ### 遙測 / 隱私
 
@@ -906,7 +908,7 @@ A：將在首次穩定發佈時上架。在那之前，文件即契約。
 
 - **最大實體數** 由 `indexBits` × `generationBits` 決定。預設 24 + 8 = 16M 實體 × 各 256 次回收。
 - **0.1 沒有自動系統排程器 / 平行執行**。系統以 `pipe()` 順序在單執行緒執行（你可以自行啟動更多 worker）。
-- **Relations API 已在 0.1 實作但仍 experimental**；0.3 穩定化。
+- **Relations API（`aiecsjs/relations`）自 0.4.0 起穩定。** wildcard relation 查詢與關係圖序列化仍屬未來工作。
 - **AoS 元件** 無法跨 Worker 透過 SAB 共享。
 - **網路 delta 序列器** wire format 在 0.1 為 experimental，可能改變。
 - **WebGPU 整合為單向**（CPU → GPU）。無 compute-shader 系統生成。

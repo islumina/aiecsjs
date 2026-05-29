@@ -51,6 +51,15 @@ export function addRelation<T>(
       next.set(storage.exclusive)
       storage.exclusive = next
     }
+    // Exclusive redirect: if this source already pointed at a different target,
+    // drop that previous target's data entry so getRelationData stays consistent
+    // with getRelationTargets, which reports only the current exclusive target.
+    const prevTgt = storage.exclusive[src] ?? -1
+    if (prevTgt >= 0 && prevTgt !== tgt) {
+      const prevInner = storage.data.get(src)
+      prevInner?.delete(prevTgt)
+      if (prevInner && prevInner.size === 0) storage.data.delete(src)
+    }
     storage.exclusive[src] = tgt
   } else {
     let list = storage.outgoing.get(src)
@@ -127,6 +136,38 @@ export function getRelationTargets(
     const gen = state.generations[tIdx] ?? 0
     return packEid(tIdx, gen, state.options)
   })
+}
+
+/**
+ * Read the data payload attached to a relation edge.
+ *
+ * Returns the `data` value that was supplied to {@link addRelation} for the
+ * `(source, rel, target)` triple, or `undefined` when:
+ * - the relation has never been stored for this world,
+ * - no edge from `source` to `target` via `rel` exists, or
+ * - the edge was added without a data argument.
+ *
+ * **Slot-keying semantic (ABA caveat):** relation storage keys edges by raw
+ * entity slot index (`entityId & indexMask`), not by the full packed EntityId
+ * that includes the generation counter. This means that if entity A is
+ * destroyed and a *different* entity B is later created in the same slot, B
+ * will inherit any edges that A had — unless the destroy cleanup hook ran
+ * (which it does when `destroyEntity` is called). Callers that cache a
+ * source/target EntityId should validate liveness with `entityExists` before
+ * calling `getRelationData` if slot recycling is a concern.
+ */
+export function getRelationData<T>(
+  world: World,
+  source: EntityId,
+  rel: Relation<T>,
+  target: EntityId,
+): T | undefined {
+  const state = getWorldState(world)
+  const storage = state.relationStorage.get(rel.__id)
+  if (!storage) return undefined
+  const src = (source as number) & state.options.indexMask
+  const tgt = (target as number) & state.options.indexMask
+  return storage.data.get(src)?.get(tgt) as T | undefined
 }
 
 // Cleanup hook: when an entity is destroyed, remove all relations involving it.

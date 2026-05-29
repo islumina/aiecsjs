@@ -329,21 +329,22 @@ forEachEntity(world, q, (e) => { cb.remove(e, SomeTag) })
 flush(cb)
 ```
 
-### Relations and hierarchies (experimental)
+### Relations and hierarchies
 
-> ⚠️ The Relations API is implemented but tagged `experimental` in 0.1; signatures may shift before stabilization in 0.3.
+> The Relations API is **stable since 0.4.0**. The graph API (`defineRelation` / `addRelation` / `removeRelation` / `getRelationTargets` / `getRelationData`) and the built-in `ChildOf` relation are frozen for the 1.x track.
 
 ```ts
-import { defineRelation, addRelation, ChildOf, getRelationTargets } from 'aiecsjs/relations'
+import { defineRelation, addRelation, ChildOf, getRelationTargets, getRelationData } from 'aiecsjs/relations'
 
-const Likes = defineRelation()
-addRelation(world, alice, Likes, bob)
+const Likes = defineRelation<{ since: number }>()
+addRelation(world, alice, Likes, bob, { since: 2020 })
 addRelation(world, alice, ChildOf, parent)
 
 const parentOfAlice = getRelationTargets(world, alice, ChildOf)
+const likedSince = getRelationData(world, alice, Likes, bob) // { since: 2020 }
 ```
 
-Relation graph stabilisation — exclusive relations (one target only), wildcard queries, and serialisation of relation graphs — is targeted for **0.3+**; 0.2.0 keeps the relations subpath in its existing experimental shape (no breaking changes).
+Exclusive relations (one target only) and the `getRelationData` reader are stable as of 0.4.0. Wildcard relation queries and serialisation of relation graphs remain future work and are not part of the frozen surface.
 
 ## API Reference
 
@@ -467,15 +468,16 @@ const Types = { i8, u8, i16, u16, i32, u32, f32, f64, eid, bool } as const
 | `attachWorld` | `(buffer, opts?) => World` | experimental |
 | `detachWorld` | `(world) => void` | experimental |
 
-### Relations — `aiecsjs/relations` (experimental)
+### Relations — `aiecsjs/relations`
 
 | Function | Signature | Stability |
 |---|---|---|
-| `defineRelation` | `<T>(opts?) => Relation<T>` | experimental |
-| `addRelation` | `(world, src, rel, tgt, data?) => void` | experimental |
-| `removeRelation` | `(world, src, rel, tgt) => void` | experimental |
-| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | experimental |
-| `ChildOf` (constant) | `Relation` | experimental |
+| `defineRelation` | `<T>(opts?) => Relation<T>` | stable |
+| `addRelation` | `(world, src, rel, tgt, data?) => void` | stable |
+| `removeRelation` | `(world, src, rel, tgt) => void` | stable |
+| `getRelationTargets` | `(world, src, rel) => readonly EntityId[]` | stable |
+| `getRelationData` | `<T>(world, src, rel, tgt) => T \| undefined` | stable (since 0.4.0) |
+| `ChildOf` (constant) | `Relation` | stable |
 
 ### Utility — `aiecsjs`
 
@@ -852,7 +854,7 @@ if (VERSION.startsWith('0.')) {
 
 ### Stability contract
 
-See [`STABILITY.md`](./STABILITY.md). In short: imports from `aiecsjs` (root) are **stable** within 0.x minors. Imports from `aiecsjs/relations` and `aiecsjs/worker` are **experimental** in 0.1. Anything in `aiecsjs/internal` is **internal** — do not import.
+See [`STABILITY.md`](./STABILITY.md). In short: imports from `aiecsjs` (root) are **stable** within 0.x minors. `aiecsjs/relations` is **stable** since 0.4.0; `aiecsjs/worker` is **experimental**. Anything in `aiecsjs/internal` is **internal** — do not import.
 
 ### Telemetry / privacy
 
@@ -897,7 +899,7 @@ A: It will be on first stable publish. Until then, the docs are the contract.
 
 - **Max entity count** is capped by `indexBits` × `generationBits`. Default 24 + 8 = 16M entities × 256 recycles.
 - **No automatic system scheduler / parallel execution** in 0.1. Systems run in `pipe()` order on one thread (you can launch additional workers manually).
-- **Relations API is implemented but tagged experimental**; signatures may shift before 0.3 stabilization.
+- **Relations API (`aiecsjs/relations`) is stable since 0.4.0.** Wildcard relation queries and relation-graph serialisation remain future work.
 - **AoS components** not SAB-shareable across workers.
 - **Network delta serializer** wire format is experimental in 0.1; may change.
 - **WebGPU integration is one-way** (CPU → GPU). No compute-shader system generation.

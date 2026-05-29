@@ -1,7 +1,7 @@
 {
   "$schema": "https://yshengliao.github.io/aiecsjs/api-schema.json",
   "name": "aiecsjs",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "generated": "2026-05-29",
   "stability": "experimental",
   "license": "MIT",
@@ -84,13 +84,14 @@
     },
     {
       "name": "aiecsjs/relations",
-      "description": "Entity relations and hierarchies (experimental, target 0.2).",
+      "description": "Entity relations and hierarchies. Stable since 0.4.0; the graph API and built-in ChildOf relation are frozen for the 1.x track.",
       "exports": [
         "defineRelation",
         "addRelation",
         "removeRelation",
         "getRelationTargets",
-        "ChildOf"
+        "ChildOf",
+        "getRelationData"
       ]
     }
   ],
@@ -1184,11 +1185,11 @@
       "name": "defineRelation",
       "kind": "function",
       "module": "aiecsjs/relations",
-      "since": "0.2.0",
-      "stability": "experimental",
+      "since": "0.1.0",
+      "stability": "stable",
       "deprecated": false,
       "signature": "function defineRelation<T = void>(options?: { exclusive?: boolean }): Relation<T>",
-      "summary": "Declare a relation type between two entities. Documented for early feedback; implemented in 0.2.",
+      "summary": "Declare a relation type between two entities. Pass `exclusive: true` for one-to-one relations (e.g. ChildOf).",
       "params": [
         {
           "name": "options",
@@ -1210,8 +1211,8 @@
       "name": "addRelation",
       "kind": "function",
       "module": "aiecsjs/relations",
-      "since": "0.2.0",
-      "stability": "experimental",
+      "since": "0.1.0",
+      "stability": "stable",
       "deprecated": false,
       "signature": "function addRelation<T>(world: World, source: EntityId, rel: Relation<T>, target: EntityId, data?: T): void",
       "summary": "Add a relation edge from source to target.",
@@ -1229,8 +1230,8 @@
       "name": "removeRelation",
       "kind": "function",
       "module": "aiecsjs/relations",
-      "since": "0.2.0",
-      "stability": "experimental",
+      "since": "0.1.0",
+      "stability": "stable",
       "deprecated": false,
       "signature": "function removeRelation(world: World, source: EntityId, rel: Relation, target: EntityId): void",
       "summary": "Remove a single relation edge.",
@@ -1243,15 +1244,39 @@
       "name": "getRelationTargets",
       "kind": "function",
       "module": "aiecsjs/relations",
-      "since": "0.2.0",
-      "stability": "experimental",
+      "since": "0.1.0",
+      "stability": "stable",
       "deprecated": false,
       "signature": "function getRelationTargets(world: World, source: EntityId, rel: Relation): readonly EntityId[]",
       "summary": "Enumerate targets reachable from source by this relation.",
       "params": [],
       "returns": { "type": "readonly EntityId[]", "description": "Target entity IDs." },
       "examples": [],
-      "seeAlso": ["defineRelation"]
+      "seeAlso": ["defineRelation", "getRelationData"]
+    },
+    {
+      "name": "getRelationData",
+      "kind": "function",
+      "module": "aiecsjs/relations",
+      "since": "0.4.0",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function getRelationData<T>(world: World, source: EntityId, rel: Relation<T>, target: EntityId): T | undefined",
+      "summary": "Read the data payload attached to a relation edge. Returns the value passed as `data` to `addRelation`, or `undefined` if no such edge exists or no data was stored. Subject to raw slot-keying: edges are keyed by slot index, not generation; validate liveness with `entityExists` if slot recycling is a concern.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "source", "type": "EntityId", "optional": false, "description": "Source entity." },
+        { "name": "rel", "type": "Relation<T>", "optional": false, "description": "Relation handle." },
+        { "name": "target", "type": "EntityId", "optional": false, "description": "Target entity." }
+      ],
+      "returns": { "type": "T | undefined", "description": "Data payload, or undefined." },
+      "examples": [
+        {
+          "title": "Read relation payload",
+          "code": "const data = getRelationData(world, alice, Likes, bob) // { since: 2024 } or undefined"
+        }
+      ],
+      "seeAlso": ["addRelation", "removeRelation", "getRelationTargets"]
     },
     {
       "name": "isWorld",
@@ -1575,9 +1600,9 @@
       "kind": "constant",
       "module": "aiecsjs/relations",
       "type": "Relation",
-      "stability": "experimental",
-      "since": "0.2.0",
-      "description": "Built-in parent-child relation. Available when aiecsjs/relations is implemented (target 0.2)."
+      "stability": "stable",
+      "since": "0.1.0",
+      "description": "Built-in exclusive parent-child relation. Each entity may have at most one parent at a time."
     }
   ]
 }

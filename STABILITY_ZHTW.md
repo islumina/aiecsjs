@@ -25,7 +25,7 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
 | `createWorld` | stable | 0.1.0 | |
-| `destroyWorld` | stable | 0.1.0 | |
+| `destroyWorld` | **deprecated** | 0.1.0 | 請改用 `disposeWorld`。預計於 1.0 移除。 |
 | `resetWorld` | stable | 0.1.0 | |
 | `getWorldSize` | stable | 0.1.0 | |
 | `getWorldCapacity` | stable | 0.1.0 | |
@@ -112,17 +112,20 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | `attachWorld` | experimental | 0.1.0 | |
 | `detachWorld` | experimental | 0.1.0 | |
 
-### `aiecsjs/relations`（experimental adapter sub-path）
+### `aiecsjs/relations`（stable sub-path，自 0.4.0 起）
 
-整個 subpath 在 0.1 為 **experimental** 但已實作。預期於 0.3 穩定。
+relations sub-path 自 **0.4.0** 起為 **stable**。圖形 API（`defineRelation`、`addRelation`、`removeRelation`、`getRelationTargets`、`getRelationData`）以及內建 `ChildOf` 關係已為 1.x 凍結。
+
+**原始 slot 鍵值的 ABA 語意：** relation storage 以原始 entity slot index（`entityId & indexMask`）作為 edge 的鍵，而非包含 generation counter 的完整 packed EntityId。若 entity A 被銷毀後，另一個 entity B 在同一個 slot 被建立，B 將繼承 A 的所有進出 edge——除非 destroy cleanup hook 已執行（呼叫 `destroyEntity` 時會自動執行）。一般使用下是安全的；若在 destroy/recreate 循環中持有快取的 EntityId，讀取 relation data 前應以 `entityExists` 確認活躍狀態。
 
 | 匯出 | 穩定度 | 起始版本 | 備註 |
 |---|---|---|---|
-| `defineRelation` | experimental | 0.1.0 | |
-| `addRelation` | experimental | 0.1.0 | |
-| `removeRelation` | experimental | 0.1.0 | |
-| `getRelationTargets` | experimental | 0.1.0 | |
-| `ChildOf`（常數） | experimental | 0.1.0 | 內建獨佔關係。 |
+| `defineRelation` | stable | 0.1.0 | |
+| `addRelation` | stable | 0.1.0 | |
+| `removeRelation` | stable | 0.1.0 | |
+| `getRelationTargets` | stable | 0.1.0 | |
+| `ChildOf`（常數） | stable | 0.1.0 | 內建獨佔關係。 |
+| `getRelationData` | stable | 0.4.0 | 回傳透過 `addRelation` 附加的 data payload，或在 edge 不存在 / 未儲存 data 時回傳 `undefined`。受上述原始 slot 鍵值 ABA 語意影響。 |
 
 ### `aiecsjs/internal/*`
 
@@ -135,7 +138,7 @@ aiecsjs 遵循 [semver](https://semver.org/)。在 **0.x** 系列內：
 | 0.1.x | 核心表面（world、entity、component、query、system、loop、commands、observers、serialize） | 初次發佈；package 整體標 experimental，但各 export 表中列為 stable 者皆穩定。 |
 | 0.2.0 | 安全與生態對齊 | 原型污染強化、observer `{ signal? }`、`disposeWorld` 別名、`getEntityGeneration` / `packEntity` 改 experimental、`verify:llms` gate。詳見 [CHANGELOG.md](./CHANGELOG.md#020---2026-05-28)。 |
 | 0.3.x | EntityRef + generation packing | ABA-safe；`getEntityGeneration` / `packEntity` → stable。 |
-| 0.4+ | Relations 穩定化 + 真正 SAB worker | `aiecsjs/relations` 與 `aiecsjs/worker` → stable。 |
+| 0.4.0 | Relations 穩定化 | `aiecsjs/relations` 升為 stable；新增 `getRelationData`。`aiecsjs/worker` 維持 experimental（真正 SAB 共享記憶體欄位延後）。 |
 | 0.6+ | Multi-World snapshot diff transport（佔位） | experimental — 設計待定。 |
 | 1.0.0 | API 凍結 | 所有 `stable` 匯出於 1.x 系列凍結。 |
 
