@@ -685,7 +685,7 @@ ws.onmessage = (e) => remoteDelta.apply(remoteWorld, new Uint8Array(e.data))
 
 ## 移轉指引
 
-完整表格請見 [`docs/MIGRATION.md`](./docs/MIGRATION.md) 與 [`docs/MIGRATION_ZHTW.md`](./docs/MIGRATION_ZHTW.md)。
+完整表格請見 [`docs/MIGRATION.md`](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION.md) 與 [`docs/MIGRATION_ZHTW.md`](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION_ZHTW.md)。
 
 ### 從 bitECS 0.4 移轉
 

@@ -690,7 +690,7 @@ ws.onmessage = (e) => remoteDelta.apply(remoteWorld, new Uint8Array(e.data))
 
 ## Migration Guides
 
-Full tables in [`docs/MIGRATION.md`](./docs/MIGRATION.md).
+Full tables in [`docs/MIGRATION.md`](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION.md).
 
 ### From bitECS 0.4
 
