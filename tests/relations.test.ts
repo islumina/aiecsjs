@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createEntity, createWorld, destroyEntity } from '../src/index.js'
+import {
+  createEntity,
+  createWorld,
+  destroyEntity,
+  entityExists,
+  getEntityGeneration,
+} from '../src/index.js'
 import {
   ChildOf,
   addRelation,
@@ -110,6 +116,49 @@ describe('relations', () => {
   // dependency on `state.capacity` entirely. There is no public retrieve API in
   // 0.1, so this asserts the observable cleanup side: destroying entities after
   // a grow must still wipe all relation edges involving them.
+  // Regression [P1-B]: getRelationTargets returned raw idx (= packed id with gen=0).
+  // For a target that has been recycled (gen>0), the returned id failed entityExists
+  // and getEntityGeneration checks. Fix: re-pack with current generation via packEid.
+  it('getRelationTargets returns correct packed id after target slot is recycled (non-exclusive)', () => {
+    const Follows = defineRelation()
+    const w = createWorld()
+    const src = createEntity(w)
+    let target = createEntity(w)
+    // Recycle the target slot 3 times so gen>0
+    for (let i = 0; i < 3; i++) {
+      destroyEntity(w, target)
+      target = createEntity(w)
+    }
+    const expectedGen = getEntityGeneration(target)
+    expect(expectedGen).toBeGreaterThan(0)
+
+    addRelation(w, src, Follows, target)
+    const targets = getRelationTargets(w, src, Follows)
+    expect(targets).toHaveLength(1)
+    const returned = targets[0]!
+    expect(entityExists(w, returned)).toBe(true)
+    expect(getEntityGeneration(returned)).toBe(expectedGen)
+  })
+
+  it('getRelationTargets returns correct packed id after target slot is recycled (exclusive)', () => {
+    const w = createWorld()
+    const src = createEntity(w)
+    let target = createEntity(w)
+    for (let i = 0; i < 3; i++) {
+      destroyEntity(w, target)
+      target = createEntity(w)
+    }
+    const expectedGen = getEntityGeneration(target)
+    expect(expectedGen).toBeGreaterThan(0)
+
+    addRelation(w, src, ChildOf, target)
+    const targets = getRelationTargets(w, src, ChildOf)
+    expect(targets).toHaveLength(1)
+    const returned = targets[0]!
+    expect(entityExists(w, returned)).toBe(true)
+    expect(getEntityGeneration(returned)).toBe(expectedGen)
+  })
+
   it('relation data survives a capacity grow and cleans up correctly on destroy', () => {
     const Likes = defineRelation<{ since: number }>()
     const w = createWorld({ initialCapacity: 4 })

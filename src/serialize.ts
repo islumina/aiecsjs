@@ -10,7 +10,7 @@ import {
   getComponentInfo,
   listAllComponents,
 } from './internal/component.js'
-import { createEntity, destroyEntity, entityExists } from './internal/entity.js'
+import { createEntity, destroyEntity, entityExists, packEid } from './internal/entity.js'
 import type {
   ComponentInfo,
   ComponentLike,
@@ -66,9 +66,7 @@ export function toJSON(world: World): WorldSnapshot {
 
     // Build the packed eid from idx + current generation to do alive check
     const gen = state.generations[idx] ?? 0
-    const packedEid =
-      ((gen & state.options.generationMask) << state.options.indexBits) |
-      (idx & state.options.indexMask)
+    const packedEid = packEid(idx, gen, state.options)
     if (!arch.entityRow.has(packedEid)) continue
 
     const w = state.options.maskWordCount

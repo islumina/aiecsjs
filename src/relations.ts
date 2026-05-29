@@ -1,6 +1,6 @@
 // aiecsjs/relations — entity-to-entity relations (experimental in 0.1).
 
-import { registerRelationsCleanup } from './internal/entity.js'
+import { packEid, registerRelationsCleanup } from './internal/entity.js'
 import type { EntityId, Relation, RelationStorage, World, WorldState } from './internal/types.js'
 import { getWorldState } from './internal/world.js'
 
@@ -114,13 +114,19 @@ export function getRelationTargets(
   if (storage.exclusive) {
     if (src < storage.exclusive.length) {
       const tgt = storage.exclusive[src] ?? -1
-      return tgt >= 0 ? [tgt as EntityId] : []
+      if (tgt >= 0) {
+        const gen = state.generations[tgt] ?? 0
+        return [packEid(tgt, gen, state.options)]
+      }
     }
     return []
   }
   const list = storage.outgoing.get(src)
   if (!list) return []
-  return list as EntityId[]
+  return list.map((tIdx) => {
+    const gen = state.generations[tIdx] ?? 0
+    return packEid(tIdx, gen, state.options)
+  })
 }
 
 // Cleanup hook: when an entity is destroyed, remove all relations involving it.

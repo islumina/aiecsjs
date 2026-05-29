@@ -6,9 +6,12 @@ import {
   createWorld,
   defineComponent,
   defineObjectComponent,
+  defineQuery,
   defineTag,
+  destroyEntity,
   getComponent,
   hasComponent,
+  runQuery,
 } from '../src/index.js'
 import {
   createDeltaSerializer,
@@ -116,5 +119,37 @@ describe('serialize', () => {
     bytes[6] = 0xff
     bytes[7] = 0xfe
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).not.toThrow()
+  })
+
+  // Regression [P0-A]: toJSON used an inline signed pack expression; for gen≥128 the
+  // result was negative, diverging from the unsigned key stored in arch.entityRow, so
+  // the entity was silently dropped from the snapshot. packEid (>>> 0) fixes this.
+  it('toJSON/fromJSON round-trip preserves a high-generation entity (gen≥128)', () => {
+    const HighGen = defineComponent({ hp: Types.i32 })
+    const w = createWorld()
+    let e = createEntity(w)
+    addComponent(w, e, HighGen, { hp: 99 })
+
+    // Recycle the same slot 130 times to reach gen≥128 (default generationBits=8, wraps at 256)
+    for (let i = 0; i < 130; i++) {
+      destroyEntity(w, e)
+      e = createEntity(w)
+    }
+    addComponent(w, e, HighGen, { hp: 42 })
+
+    const snap = toJSON(w)
+    // Verify the entity is actually present in the snapshot (was silently dropped before fix)
+    expect(snap.entities).toHaveLength(1)
+    expect(snap.entities[0]?.eid).toBeDefined()
+
+    // fromJSON rebuilds with fresh gen-0 entities; use a query to find the entity in w2
+    const w2 = fromJSON(snap)
+    const results = runQuery(w2, defineQuery([HighGen]))
+    expect(results).toHaveLength(1)
+    const eInW2 = results[0]!
+    // SoA getComponent returns column views; index by the entity id
+    const cols = getComponent(w2, eInW2, HighGen) as any
+    expect(cols).not.toBeNull()
+    expect(cols.hp[eInW2]).toBe(42)
   })
 })
