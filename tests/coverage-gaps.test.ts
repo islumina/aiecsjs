@@ -26,6 +26,7 @@ import {
   setComponent,
 } from '../src/index.js'
 import { deref, refOf } from '../src/index.js'
+import { createLoop } from '../src/loop.js'
 import { observe, onAdd, onSet } from '../src/observers.js'
 import {
   ChildOf,
@@ -1113,5 +1114,167 @@ describe('query.ts: forEachEntity with enterQuery (reactive path)', () => {
     // The buffer should now exist with e in entered
     const result = runQuery(w, entering)
     expect(result).toContain(e)
+  })
+
+  it('exitQuery reactive buffer receives entity on removeComponent', () => {
+    // Covers the `else buf.exited.push(eid)` branch in pushReactive (query.ts:409)
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const leaving = exitQuery(q)
+    runQuery(w, q) // register q in state.queries + state.bitToQueries
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0 })
+    removeComponent(w, e, Position)
+    const result = runQuery(w, leaving)
+    expect(result).toContain(e)
+  })
+})
+
+// --- query.ts: buildColumnViews — bit undefined when component never added to this world ---
+
+describe('query.ts: buildColumnViews — component never added to world', () => {
+  it('forEachEntity with a component that has never been added to this world (bit undefined path)', () => {
+    // defineQuery caches the query in the module cache. When forEachEntity is called
+    // on a fresh world where the component was never used, componentBitFor has no entry
+    // for that component → buildColumnViews hits the `bit === undefined` branch (query.ts:327-329).
+    const NeverAdded = defineComponent({ z: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w) // entity exists but NeverAdded was never added to any entity
+    const q = defineQuery([NeverAdded])
+    const seen: number[] = []
+    // No archetypes match, but buildColumnViews is still called — it should not throw
+    forEachEntity(w, q, (eid) => seen.push(eid as number))
+    expect(seen.length).toBe(0) // no matches — NeverAdded isn't on any entity
+    // Now add the component to verify the world can still work afterwards
+    addComponent(w, e, NeverAdded, { z: 1 })
+    forEachEntity(w, q, (eid) => seen.push(eid as number))
+    expect(seen).toContain(e)
+  })
+})
+
+// --- world.ts: createEntity reaches maxEntities (entity.ts:42 guard path) ---
+// NOTE: world.ts:221 (ensureCapacity's own maxEntities throw) is unreachable from the
+// public API because entity.ts:42 catches `nextFreshIndex >= maxEntities` BEFORE calling
+// ensureCapacity. The world.ts:221 guard is a defensive fallback for hypothetical future
+// callers of ensureCapacity that could pass a value > maxEntities. It is documented here
+// as a by-design unreachable line.
+
+describe('world.ts/entity.ts: createEntity reaches maxEntities', () => {
+  it('createEntity throws when all entity slots are exhausted', () => {
+    // nextFreshIndex starts at 1 (slot 0 is the empty archetype sentinel).
+    // initialCapacity must be <= maxEntities (resolveOptions clamps maxEntities to
+    // Math.max(initialCapacity, ...), so using initialCapacity=4, maxEntities=5:
+    //   maxEntities = Math.max(4, 5) = 5. Slots 1-4 are valid; slot 5 throws.
+    const small = createWorld({ initialCapacity: 4, maxEntities: 5 })
+    createEntity(small) // slot 1
+    createEntity(small) // slot 2
+    createEntity(small) // slot 3
+    createEntity(small) // slot 4
+    expect(() => createEntity(small)).toThrow(/maxEntities/)
+  })
+})
+
+// --- serialize.ts: fromJSON skips unknown component ID when entity has components ---
+
+describe('serialize.ts: fromJSON skips unknown component when entity has at least one component', () => {
+  it('fromJSON silently skips a component whose id is not in the registry (serialize.ts:132)', () => {
+    const Known = defineComponent({ val: Types.i32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Known, { val: 7 })
+    const snap = toJSON(w)
+    // snap.entities[0].eid is the raw slot index (not the packed eid).
+    // Inject an unknown component id alongside the known one.
+    expect(snap.entities.length).toBeGreaterThan(0)
+    snap.entities[0]!.components.push({ kind: 'soa' as const, id: 0xcafebabe, data: {} })
+    // fromJSON must not throw; it silently skips the unknown component
+    expect(() => fromJSON(snap)).not.toThrow()
+    // The known component should have loaded successfully (entity re-created at same slot)
+    const w2 = fromJSON(snap)
+    const results = runQuery(w2, defineQuery([Known]))
+    expect(results.length).toBeGreaterThan(0)
+  })
+})
+
+// --- serialize.ts: unpackBinary truncated before verLen ---
+
+describe('serialize.ts: unpackBinary truncation guards', () => {
+  it('throws when snapshot is truncated before verLen field (serialize.ts:209)', () => {
+    // Build a valid snapshot, then slice it right after the magic + formatVersion
+    // (4 + 4 = 8 bytes), which leaves no room for verLen's uint32.
+    const w = createWorld()
+    const bytes = serializeWorld(w)
+    // Keep only the first 8 bytes: magic (4) + formatVersion (4). The verLen uint32 is missing.
+    const truncated = bytes.slice(0, 8)
+    expect(() => deserializeWorld(truncated)).toThrow(/truncated|verLen|too short/)
+  })
+})
+
+// --- component.ts: defineObjectComponent without factory (default lambda) ---
+
+describe('component.ts: defineObjectComponent default factory lambda', () => {
+  it('defineObjectComponent without a factory uses the default () => ({}) factory (component.ts:92)', () => {
+    // When factory is omitted, defineObjectComponent stores () => ({}) as T.
+    // Calling addComponent triggers writeInitial which calls the factory on first add.
+    const NoFactory = defineObjectComponent<{ tag: string }>()
+    const w = createWorld()
+    const e = createEntity(w)
+    // addComponent without initial: the default factory is invoked to create the instance
+    addComponent(w, e, NoFactory)
+    const inst = getComponent(w, e, NoFactory) as Record<string, unknown>
+    // Default factory returns {}, so inst should be an object (possibly empty)
+    expect(typeof inst).toBe('object')
+    expect(inst).not.toBeNull()
+  })
+})
+
+// --- component.ts: removeComponent on dead entity (early return branch) ---
+
+describe('component.ts: removeComponent on dead entity', () => {
+  it('removeComponent on a dead entity is a no-op (component.ts:145)', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 1 })
+    destroyEntity(w, e)
+    // removeComponent on a dead entity must not throw; it returns immediately
+    expect(() => removeComponent(w, e, Position)).not.toThrow()
+  })
+})
+
+// --- component.ts: addComponent with initial when entity already has the component ---
+
+describe('component.ts: addComponent with initial on already-attached component', () => {
+  it('passing initial to addComponent when entity already has the component triggers writeInitial (component.ts:125)', () => {
+    const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 1, y: 2 })
+    // Second addComponent: component bit is already set, but initial is provided
+    addComponent(w, e, Position, { x: 99, y: 88 })
+    const cols = getComponent(w, e, Position) as any
+    // Raw index = entity id & indexMask (default indexBits=24 → mask=0xffffff)
+    const idx = (e as number) & 0xffffff
+    expect(cols.x[idx]).toBeCloseTo(99)
+  })
+})
+
+// --- loop.ts: cancelAnimationFrame path (loop.ts:24) ---
+// loop.ts evaluates `const hasRAF = typeof globalThis.requestAnimationFrame === 'function'`
+// at MODULE LOAD TIME. In the Node.js test environment, requestAnimationFrame is undefined
+// when the module first loads, so `hasRAF` is permanently false for this process.
+// loop.ts:24 (the `globalThis.cancelAnimationFrame(handle)` call) is therefore unreachable
+// in this test environment — the same class of unreachable as worker.ts:27-29.
+// This is documented here as a by-design unreachable line; no test can cover it without
+// re-initialising the module with RAF present.
+describe('loop.ts: cancelRaf uses clearTimeout in Node env (RAF absent)', () => {
+  it('stop() runs without errors in the Node/setTimeout environment', () => {
+    // Validates that the setTimeout fallback path (the reachable path) works correctly.
+    // loop.ts:24 (cancelAnimationFrame branch) remains documented-unreachable above.
+    const loop = createLoop({ fixed: 1 / 60, onUpdate: () => {} })
+    expect(() => {
+      loop.start()
+      loop.stop()
+    }).not.toThrow()
   })
 })

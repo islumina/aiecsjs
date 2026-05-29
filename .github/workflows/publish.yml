@@ -44,22 +44,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - uses: pnpm/action-setup@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '22'
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Upgrade npm CLI for Trusted Publishing
-        # OIDC trusted publishing requires npm >= 11.5.1. Node 20 ships with
+        # OIDC trusted publishing requires npm >= 11.5.1. Node 22 ships with
         # npm 10.x, so upgrade explicitly. Without this the publish step
         # falls back to token-based auth and fails with ENEEDAUTH.
         run: npm install -g npm@latest
 
-      - name: Install
-        run: npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      # prepublishOnly runs typecheck + tests + build + size budget locally,
-      # so the publish step doubles as the final gate.
+      # prepublishOnly runs typecheck + lint + coverage + build + verify:dist
+      # + verify:exports + verify:llms + check:size, so the publish step
+      # doubles as the final gate.
       - name: Publish (OIDC trusted publisher + provenance)
         run: npm publish --provenance --access public

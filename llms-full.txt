@@ -939,6 +939,15 @@ All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Build & Tooling
+
+- **size-limit → `scripts/check-size.mjs`**: replaced the `size-limit` + `@size-limit/file` dev dependencies with a zero-dependency script that measures transitive chunk-closure gzip size per ESM entry. Required because `tsup splitting: true` (introduced in 0.3.1) makes each entry a thin re-export shell; the vanilla single-file measurement reported ~899 B for index when the true closure is ~7295 B. The new script resolves chunk imports recursively via BFS, sums per-file gzip, and enforces per-entry budgets.
+- **npm → pnpm**: migrated from `package-lock.json` to `pnpm-lock.yaml`. Added `"packageManager": "pnpm@9.12.3"` and `"publishConfig": { "access": "public" }`. CI and publish workflows updated to use `pnpm/action-setup@v6` + `pnpm install --frozen-lockfile`. `npm publish --provenance --access public` in the publish workflow is intentionally preserved (OIDC trusted publishing requires npm CLI, not pnpm publish).
+- **Coverage tests added + unreachable gaps documented**: new tests cover previously-unreachable paths in `serialize.ts`, `component.ts`, `query.ts`, and `loop.ts`. Thresholds updated to the honestly-achieved floor (statements 95 / branches 81 / functions 98 / lines 99). Unreachable-by-design gaps are now documented in `vitest.config.ts` with Chesterton rationale.
+- **No consumer-facing runtime API change in this commit.** Relations stabilisation and `getRelationData` come in a subsequent commit.
+
 ## [0.3.1] - 2026-05-29
 
 ### Fixed

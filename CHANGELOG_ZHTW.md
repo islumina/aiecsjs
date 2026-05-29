@@ -6,6 +6,15 @@
 
 格式基於 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，並遵循 [Semantic Versioning](https://semver.org/lang/zh-TW/)。
 
+## [0.4.0] - 未發布
+
+### 建置與工具
+
+- **size-limit → `scripts/check-size.mjs`**：以零相依的自製腳本取代 `size-limit` + `@size-limit/file` devDep。腳本量測每個 ESM entry 的遞迴 chunk closure gzip 大小。背景：`tsup splitting: true`（0.3.1 引入）使每個 entry 僅是薄殼，傳統單檔量測對 index.js 僅報 ~899 B，實際 closure 為 ~7295 B。新腳本透過 BFS 遞迴解析 chunk import、加總各檔 gzip，並對每個 entry 套用預算上限。
+- **npm → pnpm**：`package-lock.json` 遷移至 `pnpm-lock.yaml`；加入 `"packageManager": "pnpm@9.12.3"` 與 `"publishConfig": { "access": "public" }`；CI 與 publish workflow 改用 `pnpm/action-setup@v6` + `pnpm install --frozen-lockfile`。publish workflow 中刻意保留 `npm publish --provenance --access public`（OIDC trusted publishing 需要 npm CLI）。
+- **Coverage 補測 + 缺口文件化**：新增測試覆蓋 `serialize.ts`、`component.ts`、`query.ts`、`loop.ts` 的可達路徑；門檻調整為誠實達到的 floor（statements 95 / branches 81 / functions 98 / lines 99）；設計上不可達的殘餘缺口已在 `vitest.config.ts` 以 Chesterton 理由說明。
+- **此 commit 無 consumer-facing runtime API 變更。** Relations 穩定化與 `getRelationData` 將在後續 commit 加入。
+
 ## [0.3.1] - 2026-05-29
 
 ### 修復

@@ -7,37 +7,46 @@ on:
     branches: [main]
 
 jobs:
-  verify:
-    name: typecheck + test + build + size
+  test:
+    name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: 'npm'
+      - uses: pnpm/action-setup@v6
 
-      - name: Install
-        run: npm ci
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm typecheck
 
-      - name: Test
-        run: npm test
+      - name: Lint
+        run: pnpm lint
 
-      - name: Coverage
-        run: npm run coverage
+      - name: Test (with coverage thresholds)
+        run: pnpm coverage
 
       - name: Build
-        run: npm run build
+        run: pnpm build
 
       - name: Verify dist subpaths
-        run: npm run verify:dist
+        run: pnpm verify:dist
 
-      - name: Size check
-        run: npm run size
+      - name: Verify package exports
+        run: pnpm verify:exports
+
+      - name: Check bundle sizes
+        run: pnpm check:size
+
+      - name: Verify llms-full.txt is up to date
+        run: pnpm verify:llms
