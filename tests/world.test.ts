@@ -17,7 +17,7 @@ describe('world', () => {
   it('creates a world with default options', () => {
     const w = createWorld()
     expect(w.id).toBeGreaterThan(0)
-    expect(w.version).toBe('0.3.0')
+    expect(w.version).toBe('0.3.1')
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(1024)
   })
@@ -88,5 +88,33 @@ describe('world', () => {
       createEntity(w)
       createEntity(w)
     }).toThrow(/maxEntities/)
+  })
+
+  // Dispose three-cycle
+  it('(a) normal dispose — world removed from registry', () => {
+    const w = createWorld()
+    disposeWorld(w)
+    expect(isWorld(w)).toBe(false)
+  })
+
+  it('(b) dispose then createEntity throws "destroyed"', () => {
+    const w = createWorld()
+    disposeWorld(w)
+    expect(() => createEntity(w)).toThrow(/destroyed/)
+  })
+
+  it('(b) dispose then addComponent throws "destroyed"', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0 })
+    disposeWorld(w)
+    expect(() => addComponent(w, e, Position, { x: 1 })).toThrow(/destroyed/)
+  })
+
+  it('(c) disposeWorld called twice is idempotent — no throw', () => {
+    const w = createWorld()
+    disposeWorld(w)
+    expect(() => disposeWorld(w)).not.toThrow()
   })
 })
