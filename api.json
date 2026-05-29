@@ -1,7 +1,7 @@
 {
   "$schema": "https://yshengliao.github.io/aiecsjs/api-schema.json",
   "name": "aiecsjs",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "generated": "2026-05-29",
   "stability": "experimental",
   "license": "MIT",

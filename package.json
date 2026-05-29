@@ -1,6 +1,6 @@
 {
   "name": "aiecsjs",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "TypeScript-first archetype ECS with TypedArray SoA, SAB-ready snapshot transport, and AI-readable docs.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -49,22 +49,19 @@
     "dist",
     "README.md",
     "README_ZHTW.md",
-    "STABILITY.md",
-    "STABILITY_ZHTW.md",
-    "CHANGELOG.md",
+    "LICENSE",
     "llms.txt",
     "llms-full.txt",
-    "api.json",
-    "docs"
+    "api.json"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=18.0.0"
   },
   "license": "MIT",
   "author": "yshengliao",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yshengliao/aiecsjs.git"
+    "url": "git+https://github.com/yshengliao/aiecsjs.git"
   },
   "keywords": [
     "ecs",

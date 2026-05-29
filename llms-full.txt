@@ -935,11 +935,22 @@ See [`CHANGELOG.md`](./CHANGELOG.md).
 
 # Changelog
 
-[English](CHANGELOG.md) | [繁體中文](CHANGELOG_ZHTW.md)
-
 All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.1] - 2026-05-29
+
+Consistency patch — packaging and documentation surface aligned to the ai*js family. **No runtime API change; `dist/` is byte-identical to 0.4.0 apart from the bumped `VERSION` string.**
+
+### Changed
+
+- **`package.json` packaging metadata aligned to family conventions**: `engines.node` `">=18"` → `">=18.0.0"`; `repository.url` gains the `git+` prefix (`git+https://github.com/yshengliao/aiecsjs.git`). Both are semantically equivalent — registry/tooling hygiene only.
+- **`files[]` trimmed to the family-minimal set plus `api.json`**: the npm tarball now ships `dist`, `README.md`, `README_ZHTW.md`, `LICENSE`, `llms.txt`, `llms-full.txt`, and `api.json`. `LICENSE` is now listed explicitly (it was already published via npm's automatic root-LICENSE inclusion). `STABILITY.md`, `CHANGELOG.md`, and `docs/` are no longer bundled — they remain in the repository and stay reachable from the README/`llms.txt` links on GitHub. `api.json` is **deliberately retained**: it is the machine-readable export manifest (stability + `since` per entry) that this package's "AI-readable docs" contract advertises, so it remains the tarball's stability surface for tooling.
+
+### Removed
+
+- **Redundant Traditional-Chinese doc duplicates**: `STABILITY_ZHTW.md` and `CHANGELOG_ZHTW.md` removed. The family keeps `README_ZHTW.md` as the single Traditional-Chinese entry point; per-export stability and the changelog are English-canonical (with `api.json` carrying the machine-readable stability surface). The plain-pipe language-switcher line atop `STABILITY.md` / `CHANGELOG.md` and the now-dangling `_ZHTW` references inside `README_ZHTW.md` were removed accordingly.
 
 ## [0.4.0] - 2026-05-29
 
@@ -1231,8 +1242,6 @@ The "documentation honesty + test backstop" release. No new public APIs; this is
 # Stability contract (`STABILITY.md`)
 
 # Stability Contract
-
-[English](STABILITY.md) | [繁體中文](STABILITY_ZHTW.md)
 
 This document is the per-export stability promise for `aiecsjs`. It is the contract AI tools and human users can rely on when pinning versions and writing import paths.
 
