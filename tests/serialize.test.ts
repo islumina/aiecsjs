@@ -12,6 +12,7 @@ import {
   getComponent,
   hasComponent,
   runQuery,
+  setComponent,
 } from '../src/index.js'
 import {
   createDeltaSerializer,
@@ -151,5 +152,100 @@ describe('serialize', () => {
     const cols = getComponent(w2, eInW2, HighGen) as any
     expect(cols).not.toBeNull()
     expect(cols.hp[eInW2]).toBe(42)
+  })
+
+  // unpackBinary best-effort: a corrupt JSON body must surface a namespaced
+  // aiecsjs: error rather than a raw SyntaxError. We keep a valid header (magic +
+  // version) and clobber a byte inside the JSON region so the body fails to parse.
+  it('unpackBinary surfaces a namespaced error on a malformed JSON body', () => {
+    const { w } = setupWorld()
+    const bytes = serializeWorld(w)
+    // The JSON body is the trailing region; flip its final byte (the closing
+    // `}`) to a non-structural character so JSON.parse throws.
+    bytes[bytes.length - 1] = 0x21 // '!'
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).toThrow(/aiecsjs:/)
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).not.toThrow(
+      /SyntaxError/,
+    )
+  })
+
+  // --- DeltaSerializer.apply() round-trip (happy path) ---
+
+  it('apply(): full snapshot reproduces entities/components in a FRESH world', () => {
+    const { w, e1, e2, e3 } = setupWorld()
+    const tx = createDeltaSerializer(w)
+    const full = tx.capture() // first capture is a full snapshot
+
+    const fresh = createWorld()
+    createDeltaSerializer(fresh).apply(fresh, full)
+
+    // SoA columns are indexed by raw slot; the fresh world re-creates the same
+    // slot indices (1..3) so the original packed eids address the same rows.
+    expect(hasComponent(fresh, e1 as any, Position)).toBe(true)
+    expect(hasComponent(fresh, e1 as any, Velocity)).toBe(true)
+    const p1 = getComponent(fresh, e1 as any, Position) as any
+    expect(p1.x[e1 as number]).toBeCloseTo(1.5)
+    expect(p1.y[e1 as number]).toBeCloseTo(-2.25)
+
+    expect(hasComponent(fresh, e2 as any, Player)).toBe(true)
+    const inv = getComponent(fresh, e3 as any, Inventory) as any
+    expect(inv?.items).toEqual(['sword', 'shield'])
+  })
+
+  it('apply(): an incremental delta updates an existing entity', () => {
+    const { w, e1 } = setupWorld()
+    const tx = createDeltaSerializer(w)
+
+    // Replica kept in lockstep with the same delta stream.
+    const replica = createWorld()
+    const rx = createDeltaSerializer(replica)
+    rx.apply(replica, tx.capture()) // seed replica with the full snapshot
+
+    // Mutate e1 on the source, then capture the incremental delta.
+    setComponent(w, e1, Position, { x: 99, y: 100 })
+    const delta = tx.capture()
+
+    rx.apply(replica, delta)
+
+    const p = getComponent(replica, e1 as any, Position) as any
+    expect(p.x[e1 as number]).toBeCloseTo(99)
+    expect(p.y[e1 as number]).toBeCloseTo(100)
+  })
+
+  // DeltaSerializer.apply() is now sound on a non-pristine target: it
+  // materialises each snapshot entity at the source's slot index, reusing or
+  // reclaiming the slot with its current generation.
+  it('apply(): churned replica (advanced generations) does not throw and applies at the right slots', () => {
+    const { w } = setupWorld()
+    const full = createDeltaSerializer(w).capture()
+
+    // Churn the replica so slots 1..3 carry advanced generations + a freeList.
+    const replica = createWorld()
+    const tmps = [createEntity(replica), createEntity(replica), createEntity(replica)]
+    for (const t of tmps) destroyEntity(replica, t)
+
+    const rx = createDeltaSerializer(replica)
+    expect(() => rx.apply(replica, full)).not.toThrow()
+
+    const byEid = new Map(toJSON(replica).entities.map((e) => [e.eid, e]))
+    expect([...byEid.keys()].sort((a, b) => a - b)).toEqual([1, 2, 3])
+    // Components landed at the right slots (e1 had Position+Velocity, e3 Inventory).
+    expect(byEid.get(1)?.components.length ?? 0).toBeGreaterThan(0)
+    expect(byEid.get(3)?.components.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('apply(): a hole in the source slot range does not create a phantom entity', () => {
+    const { w, e2 } = setupWorld()
+    destroyEntity(w, e2) // slot 2 becomes a hole; source keeps slots 1 and 3
+    const full = createDeltaSerializer(w).capture()
+
+    const replica = createWorld()
+    createDeltaSerializer(replica).apply(replica, full)
+
+    // Exactly the two live source entities — slot 2 is NOT materialised.
+    const eids = toJSON(replica)
+      .entities.map((e) => e.eid)
+      .sort((a, b) => a - b)
+    expect(eids).toEqual([1, 3])
   })
 })

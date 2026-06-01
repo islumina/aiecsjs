@@ -8,6 +8,7 @@ import {
   defineQuery,
   destroyEntity,
   entityExists,
+  exitQuery,
   forEachEntity,
   getEntityGeneration,
   getEntityIndex,
@@ -91,6 +92,48 @@ describe('entity', () => {
     expect(entityExists(w, a)).toBe(false)
     // New entity is live
     expect(entityExists(w, b)).toBe(true)
+  })
+
+  // Regression: destroyEntity must fire the reactive exitQuery surface, not just
+  // the component-targeted observe(q,'remove') path. Previously destroyEntity
+  // cleared the mask wholesale without notifying recordEntityMaskChange, so
+  // exitQuery buffers stayed empty on destroy (asymmetric with removeComponent).
+  it('destroyEntity populates exitQuery buffer (reactive exit on destroy)', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const left = exitQuery(defineQuery([Position]))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 1 })
+    // Drain any enter/exit churn from the add so we isolate the destroy.
+    runQuery(w, left)
+
+    destroyEntity(w, e)
+
+    const exited = runQuery(w, left)
+    expect(exited).toContain(e)
+    // Buffer drains on read.
+    expect(runQuery(w, left).length).toBe(0)
+  })
+
+  // Regression (review): a query matching MULTIPLE of the destroyed entity's
+  // components must record it EXACTLY ONCE. destroy replays removals one bit at
+  // a time; a naive (prevMask, emptyMask)-per-bit dispatch double-counts (the
+  // entity would appear once per matching component bit).
+  it('destroyEntity exits a multi-component query exactly once', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const Velocity = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const left = exitQuery(defineQuery([Position, Velocity]))
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 1 })
+    addComponent(w, e, Velocity, { x: 2 })
+    runQuery(w, left) // drain enter/exit churn from the adds
+
+    destroyEntity(w, e)
+
+    const exited = runQuery(w, left)
+    expect(exited.filter((x) => x === e).length).toBe(1)
+    expect(runQuery(w, left).length).toBe(0)
   })
 
   it('generationBits=0 degenerate mode: spawn/destroy still works', () => {

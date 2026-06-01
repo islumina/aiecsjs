@@ -13,6 +13,7 @@ import {
   isWorld,
   resetWorld,
 } from '../src/index.js'
+import { getWorldState } from '../src/internal/world.js'
 
 describe('world', () => {
   it('creates a world with default options', () => {
@@ -136,5 +137,42 @@ describe('world', () => {
     const w = createWorld()
     disposeWorld(w)
     expect(() => disposeWorld(w)).not.toThrow()
+  })
+
+  // Regression: disposeWorld must release the large per-entity arrays it
+  // previously left allocated (entityMask/entityArchetype/generations etc.).
+  // The capacity getter closure pins `state`, so these would otherwise survive
+  // for as long as the public world handle. Behaviour is unchanged: post-dispose
+  // ops still throw via getWorldState.
+  it('dispose still rejects operations as before (no behavioural regression)', () => {
+    const Position = defineComponent({ x: Types.f32 })
+    const w = createWorld({ initialCapacity: 256 })
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 1 })
+    disposeWorld(w)
+    expect(isWorld(w)).toBe(false)
+    expect(() => createEntity(w)).toThrow(/destroyed/)
+    expect(() => getWorldSize(w)).toThrow(/destroyed/)
+  })
+
+  it('dispose empties the large per-entity arrays (GC release)', () => {
+    const w = createWorld({ initialCapacity: 1024 })
+    // Capture the live internal state reference BEFORE dispose; disposeWorld
+    // mutates this same object in place (the public handle's getter closes over it).
+    const state = getWorldState(w)
+    expect(state.entityMask.length).toBeGreaterThan(0)
+    expect(state.entityArchetype.length).toBeGreaterThan(0)
+    expect(state.generations.length).toBeGreaterThan(0)
+
+    disposeWorld(w)
+
+    expect(state.entityMask.length).toBe(0)
+    expect(state.entityArchetype.length).toBe(0)
+    expect(state.generations.length).toBe(0)
+    expect(state.freeList.length).toBe(0)
+    expect(state.componentBitFor.size).toBe(0)
+    expect(state.bitToQueries.size).toBe(0)
+    expect(state.queryArchetypeStamp.length).toBe(0)
+    expect(state.sab).toBeNull()
   })
 })

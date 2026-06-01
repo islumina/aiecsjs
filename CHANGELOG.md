@@ -70,6 +70,13 @@ Consistency patch — packaging and documentation surface aligned to the ai*js f
 
 ## [Unreleased]
 
+### Fixed
+
+- **`destroyEntity` now fires the reactive `enterQuery`/`exitQuery` surface.** Previously `destroyEntity` cleared the entity mask wholesale without notifying `recordEntityMaskChange`, so `exitQuery(...)` buffers stayed empty on destroy — asymmetric with both `removeComponent` (which notifies) and the query-targeted `observe(q, 'remove')` observer (which already fired on destroy). A destroyed entity now records an exit for every query it was matching. The pre-destroy mask is snapshotted at destroy entry so reentrant teardown handlers cannot suppress the exit. No public API change.
+- **`disposeWorld` / `destroyWorld` now release the large per-entity arrays.** The dispose path cleared archetypes/storages/queries but left `entityMask`, `entityArchetype`, `generations`, `freeList`, `componentBitFor`, `bitToQueries`, `queryArchetypeStamp`, and `sab` allocated. Because the public world handle's `capacity` getter closes over the internal state object, those arrays survived for the lifetime of the (typically retained) handle, defeating the "clear large buffers to help GC" intent. They are now released (typed arrays swapped to length-0 instances, Maps/arrays cleared, `sab` nulled). Post-dispose operations still throw as before — this is internal state, not public API.
+- **`unpackBinary` best-effort mode no longer leaks a raw `SyntaxError`.** Under `onUnknownVersion: 'best-effort'`, a malformed/garbled snapshot body reaching `JSON.parse` now surfaces a namespaced `aiecsjs:` error (with the original parse error attached as `cause`), consistent with the rest of the serializer. All existing length/bounds checks are unchanged.
+- **`DeltaSerializer.apply()` is now sound on a non-pristine / churned replica.** It previously treated the wire `eid` (a raw slot index, generation 0) as a packed id — throwing `addComponent on dead entity` once a replica slot's generation had advanced — and padded with `while (targetState.size < e.eid) createEntity()`, conflating the live count with a slot index and spawning phantom entities for holes in the source id space. `apply()` now materialises each entity at the source's slot via a new internal `ensureEntityAtSlot` primitive (reuse a live slot, reclaim a freed one, or advance the frontier), using the slot's current generation. No public API or wire-format change. Caveat: deltas carry only added/changed entities — entity/component removals are not propagated, so `apply()` remains additive.
+
 ### Planned for 0.4+
 
 - Add `pipeAsync` for async system composition.

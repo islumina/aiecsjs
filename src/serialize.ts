@@ -10,7 +10,7 @@ import {
   getComponentInfo,
   listAllComponents,
 } from './internal/component.js'
-import { createEntity, destroyEntity, entityExists, packEid } from './internal/entity.js'
+import { createEntity, destroyEntity, ensureEntityAtSlot, packEid } from './internal/entity.js'
 import type {
   ComponentInfo,
   ComponentLike,
@@ -225,7 +225,15 @@ function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSna
   }
   const jsonBytes = bytes.subarray(off, off + jsonLen)
   const json = new TextDecoder().decode(jsonBytes)
-  return JSON.parse(json) as WorldSnapshot
+  // Wrap the parse so a malformed body (e.g. a truncated/garbled payload reached
+  // under onUnknownVersion:'best-effort') surfaces a namespaced `aiecsjs:` error
+  // instead of leaking a raw SyntaxError — consistent with the rest of the module.
+  // Bounds checks above already guarantee `json` covers exactly the declared body.
+  try {
+    return JSON.parse(json) as WorldSnapshot
+  } catch (cause) {
+    throw new Error('aiecsjs: snapshot body is not valid JSON', { cause })
+  }
 }
 
 // --- Delta serializer ---
@@ -261,21 +269,26 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
     },
     apply(targetWorld: World, deltaBytes: Uint8Array): void {
       const snapshot = unpackBinary(deltaBytes)
-      // Apply: ensure entities exist, then add/update their components
+      // Materialise each snapshot entity at the SAME slot index the source used
+      // (the wire stores raw slot indices in `eid`). ensureEntityAtSlot reuses a
+      // live slot, reclaims a freed one, or advances the frontier — so apply() is
+      // sound on a non-pristine / independently-churned replica (it uses the
+      // slot's CURRENT generation, never gen=0) and never spawns phantom padding
+      // entities for holes in the source's slot range.
+      //
+      // CAVEAT: deltas carry added/changed entities only (see computeDelta) —
+      // entity REMOVALS are not represented, so a replica is not pruned when the
+      // source destroys an entity, and a component removed on the source is not
+      // removed on the replica. apply() is additive/updating.
       const targetState = getWorldState(targetWorld)
       for (const e of snapshot.entities) {
-        if (e.eid >= targetState.capacity) continue
-        if (!entityExists(targetWorld, e.eid as EntityId)) {
-          // Create the entity. For simplicity, we just spawn until we have enough.
-          while (targetState.size < e.eid) {
-            createEntity(targetWorld)
-          }
-        }
+        if (e.eid <= 0 || e.eid >= targetState.options.maxEntities) continue
+        const eid = ensureEntityAtSlot(targetState, e.eid)
         for (const comp of e.components) {
           const info = getComponentByInternalId(comp.id)
           if (!info) continue
           const handle = getComponentHandle(info)
-          if (handle) addComponent(targetWorld, e.eid as EntityId, handle, comp.data as any)
+          if (handle) addComponent(targetWorld, eid, handle, comp.data as any)
         }
       }
     },

@@ -396,6 +396,40 @@ function notifyMaskChange(
 ): void {
   _maskChange(state, eid as EntityId, bit, prev, next)
 }
+
+// Fire the reactive enter/exit mask-change notification for an entity being
+// destroyed. destroyEntity clears the entity's mask wholesale rather than
+// removing components one-by-one, so it never reaches removeComponent's
+// `notifyMaskChange` call — leaving exitQuery buffers empty on destroy while a
+// component-by-component teardown would have populated them (asymmetric with
+// observe(q,'remove')). We replay the removals here.
+//
+// CORRECTNESS: transition ONE bit at a time through evolving masks, exactly as a
+// sequence of removeComponent() calls would. Passing a single (prevMask, empty)
+// pair once per set bit double-counts — a query matching on several of the
+// entity's components would see wasMatch=true,isMatch=false on every bit and push
+// the same exit N times. Clearing bits incrementally flips wasMatch=false after
+// the first component that breaks each query's match, so every query records
+// exactly one exit.
+//
+// SNAPSHOT DISCIPLINE: `prevMask` is captured at destroy entry (a private copy,
+// same discipline as dispatchDestroyObservers' preMask) so reentrant handlers
+// run earlier in destroy cannot mutate live state and suppress the exit. We
+// iterate that snapshot and mutate only our own clones.
+export function dispatchDestroyMaskChange(
+  state: WorldState,
+  eid: EntityId,
+  prevMask: Uint32Array,
+): void {
+  const w = state.options.maskWordCount
+  const before = cloneMask(prevMask) // current bit still set
+  const after = cloneMask(prevMask) // current bit cleared
+  forEachSetBit(prevMask, 0, w, (bit) => {
+    clearBit(after, bit)
+    notifyMaskChange(state, eid as number, bit, before, after)
+    clearBit(before, bit)
+  })
+}
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
   _dispatch = api
 }

@@ -159,7 +159,11 @@ export function destroyWorld(world: World): void {
   const state = worldRegistry.get(world.id)
   if (!state || state.destroyed) return
   state.destroyed = true
-  // Clear large buffers to help GC
+  // Clear large buffers to help GC. Post-dispose ops already throw via
+  // getWorldState (state.destroyed), so releasing internal state can't regress
+  // live behaviour; the capacity getter closure in makePublicWorld is the only
+  // thing pinning `state`, so we must drop the big per-entity arrays here or
+  // they survive as long as the (typically retained) public world handle.
   state.archetypes = []
   state.archetypeByMaskHash.clear()
   state.componentInfoByBit = []
@@ -170,6 +174,17 @@ export function destroyWorld(world: World): void {
   state.observers = []
   state.relationStorage.clear()
   state.reactiveBuffers.clear()
+  // Release the remaining large per-entity arrays / indices that the original
+  // "clear large buffers" pass left allocated (these dominate memory for big
+  // worlds). Swap to length-0 instances rather than mutating in place.
+  state.entityMask = new Uint32Array(0)
+  state.entityArchetype = new Uint32Array(0)
+  state.generations = new Uint8Array(0)
+  state.freeList = []
+  state.componentBitFor.clear()
+  state.bitToQueries.clear()
+  state.queryArchetypeStamp = []
+  state.sab = null
   unregisterWorld(world.id)
 }
 
