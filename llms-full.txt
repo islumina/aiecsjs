@@ -939,6 +939,30 @@ All notable changes to `aiecsjs` are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Planned for 0.4+
+
+- Add `pipeAsync` for async system composition.
+- Doc-test harness so README code blocks are mechanically verified.
+- Promote `aiecsjs/worker` to `stable` once true SAB shared-memory column aliasing is implemented.
+- Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
+  default `generationBits=8`, a single slot recycled 256 times wraps back to its
+  starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
+  workloads (~5000 frame to wrap a single slot at 60 fps × ~1k destroys); high-churn
+  pools should set `createWorld({ indexBits: 16, generationBits: 16 })` (16 + 16 = 32 bits;
+  65 536 entities × 65 536 generations). See test
+  [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
+
+## [0.5.1] - 2026-06-02
+
+### Fixed
+
+- **`destroyEntity` now fires the reactive `enterQuery`/`exitQuery` surface.** Previously `destroyEntity` cleared the entity mask wholesale without notifying `recordEntityMaskChange`, so `exitQuery(...)` buffers stayed empty on destroy — asymmetric with both `removeComponent` (which notifies) and the query-targeted `observe(q, 'remove')` observer (which already fired on destroy). A destroyed entity now records an exit for every query it was matching. The pre-destroy mask is snapshotted at destroy entry so reentrant teardown handlers cannot suppress the exit. No public API change.
+- **`disposeWorld` / `destroyWorld` now release the large per-entity arrays.** The dispose path cleared archetypes/storages/queries but left `entityMask`, `entityArchetype`, `generations`, `freeList`, `componentBitFor`, `bitToQueries`, `queryArchetypeStamp`, and `sab` allocated. Because the public world handle's `capacity` getter closes over the internal state object, those arrays survived for the lifetime of the (typically retained) handle, defeating the "clear large buffers to help GC" intent. They are now released (typed arrays swapped to length-0 instances, Maps/arrays cleared, `sab` nulled). Post-dispose operations still throw as before — this is internal state, not public API.
+- **`unpackBinary` best-effort mode no longer leaks a raw `SyntaxError`.** Under `onUnknownVersion: 'best-effort'`, a malformed/garbled snapshot body reaching `JSON.parse` now surfaces a namespaced `aiecsjs:` error (with the original parse error attached as `cause`), consistent with the rest of the serializer. All existing length/bounds checks are unchanged.
+- **`DeltaSerializer.apply()` is now sound on a non-pristine / churned replica.** It previously treated the wire `eid` (a raw slot index, generation 0) as a packed id — throwing `addComponent on dead entity` once a replica slot's generation had advanced — and padded with `while (targetState.size < e.eid) createEntity()`, conflating the live count with a slot index and spawning phantom entities for holes in the source id space. `apply()` now materialises each entity at the source's slot via a new internal `ensureEntityAtSlot` primitive (reuse a live slot, reclaim a freed one, or advance the frontier), using the slot's current generation. No public API or wire-format change. Caveat: deltas carry only added/changed entities — entity/component removals are not propagated, so `apply()` remains additive.
+
 ## [0.5.0] - 2026-05-30
 
 ai\*js family version-unify milestone — the seven packages align on a common `0.5.0`. **No runtime API change; `dist/` is byte-identical to 0.4.1 apart from the bumped `VERSION` string.**
@@ -1002,28 +1026,6 @@ Consistency patch — packaging and documentation surface aligned to the ai*js f
 - `fast-check` property tests (`tests/properties.test.ts`): pack/unpack round-trip invariant (asserts `e >= 0` to guard the P0 regression) and ABA-deref always-null invariant.
 - Dispose three-cycle tests, error-path tests, and observer handler-throw behaviour documented in `tests/world.test.ts` / `tests/observers.test.ts`.
 - `scripts/check-dist-subpaths.mjs` (`npm run verify:dist`): post-build smoke test that imports `createWorld`+`createEntity` from the core subpath and calls `serializeWorld`, `addRelation`/`getRelationTargets`, and `transferableSnapshot` from their respective subpaths for both ESM (`dist/*.js`) and CJS (`dist/*.cjs`). Wired into `prepublishOnly` (after `build`) and CI.
-
-## [Unreleased]
-
-### Fixed
-
-- **`destroyEntity` now fires the reactive `enterQuery`/`exitQuery` surface.** Previously `destroyEntity` cleared the entity mask wholesale without notifying `recordEntityMaskChange`, so `exitQuery(...)` buffers stayed empty on destroy — asymmetric with both `removeComponent` (which notifies) and the query-targeted `observe(q, 'remove')` observer (which already fired on destroy). A destroyed entity now records an exit for every query it was matching. The pre-destroy mask is snapshotted at destroy entry so reentrant teardown handlers cannot suppress the exit. No public API change.
-- **`disposeWorld` / `destroyWorld` now release the large per-entity arrays.** The dispose path cleared archetypes/storages/queries but left `entityMask`, `entityArchetype`, `generations`, `freeList`, `componentBitFor`, `bitToQueries`, `queryArchetypeStamp`, and `sab` allocated. Because the public world handle's `capacity` getter closes over the internal state object, those arrays survived for the lifetime of the (typically retained) handle, defeating the "clear large buffers to help GC" intent. They are now released (typed arrays swapped to length-0 instances, Maps/arrays cleared, `sab` nulled). Post-dispose operations still throw as before — this is internal state, not public API.
-- **`unpackBinary` best-effort mode no longer leaks a raw `SyntaxError`.** Under `onUnknownVersion: 'best-effort'`, a malformed/garbled snapshot body reaching `JSON.parse` now surfaces a namespaced `aiecsjs:` error (with the original parse error attached as `cause`), consistent with the rest of the serializer. All existing length/bounds checks are unchanged.
-- **`DeltaSerializer.apply()` is now sound on a non-pristine / churned replica.** It previously treated the wire `eid` (a raw slot index, generation 0) as a packed id — throwing `addComponent on dead entity` once a replica slot's generation had advanced — and padded with `while (targetState.size < e.eid) createEntity()`, conflating the live count with a slot index and spawning phantom entities for holes in the source id space. `apply()` now materialises each entity at the source's slot via a new internal `ensureEntityAtSlot` primitive (reuse a live slot, reclaim a freed one, or advance the frontier), using the slot's current generation. No public API or wire-format change. Caveat: deltas carry only added/changed entities — entity/component removals are not propagated, so `apply()` remains additive.
-
-### Planned for 0.4+
-
-- Add `pipeAsync` for async system composition.
-- Doc-test harness so README code blocks are mechanically verified.
-- Promote `aiecsjs/worker` to `stable` once true SAB shared-memory column aliasing is implemented.
-- Document the 8-bit generation wrap caveat in [STABILITY.md](./STABILITY.md): with the
-  default `generationBits=8`, a single slot recycled 256 times wraps back to its
-  starting generation, briefly re-opening the ABA window. Safe for v0.5 shmup
-  workloads (~5000 frame to wrap a single slot at 60 fps × ~1k destroys); high-churn
-  pools should set `createWorld({ indexBits: 16, generationBits: 16 })` (16 + 16 = 32 bits;
-  65 536 entities × 65 536 generations). See test
-  [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
 ## [0.3.0] - 2026-05-29
 
@@ -1250,7 +1252,8 @@ The "documentation honesty + test backstop" release. No new public APIs; this is
 - Worker/SAB uses snapshot-copy in 0.1 rather than true shared-memory aliasing.
 - EntityId is unversioned; ABA-safe references arrive with `EntityRef` in 0.2.
 
-[Unreleased]: https://github.com/yshengliao/aiecsjs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/yshengliao/aiecsjs/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/yshengliao/aiecsjs/compare/v0.5.0...v0.5.1
 [0.1.0]: https://github.com/yshengliao/aiecsjs/releases/tag/v0.1.0
 
 ---
