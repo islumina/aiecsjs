@@ -29,7 +29,7 @@ const movement = (w, dt) => { forEachEntity(w, movers, (e, pos, vel) => { pos.x[
 pipe(movement)(world, 1/60)
 ```
 
-> **狀態：實驗版（v0.1.x）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
+> **狀態：實驗版（v0.5.x）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
 
 ## 目錄
 
@@ -887,7 +887,7 @@ aiecsjs **不送遙測**、**不發出網路請求**、**不附帶 postinstall s
 ## 常見問答
 
 **Q：aiecsjs 可以上線生產嗎？**
-A：尚未。0.1.x 為實驗版。`STABILITY.md` 中的 API 為工作中契約；預期會有 bug 修正。1.0 目標是實作硬化完成後。
+A：尚未。0.x 為實驗版。`STABILITY.md` 中的 API 為工作中契約；預期會有 bug 修正。1.0 目標是實作硬化完成後。
 
 **Q：可以用 class 實例當元件嗎？**
 A：可以，用 `defineObjectComponent`。但 AoS 僅限主執行緒，且迭代上比 SoA 慢。

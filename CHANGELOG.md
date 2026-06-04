@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned for 0.4+
+### Planned
 
 - Add `pipeAsync` for async system composition.
 - Doc-test harness so README code blocks are mechanically verified.
