@@ -21,9 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.5.3] - 2026-06-05
 
+### Added
+
+- Add `forEachEntityIndexed` yielding the masked index alongside the EntityId; closes the A1 packed-EntityId footgun in code (safe column iteration is now the default; `forEachEntity` unchanged).
+
 ### Docs
 
-- **Correctness clarification — `forEachEntity`'s `e` is a packed `EntityId`, not a column index.** Every doc/example that indexed an SoA column with the raw callback `e` (e.g. `pos.x[e]`) now hoists `const i = getEntityIndex(e)` and indexes with `i` (`README.md`, `README_ZHTW.md`, `docs/MIGRATION.md`, `docs/MIGRATION_ZHTW.md`, regenerated `llms-full.txt`). The old pattern only worked while generation 0 (`e === getEntityIndex(e)`); after any `destroyEntity` recycles a slot it read an out-of-bounds column slot. Added a recycle regression test proving both the bug and the fix; `e`'s packed semantics are intentionally unchanged (it is still what you pass to `destroyEntity`/`hasComponent`/command buffers). Corrected the 0.1.0 storage note that implied `Position.x[eid]` indexes by the packed id.
+- **Correctness clarification — `forEachEntity`'s `e` is a packed `EntityId`, not a column index.** The column-iteration docs/examples now lead with `forEachEntityIndexed((e, i, ...cols) => …)`, indexing SoA columns with the yielded safe index `i` (`pos.x[i]`) — no manual masking (`README.md`, `README_ZHTW.md`, `docs/MIGRATION.md`, `docs/MIGRATION_ZHTW.md`, regenerated `llms-full.txt`). `forEachEntity` is documented as the form to use when you only need the `EntityId`; for that raw form, derive the subscript with `getEntityIndex(e)`. The old `pos.x[e]` pattern only worked while generation 0 (`e === getEntityIndex(e)`); after any `destroyEntity` recycles a slot it read an out-of-bounds column slot. Added a recycle regression test proving both the bug and the fix; `e`'s packed semantics are intentionally unchanged (it is still what you pass to `destroyEntity`/`hasComponent`/command buffers). Corrected the 0.1.0 storage note that implied `Position.x[eid]` indexes by the packed id.
 - **A2 (tag slot footgun).** Documented that each tag in `defineQuery([...])` occupies a callback slot passed as `true`, with a correct mixed-query example; recommend placing tags last so data columns come first. Docs-only — the callback arity is intentionally unchanged (changing it would shift data params for code that correctly writes `(e, _tag, pos)`; deferred to a future major). Column arguments remain `any`-typed.
 - **A3 (reactive-query lazy arm).** Documented that enter/exit buffers are armed lazily on first registration/read, and recommend defining reactive queries at module scope so the first `tick` already observes transitions.
 

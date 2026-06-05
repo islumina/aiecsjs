@@ -319,6 +319,89 @@ function callWithCols(
   }
 }
 
+/**
+ * Like {@link forEachEntity}, but yields the masked column index `i` alongside
+ * the packed `EntityId`. The callback signature is `(e, i, ...cols)`:
+ *
+ *   - `e` — the packed EntityId (carries the generation in its high bits). Use
+ *     it for in-loop `destroyEntity` / `hasComponent` / `refOf`, exactly as with
+ *     `forEachEntity`.
+ *   - `i` — `e & indexMask`, the raw slot index. This is the **correct subscript**
+ *     for SoA column views (`pos.x[i]`), and stays correct after a slot is
+ *     recycled — where indexing with the packed `e` would read out of bounds.
+ *   - `...cols` — the same column views `forEachEntity` passes.
+ *
+ * This closes the packed-EntityId footgun (A1): callers no longer need to call
+ * `getEntityIndex(e)` (or hand-mask) themselves to index columns safely.
+ */
+export function forEachEntityIndexed(
+  world: World,
+  query: Query,
+  fn: (e: EntityId, i: number, ...cols: any[]) => void,
+): void {
+  const state = getWorldState(world)
+  const q = query as QueryInternal
+  const indexMask = state.options.indexMask
+
+  if (q.reactiveKind !== 'normal') {
+    const buf = state.reactiveBuffers.get(q.id)
+    if (!buf) return
+    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    if (src.length === 0) return
+    const cols = buildColumnViews(state, q)
+    for (let i = 0; i < src.length; i++) {
+      const e = src[i] as EntityId
+      callWithColsIndexed(fn, e, e & indexMask, cols)
+    }
+    src.length = 0
+    return
+  }
+
+  ensureQueryRegistered(state, q)
+  const archIds = getQueryArchetypes(state, q)
+  const cols = buildColumnViews(state, q)
+  for (const id of archIds) {
+    const arch = state.archetypes[id]!
+    const ents = arch.entities
+    const n = arch.size
+    for (let r = 0; r < n; r++) {
+      const e = ents[r] as EntityId
+      callWithColsIndexed(fn, e, e & indexMask, cols)
+    }
+  }
+}
+
+function callWithColsIndexed(
+  fn: (e: EntityId, i: number, ...cols: any[]) => void,
+  e: EntityId,
+  i: number,
+  cols: any[],
+): void {
+  // Specialise for low arities to avoid spread allocation.
+  switch (cols.length) {
+    case 0:
+      fn(e, i)
+      break
+    case 1:
+      fn(e, i, cols[0])
+      break
+    case 2:
+      fn(e, i, cols[0], cols[1])
+      break
+    case 3:
+      fn(e, i, cols[0], cols[1], cols[2])
+      break
+    case 4:
+      fn(e, i, cols[0], cols[1], cols[2], cols[3])
+      break
+    case 5:
+      fn(e, i, cols[0], cols[1], cols[2], cols[3], cols[4])
+      break
+    default:
+      fn(e, i, ...cols)
+  }
+}
+
 function buildColumnViews(state: WorldState, q: QueryInternal): any[] {
   const out: any[] = []
   for (const comp of q.columnViewCache) {

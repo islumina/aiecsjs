@@ -98,9 +98,8 @@ const movementSystem = (world) => {
 aiecsjs:
 ```ts
 const movementSystem = (world, dt = 1) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` 是安全的欄位索引
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -155,7 +154,7 @@ addComponent(world, e, MeshRef, { mesh: someMesh })
 
 但記住：AoS 元件僅限主執行緒。
 
-**iteration callback vs. iterator。** miniplex 的 `for (const e of query)` 方便但每幀分配 iterator。`forEachEntity(world, query, fn)` 是熱路徑；只有需要 `for...of` 語義時才使用 `iterQuery`。
+**iteration callback vs. iterator。** miniplex 的 `for (const e of query)` 方便但每幀分配 iterator。`forEachEntityIndexed(world, query, fn)` 是熱路徑（且提供安全的欄位索引 `i`）；只需要 `EntityId` 時用 `forEachEntity`，只有需要 `for...of` 語義時才使用 `iterQuery`。
 
 ### 系統移植範例
 
@@ -173,9 +172,8 @@ aiecsjs:
 ```ts
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` 是安全的欄位索引
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -230,9 +228,8 @@ world.execute(1/60)
 // aiecsjs:
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` 是安全的欄位索引
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -241,7 +238,7 @@ const tick = pipe(movement)
 tick(world, 1/60)
 ```
 
-**SoA 欄位 vs. 元件實例。** ECSY 元件是 class 實例，欄位如 `pos.x`。aiecsjs SoA 元件是欄位對應表；以實體**索引**索引：`pos.x[getEntityIndex(e)]`。`forEachEntity` callback 的 `e` 是封裝後的 `EntityId`，不是欄位偏移 —— 請以 `getEntityIndex(e)` 轉換（兩者只有在 slot 被回收前才相同）。
+**SoA 欄位 vs. 元件實例。** ECSY 元件是 class 實例，欄位如 `pos.x`。aiecsjs SoA 元件是以實體**索引**索引的欄位對應表。請優先使用 `forEachEntityIndexed`，其 `(e, i, ...cols)` callback 直接提供正確的索引 `i`（`pos.x[i]`）—— 封裝後的 `e` 不是欄位偏移，slot 被回收後就與索引不同。若使用原始的 `forEachEntity` 形式，請以 `getEntityIndex(e)` 取得：`pos.x[getEntityIndex(e)]`。
 
 **沒有 `priority` 或排程 DSL。** aiecsjs 系統以 `pipe()` 順序執行。若你依賴 ECSY 的 `priority` 排序，直接把 pipe 順序寫對即可。
 
@@ -252,5 +249,6 @@ tick(world, 1/60)
 1. **忘了用 `pipe(...)` 串系統** — 手動逐一呼叫各系統卻沒把 world 參考帶過去。請用 `pipe` 串好，再 `tick(world, ctx)`。
 2. **在系統內呼叫 `defineComponent`** — 元件是 identity-based，必須是 module-level 常數。
 3. **快取 `getComponent()` 回傳值** — 實體 archetype 改變後該 view 已失效。每幀請重新取得。
-4. **對 `runQuery` 結果用 `for...of` 迭代** — `runQuery` 每次呼叫都分配陣列。熱路徑請改用 `forEachEntity`。
+4. **對 `runQuery` 結果用 `for...of` 迭代** — `runQuery` 每次呼叫都分配陣列。熱路徑請改用 `forEachEntityIndexed`（只需要 `EntityId` 時用 `forEachEntity`）。
+   - **以封裝後的 `EntityId` 索引欄位** — `pos.x[e]` 在 slot 被回收後會損毀。`forEachEntityIndexed` 的 `(e, i, ...cols)` callback 直接提供安全索引 `i`；使用 `forEachEntity` 時請用 `getEntityIndex(e)`。
 5. **嘗試跨 Worker 共享 AoS 元件** — 僅 SoA 元件能存於 SharedArrayBuffer。多執行緒前請先把 AoS 換成 SoA。

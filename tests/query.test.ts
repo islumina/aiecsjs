@@ -11,6 +11,10 @@ import {
   enterQuery,
   exitQuery,
   forEachEntity,
+  forEachEntityIndexed,
+  getComponent,
+  getEntityGeneration,
+  getEntityIndex,
   hasComponent,
   iterQuery,
   queryArchetypes,
@@ -124,6 +128,283 @@ describe('query', () => {
     const q = defineQuery([Position])
     const arcs = queryArchetypes(w, q)
     expect(arcs.length).toBeGreaterThan(0)
+  })
+})
+
+describe('forEachEntityIndexed', () => {
+  const DEFAULT_INDEX_MASK = 0xffffff // default indexBits=24
+
+  // A1 invariant (0.5.3): forEachEntityIndexed yields the masked column index `i`
+  // alongside the packed EntityId, so `pos.x[i]` is correct WITH NO manual masking
+  // even after a slot is recycled (gen >= 1) — the exact scenario where `pos.x[e]`
+  // would corrupt by reading an out-of-bounds slot. Mirrors the forEachEntity
+  // recycle regression in tests/entity.test.ts but proves the indexed helper makes
+  // the safe path the default.
+  it('recycle-correctness: i === getEntityIndex(e) and pos.x[i] hits the right slot after recycle', () => {
+    const w = createWorld()
+
+    // Spawn a batch, destroy them so their slots return to the free list with a
+    // bumped generation, then re-spawn so those slots are reused at gen >= 1.
+    const firstWave: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: 0, y: 0 })
+      addComponent(w, e, Velocity, { x: 1, y: 2 })
+      firstWave.push(e as number)
+    }
+    for (const e of firstWave) destroyEntity(w, e as any)
+
+    const secondWave: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: 0, y: 0 })
+      addComponent(w, e, Velocity, { x: 1, y: 2 })
+      secondWave.push(e as number)
+    }
+    // At least one slot recycled with gen >= 1 → packed id diverges from its index.
+    const recycled = secondWave.filter((e) => getEntityIndex(e as any) !== (e as any))
+    expect(recycled.length).toBeGreaterThan(0)
+    for (const e of recycled) {
+      expect(getEntityGeneration(e as any)).toBeGreaterThanOrEqual(1)
+    }
+
+    // Movement-style loop indexing columns with the yielded `i` — NO manual masking.
+    const movers = defineQuery([Position, Velocity])
+    const dt = 0.5
+    forEachEntityIndexed(w, movers, (e, i, pos: any, vel: any) => {
+      // The whole point: `i` is the safe subscript and equals getEntityIndex(e).
+      expect(i).toBe(getEntityIndex(e))
+      pos.x[i] += vel.x[i] * dt
+      pos.y[i] += vel.y[i] * dt
+    })
+
+    // Every live entity was integrated correctly, read back via the masked index.
+    for (const e of secondWave) {
+      const i = getEntityIndex(e as any)
+      const pos = getComponent(w, e as any, Position) as any
+      expect(pos.x[i]).toBeCloseTo(0.5) // 1 * 0.5
+      expect(pos.y[i]).toBeCloseTo(1.0) // 2 * 0.5
+    }
+
+    // And confirm the masked index is in-bounds for the column (unlike the packed
+    // id for a recycled entity, which the forEachEntity regression proves is past
+    // the column end).
+    const posStorage = getComponent(w, recycled[0] as any, Position) as any
+    const recycledIndex = getEntityIndex(recycled[0] as any)
+    expect(recycledIndex).toBeLessThan(posStorage.x.length)
+    expect((recycled[0] as number) >= posStorage.x.length).toBe(true)
+  })
+
+  it('parity: i-sequence equals iterQuery indices and e-sequence equals forEachEntity', () => {
+    const w = createWorld()
+    for (let i = 0; i < 6; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+      addComponent(w, e, Velocity, { x: i, y: i })
+    }
+    const q = defineQuery([Position, Velocity])
+
+    const indexedEs: number[] = []
+    const indexedIs: number[] = []
+    forEachEntityIndexed(w, q, (e, i) => {
+      indexedEs.push(e as number)
+      indexedIs.push(i)
+    })
+
+    // Same entity order as forEachEntity.
+    const plainEs: number[] = []
+    forEachEntity(w, q, (e) => {
+      plainEs.push(e as number)
+    })
+    expect(indexedEs).toEqual(plainEs)
+
+    // i-sequence equals the masked iterQuery order.
+    const expectedIs = [...iterQuery(w, q)].map((e) => (e as number) & DEFAULT_INDEX_MASK)
+    expect(indexedIs).toEqual(expectedIs)
+    // And each yielded i is exactly e & mask.
+    for (let k = 0; k < indexedEs.length; k++) {
+      expect(indexedIs[k]).toBe(indexedEs[k]! & DEFAULT_INDEX_MASK)
+    }
+  })
+
+  it('reactive: enterQuery yields correct indices and drains the buffer', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    // Register q with this world first so bitToQueries is populated.
+    runQuery(w, q)
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+
+    const seen: Array<[number, number]> = []
+    forEachEntityIndexed(w, entering, (eid, i) => {
+      seen.push([eid as number, i])
+    })
+    expect(seen.length).toBe(1)
+    expect(seen[0]![0]).toBe(e as number)
+    expect(seen[0]![1]).toBe(getEntityIndex(e as any))
+
+    // Second call — buffer is drained.
+    const seen2: number[] = []
+    forEachEntityIndexed(w, entering, (eid) => seen2.push(eid as number))
+    expect(seen2.length).toBe(0)
+  })
+
+  it('reactive: exitQuery yields correct indices and drains the buffer', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const leaving = exitQuery(q)
+    runQuery(w, q)
+    const e = createEntity(w)
+    addComponent(w, e, Position, { x: 0, y: 0 })
+    removeComponent(w, e, Position)
+
+    const seen: Array<[number, number]> = []
+    forEachEntityIndexed(w, leaving, (eid, i) => {
+      seen.push([eid as number, i])
+    })
+    expect(seen.length).toBe(1)
+    expect(seen[0]![0]).toBe(e as number)
+    expect(seen[0]![1]).toBe(getEntityIndex(e as any))
+
+    // Buffer drained on second pass.
+    const seen2: number[] = []
+    forEachEntityIndexed(w, leaving, (eid) => seen2.push(eid as number))
+    expect(seen2.length).toBe(0)
+  })
+
+  it('reactive: returns early with no buffer / empty buffer', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    // No buffer exists for this world yet → early return, no throw.
+    let calls = 0
+    forEachEntityIndexed(w, entering, () => {
+      calls++
+    })
+    expect(calls).toBe(0)
+  })
+
+  // Arity coverage: exercise 0,1,2,3,4,5 and >=6 columns so every
+  // callWithColsIndexed branch (cases 0-5 + spread default) runs.
+  describe('arity coverage (callWithColsIndexed branches)', () => {
+    const A1c = defineComponent({ a: Types.f32 })
+    const A2c = defineComponent({ b: Types.f32 })
+    const A3c = defineComponent({ c: Types.f32 })
+    const A4c = defineComponent({ d: Types.f32 })
+    const A5c = defineComponent({ e: Types.f32 })
+    const A6c = defineComponent({ f: Types.f32 })
+
+    it('0-column query calls fn with (e, i) only', () => {
+      const w = createWorld()
+      const q = defineQuery({ all: [], any: [] })
+      const e = createEntity(w)
+      let seenE = -1
+      let seenI = -1
+      let colCount = -1
+      forEachEntityIndexed(w, q, (eid, i, ...cols) => {
+        seenE = eid as number
+        seenI = i
+        colCount = cols.length
+      })
+      expect(seenE).toBe(e as number)
+      expect(seenI).toBe(getEntityIndex(e as any))
+      expect(colCount).toBe(0)
+    })
+
+    it('1-column query', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c, { a: 7 })
+      let colCount = -1
+      let val = -1
+      forEachEntityIndexed(w, q, (_e, i, a: any) => {
+        colCount = 1
+        val = a.a[i]
+      })
+      expect(colCount).toBe(1)
+      expect(val).toBe(7)
+    })
+
+    it('2-column query', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c, A2c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c, { a: 1 })
+      addComponent(w, e, A2c, { b: 2 })
+      let colCount = -1
+      forEachEntityIndexed(w, q, (_e, _i, a, b) => {
+        colCount = [a, b].length
+      })
+      expect(colCount).toBe(2)
+    })
+
+    it('3-column query', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c, A2c, A3c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c)
+      addComponent(w, e, A2c)
+      addComponent(w, e, A3c)
+      let colCount = -1
+      forEachEntityIndexed(w, q, (_e, _i, a, b, c) => {
+        colCount = [a, b, c].length
+      })
+      expect(colCount).toBe(3)
+    })
+
+    it('4-column query', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c, A2c, A3c, A4c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c)
+      addComponent(w, e, A2c)
+      addComponent(w, e, A3c)
+      addComponent(w, e, A4c)
+      let colCount = -1
+      forEachEntityIndexed(w, q, (_e, _i, a, b, c, d) => {
+        colCount = [a, b, c, d].length
+      })
+      expect(colCount).toBe(4)
+    })
+
+    it('5-column query', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c, A2c, A3c, A4c, A5c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c)
+      addComponent(w, e, A2c)
+      addComponent(w, e, A3c)
+      addComponent(w, e, A4c)
+      addComponent(w, e, A5c)
+      let colCount = -1
+      forEachEntityIndexed(w, q, (_e, _i, a, b, c, d, f) => {
+        colCount = [a, b, c, d, f].length
+      })
+      expect(colCount).toBe(5)
+    })
+
+    it('6+-column query (spread default branch)', () => {
+      const w = createWorld()
+      const q = defineQuery([A1c, A2c, A3c, A4c, A5c, A6c])
+      const e = createEntity(w)
+      addComponent(w, e, A1c)
+      addComponent(w, e, A2c)
+      addComponent(w, e, A3c)
+      addComponent(w, e, A4c)
+      addComponent(w, e, A5c)
+      addComponent(w, e, A6c)
+      let colCount = -1
+      let seenI = -1
+      forEachEntityIndexed(w, q, (eid, i, ...cols) => {
+        colCount = cols.length
+        seenI = i
+        expect(i).toBe(getEntityIndex(eid))
+      })
+      expect(colCount).toBe(6)
+      expect(seenI).toBe(getEntityIndex(e as any))
+    })
   })
 })
 

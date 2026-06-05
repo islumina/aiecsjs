@@ -98,9 +98,8 @@ const movementSystem = (world) => {
 aiecsjs:
 ```ts
 const movementSystem = (world, dt = 1) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` is the safe column subscript
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -155,7 +154,7 @@ addComponent(world, e, MeshRef, { mesh: someMesh })
 
 But remember: AoS components are main-thread only.
 
-**Iteration callbacks vs. iterators.** miniplex's `for (const e of query)` is convenient but allocates the iterator each frame. `forEachEntity(world, query, fn)` is the hot path; reach for `iterQuery` only when you need `for...of` semantics.
+**Iteration callbacks vs. iterators.** miniplex's `for (const e of query)` is convenient but allocates the iterator each frame. `forEachEntityIndexed(world, query, fn)` is the hot path (and yields the safe column index `i`); use `forEachEntity` when you only need the `EntityId`, and reach for `iterQuery` only when you need `for...of` semantics.
 
 ### Porting a system
 
@@ -173,9 +172,8 @@ aiecsjs:
 ```ts
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` is the safe column subscript
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -230,9 +228,8 @@ world.execute(1/60)
 // aiecsjs:
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
-  forEachEntity(world, movers, (e, pos, vel) => {
-    const i = getEntityIndex(e)
-    pos.x[i] += vel.x[i] * dt
+  forEachEntityIndexed(world, movers, (e, i, pos, vel) => {
+    pos.x[i] += vel.x[i] * dt   // `i` is the safe column subscript
     pos.y[i] += vel.y[i] * dt
   })
   return world
@@ -241,7 +238,7 @@ const tick = pipe(movement)
 tick(world, 1/60)
 ```
 
-**SoA columns vs. component instances.** ECSY components are class instances with fields like `pos.x`. aiecsjs SoA components are column maps; you index by the entity **index**: `pos.x[getEntityIndex(e)]`. The `forEachEntity` callback's `e` is a packed `EntityId`, not a column offset — convert it with `getEntityIndex(e)` (they coincide only until a slot is recycled).
+**SoA columns vs. component instances.** ECSY components are class instances with fields like `pos.x`. aiecsjs SoA components are column maps indexed by the entity **index**. Prefer `forEachEntityIndexed`, whose `(e, i, ...cols)` callback hands you the correct subscript `i` directly (`pos.x[i]`) — the packed `e` is not a column offset and diverges from the index once a slot is recycled. With the raw `forEachEntity` form, derive it via `getEntityIndex(e)`: `pos.x[getEntityIndex(e)]`.
 
 **No `priority` or scheduling DSL.** aiecsjs systems run in `pipe()` order. If you depended on ECSY's `priority` for ordering, just write the pipe in the right order.
 
@@ -252,5 +249,6 @@ tick(world, 1/60)
 1. **Forgetting to `pipe(...)` system function** — calling each system manually and forgetting to thread the world reference. Compose with `pipe` once and call `tick(world, ctx)`.
 2. **Calling `defineComponent` inside a system** — components are identity-based and must be module-level constants.
 3. **Caching `getComponent()` return value** — after an entity's archetype changes, the view is stale. Re-fetch each frame.
-4. **Iterating with `for...of` on `runQuery` result** — `runQuery` allocates an array each call. Use `forEachEntity` in hot paths.
+4. **Iterating with `for...of` on `runQuery` result** — `runQuery` allocates an array each call. Use `forEachEntityIndexed` in hot paths (or `forEachEntity` when you only need the `EntityId`).
+   - **Indexing columns with the packed `EntityId`** — `pos.x[e]` corrupts after a slot is recycled. `forEachEntityIndexed`'s `(e, i, ...cols)` callback hands you the safe subscript `i`; with `forEachEntity`, use `getEntityIndex(e)`.
 5. **Trying to share AoS components across Workers** — only SoA components live in SharedArrayBuffer. Replace AoS with SoA before going multi-thread.

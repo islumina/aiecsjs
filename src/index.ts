@@ -93,6 +93,7 @@ export {
   runQuery,
   iterQuery,
   forEachEntity,
+  forEachEntityIndexed,
   enterQuery,
   exitQuery,
   queryArchetypes,

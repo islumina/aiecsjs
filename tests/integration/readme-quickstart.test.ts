@@ -8,7 +8,7 @@ import {
   defineQuery,
   destroyEntity,
   entityExists,
-  forEachEntity,
+  forEachEntityIndexed,
   getComponent,
   getEntityIndex,
   pipe,
@@ -38,9 +38,8 @@ describe('integration: README Quick Start', () => {
     const decaying = defineQuery([Lifetime])
 
     const movementSystem = (w: any, dt: number) => {
-      forEachEntity(w, movers, (e, pos: any, vel: any) => {
-        const i = getEntityIndex(e) // packed EntityId → column index
-        pos.x[i] += vel.x[i] * dt
+      forEachEntityIndexed(w, movers, (e, i, pos: any, vel: any) => {
+        pos.x[i] += vel.x[i] * dt // `i` is the safe column subscript
         pos.y[i] += vel.y[i] * dt
       })
       return w
@@ -48,8 +47,7 @@ describe('integration: README Quick Start', () => {
 
     const lifetimeSystem = (w: any, dt: number) => {
       const toDestroy: number[] = []
-      forEachEntity(w, decaying, (e, life: any) => {
-        const i = getEntityIndex(e)
+      forEachEntityIndexed(w, decaying, (e, i, life: any) => {
         life.remaining[i] -= dt
         if (life.remaining[i] <= 0) toDestroy.push(e as number)
       })

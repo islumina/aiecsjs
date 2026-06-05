@@ -36,6 +36,7 @@
         "defineQuery",
         "runQuery",
         "forEachEntity",
+        "forEachEntityIndexed",
         "iterQuery",
         "enterQuery",
         "exitQuery",
@@ -648,10 +649,38 @@
       "examples": [
         {
           "title": "Update positions",
-          "code": "forEachEntity(world, movers, (e, pos, vel) => { pos.x[e] += vel.x[e]; pos.y[e] += vel.y[e] })"
+          "code": "forEachEntity(world, movers, (e, pos, vel) => { const i = getEntityIndex(e); pos.x[i] += vel.x[i]; pos.y[i] += vel.y[i] })"
         }
       ],
-      "seeAlso": ["defineQuery", "runQuery", "iterQuery"]
+      "seeAlso": ["defineQuery", "runQuery", "forEachEntityIndexed", "iterQuery"]
+    },
+    {
+      "name": "forEachEntityIndexed",
+      "kind": "function",
+      "module": "aiecsjs",
+      "since": "0.5.3",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "function forEachEntityIndexed<Q extends Query>(world: World, query: Q, fn: (eid: EntityId, i: number, ...columns: any[]) => void): void",
+      "summary": "Hot iteration path that yields the masked column index. Recommended for column iteration: index SoA columns with the safe subscript `i` (pos.x[i]); the packed `eid` is for entity operations. Closes the A1 packed-EntityId footgun in code.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "query", "type": "Query", "optional": false, "description": "Query handle." },
+        {
+          "name": "fn",
+          "type": "(eid, i, ...columns) => void",
+          "optional": false,
+          "description": "Per-entity callback. Receives the packed eid, the masked column index i (eid & indexMask), then component column views in declaration order."
+        }
+      ],
+      "returns": { "type": "void", "description": "" },
+      "examples": [
+        {
+          "title": "Update positions (safe column indexing)",
+          "code": "forEachEntityIndexed(world, movers, (e, i, pos, vel) => { pos.x[i] += vel.x[i]; pos.y[i] += vel.y[i] })"
+        }
+      ],
+      "seeAlso": ["forEachEntity", "defineQuery", "runQuery", "iterQuery"]
     },
     {
       "name": "iterQuery",
