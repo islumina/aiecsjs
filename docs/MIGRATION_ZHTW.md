@@ -63,11 +63,12 @@ for (let i = 0; i < eids.length; i++) {
 // aiecsjs:
 const movers = defineQuery([Position, Velocity])
 forEachEntity(world, movers, (e, pos, vel) => {
-  pos.x[e] += vel.x[e]
+  const i = getEntityIndex(e)   // `e` 是封裝後的 EntityId，不是欄位索引
+  pos.x[i] += vel.x[i]
 })
 ```
 
-aiecsjs 寫法較短，且 callback 內可取得已對型的欄位 view。
+aiecsjs 寫法較短，且 callback 內可取得欄位 view。注意與 bitECS 的關鍵差異：bitECS 的 query 直接回傳實體索引，`Position.x[eid]` 可直接索引欄位；aiecsjs 的 callback `e` 是**封裝後的 `EntityId`**（索引 + 世代），因此請以 `getEntityIndex(e)` 索引欄位 —— 封裝後的 id 只有在 slot 尚未被回收前才等於索引。
 
 **實體版本控制。** 兩者都支援。bitECS 透過 `withVersioning(bits)`；aiecsjs 直接在 `WorldOptions` 中取 `indexBits` 與 `generationBits`。
 
@@ -98,8 +99,9 @@ aiecsjs:
 ```ts
 const movementSystem = (world, dt = 1) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -172,8 +174,9 @@ aiecsjs:
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -228,8 +231,9 @@ world.execute(1/60)
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -237,7 +241,7 @@ const tick = pipe(movement)
 tick(world, 1/60)
 ```
 
-**SoA 欄位 vs. 元件實例。** ECSY 元件是 class 實例，欄位如 `pos.x`。aiecsjs SoA 元件是欄位對應表；以實體 ID 索引：`pos.x[e]`。
+**SoA 欄位 vs. 元件實例。** ECSY 元件是 class 實例，欄位如 `pos.x`。aiecsjs SoA 元件是欄位對應表；以實體**索引**索引：`pos.x[getEntityIndex(e)]`。`forEachEntity` callback 的 `e` 是封裝後的 `EntityId`，不是欄位偏移 —— 請以 `getEntityIndex(e)` 轉換（兩者只有在 slot 被回收前才相同）。
 
 **沒有 `priority` 或排程 DSL。** aiecsjs 系統以 `pipe()` 順序執行。若你依賴 ECSY 的 `priority` 排序，直接把 pipe 順序寫對即可。
 

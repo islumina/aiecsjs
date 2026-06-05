@@ -13,7 +13,7 @@ Part of the [ai\*js micro-runtime ecosystem](https://github.com/yshengliao) — 
 aiecsjs uses **archetype tables with TypedArray columns** and **bitmask queries** — the same architecture that powers piecs and wolf-ecs at the top of public benchmarks. Its API is **functional and tree-shakable**, composed with `pipe()`. Components support both Structure-of-Arrays (SoA) and Array-of-Structures (AoS) layouts. Since 0.3, `EntityId` packs index + generation into a single 32-bit number; the ABA-safe `EntityRef` API shipped in 0.3.0.
 
 ```ts
-import { createWorld, createEntity, defineComponent, defineQuery, pipe, forEachEntity, Types } from 'aiecsjs'
+import { createWorld, createEntity, addComponent, defineComponent, defineQuery, pipe, forEachEntity, getEntityIndex, Types } from 'aiecsjs'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -24,10 +24,12 @@ addComponent(world, eid, Position, { x: 0, y: 0 })
 addComponent(world, eid, Velocity, { x: 1, y: 2 })
 
 const movers = defineQuery([Position, Velocity])
-const movement = (w, dt) => { forEachEntity(w, movers, (e, pos, vel) => { pos.x[e] += vel.x[e] * dt; pos.y[e] += vel.y[e] * dt }); return w }
+const movement = (w, dt) => { forEachEntity(w, movers, (e, pos, vel) => { const i = getEntityIndex(e); pos.x[i] += vel.x[i] * dt; pos.y[i] += vel.y[i] * dt }); return w }
 
 pipe(movement)(world, 1/60)
 ```
+
+> **`e` is a packed `EntityId`, not a column index.** Use `e` directly for entity operations (`destroyEntity`, `hasComponent`, `getComponent`, command buffers). To index SoA columns, convert it once per entity with `getEntityIndex(e)`: `pos.x[getEntityIndex(e)]`. The packed id only equals the index until a slot is recycled (generation 0); after any `destroyEntity` recycles a slot, `e !== getEntityIndex(e)` and indexing a column with `e` reads the wrong slot (out of bounds → `undefined`/`NaN`).
 
 > **Status: experimental (v0.5.x).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
 
@@ -132,7 +134,7 @@ Peer requirements: **Node 18+** (for ESM and structured-clone WebStreams), **Typ
 import {
   createWorld, createEntity, destroyEntity,
   defineComponent, addComponent, removeComponent,
-  defineQuery, forEachEntity, pipe, Types,
+  defineQuery, forEachEntity, getEntityIndex, pipe, Types,
 } from 'aiecsjs'
 import { createLoop } from 'aiecsjs/loop'
 
@@ -154,16 +156,18 @@ const decaying = defineQuery([Lifetime])
 
 const movementSystem = (w, dt) => {
   forEachEntity(w, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)   // packed EntityId → column index
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return w
 }
 
 const lifetimeSystem = (w, dt) => {
   forEachEntity(w, decaying, (e, life) => {
-    life.remaining[e] -= dt
-    if (life.remaining[e] <= 0) destroyEntity(w, e)
+    const i = getEntityIndex(e)
+    life.remaining[i] -= dt
+    if (life.remaining[i] <= 0) destroyEntity(w, e)   // destroyEntity takes the packed `e`
   })
   return w
 }
@@ -232,14 +236,47 @@ if (entityExists(world, eid)) {
 ```ts
 const moveSystem = (world: World, dt: number) => {
   forEachEntity(world, defineQuery([Position, Velocity]), (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)   // packed EntityId → column index
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
 ```
 
+`forEachEntity`'s first callback argument is a **packed `EntityId`** (index + generation), not a column index. Hoist `const i = getEntityIndex(e)` once at the top of the callback and index every SoA column with `i`; pass the packed `e` to entity operations (`destroyEntity`, `hasComponent`, command buffers). See [Core Concepts → Entity](#core-concepts) for why `e !== i` once a slot is recycled.
+
 Hoist `defineQuery(...)` calls out of the hot loop — the same query object is returned for the same component set, but the lookup still costs a hash.
+
+### Tags in mixed queries
+
+Every component named in `defineQuery([...])` — **including tags** — occupies one callback slot, in declaration order. A tag has no storage, so its slot is passed as the literal `true`:
+
+```ts
+const Frozen = defineTag()
+const q = defineQuery([Frozen, Position])   // tag first
+
+// ❌ Wrong: `pos` binds to the tag slot (`true`); `pos.x` throws.
+forEachEntity(world, q, (e, pos) => { /* pos === true */ })
+
+// ✅ Correct: account for every slot. Tag arrives as `true`.
+forEachEntity(world, q, (e, _frozen, pos) => {
+  const i = getEntityIndex(e)
+  pos.x[i] += 1
+})
+```
+
+**Recommendation: put tags last** so data columns come first and the trailing `true` slots are easy to ignore:
+
+```ts
+const q = defineQuery([Position, Velocity, Frozen])   // tags last
+forEachEntity(world, q, (e, pos, vel /* , _frozen */) => {
+  const i = getEntityIndex(e)
+  pos.x[i] += vel.x[i]
+})
+```
+
+(Tags still filter membership either way — ordering only affects the callback's argument layout. The column-argument list is `any`-typed, so a mismatched binding is a runtime error, not a compile error.)
 
 ### Composing with pipe and createLoop
 
@@ -275,6 +312,8 @@ const reapSystem = (world) => {
 ```
 
 `enterQuery` yields only entities that newly match this frame; `exitQuery` yields only entities that left. Both are computed incrementally during structural changes — there's no per-frame scan.
+
+> **Define reactive queries at module scope** (as above), before any update runs. A reactive query's enter/exit buffer is **armed lazily** — the world starts tracking a query's transitions the first time that query (or its `enterQuery`/`exitQuery` view) participates in a structural change or is read. Create/destroy events that happen *before* the first registration are not retroactively captured. Module-scope definitions register the query at import time, so the very first `tick` already observes transitions; queries created lazily inside a system may miss the events from the frame they were introduced.
 
 ### Observers
 
@@ -312,7 +351,7 @@ const damageSystem = (world) => {
   const dying = defineQuery([Health])
   withCommandBuffer(world, (cb) => {
     forEachEntity(world, dying, (e, health) => {
-      if (health.hp[e] <= 0) cb.destroy(e)
+      if (health.hp[getEntityIndex(e)] <= 0) cb.destroy(e)   // index the column, queue the packed `e`
     })
   })  // auto-flushes here
   return world
@@ -523,7 +562,7 @@ A query for `(Position, Velocity)` matches archetypes 2 and 3 and walks each lin
 ### Reproducible micro-benchmark
 
 ```ts
-import { createWorld, createEntity, addComponent, defineComponent, defineQuery, forEachEntity, Types } from 'aiecsjs'
+import { createWorld, createEntity, addComponent, defineComponent, defineQuery, forEachEntity, getEntityIndex, Types } from 'aiecsjs'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -539,7 +578,7 @@ const movers = defineQuery([Position, Velocity])
 const start = performance.now()
 for (let frame = 0; frame < 1000; frame++) {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e]; pos.y[e] += vel.y[e]
+    const i = getEntityIndex(e); pos.x[i] += vel.x[i]; pos.y[i] += vel.y[i]
   })
 }
 console.log('ms per frame:', (performance.now() - start) / 1000)
@@ -580,18 +619,19 @@ worker.postMessage({ buffer, meta: transferableSnapshot(world).meta })
 
 ```ts
 // sim-worker.ts
-import { adoptSnapshot, defineComponent, defineQuery, forEachEntity, Types } from 'aiecsjs'
+import { adoptSnapshot, defineComponent, defineQuery, forEachEntity, getEntityIndex, Types } from 'aiecsjs'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
 
-self.onmessage = (e) => {
-  const world = adoptSnapshot(e.data)
+self.onmessage = (msg) => {
+  const world = adoptSnapshot(msg.data)
   const movers = defineQuery([Position, Velocity])
   setInterval(() => {
     forEachEntity(world, movers, (e, pos, vel) => {
-      pos.x[e] += vel.x[e]
-      pos.y[e] += vel.y[e]
+      const i = getEntityIndex(e)
+      pos.x[i] += vel.x[i]
+      pos.y[i] += vel.y[i]
     })
   }, 16)
 }
@@ -738,7 +778,7 @@ This section is designed to be loaded as context by AI coding assistants. The sa
 **1. Spawn-and-move**
 
 ```ts
-import { createWorld, createEntity, addComponent, defineComponent, defineQuery, forEachEntity, pipe, Types } from 'aiecsjs'
+import { createWorld, createEntity, addComponent, defineComponent, defineQuery, forEachEntity, getEntityIndex, pipe, Types } from 'aiecsjs'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -752,7 +792,7 @@ for (let i = 0; i < 1000; i++) {
 
 const movers = defineQuery([Position, Velocity])
 const move = (w, dt) => {
-  forEachEntity(w, movers, (e, p, v) => { p.x[e] += v.x[e] * dt; p.y[e] += v.y[e] * dt })
+  forEachEntity(w, movers, (e, p, v) => { const i = getEntityIndex(e); p.x[i] += v.x[i] * dt; p.y[i] += v.y[i] * dt })
   return w
 }
 pipe(move)(world, 0.016)
@@ -831,7 +871,7 @@ ws.onmessage = (e) => rx.apply(remoteWorld, new Uint8Array(e.data))
 - `defineQuery(X)` returns the same `Query` object for the same component set in the same module.
 - Entity ID `0` is reserved. `createEntity` never returns `0`.
 - `VERSION` exported from `'aiecsjs'` equals the published npm version.
-- SoA columns are TypedArrays. Indexing by an alive `eid` is always safe up to `getWorldCapacity(world)`.
+- SoA columns are TypedArrays indexed by the entity **index** (always in `[0, getWorldCapacity(world))`), never by the packed `eid` — the two differ once a slot is recycled. For the default world layout (`indexBits: 24`) the index is `getEntityIndex(eid)`; for a world created with a non-default `indexBits`, `getEntityIndex` uses the default 24-bit mask and is **not** the column index — use `EntityRef` + `deref` instead.
 - Component identity is **global** (created by `defineComponent`), but each component's storage is **per-world**.
 
 ### Glossary
@@ -871,6 +911,8 @@ When you generate code that uses aiecsjs, include this comment at the top of the
 ### Known LLM gotchas
 
 - **aiecsjs is NOT bitECS.** Argument order for `addComponent` differs: aiecsjs uses `(world, eid, Component, init?)`; bitECS uses `(world, Component, eid)`.
+- **`forEachEntity`'s `e` is a packed `EntityId`, NOT a column index.** Use `e` for entity operations (`destroyEntity(w, e)`, `hasComponent`, `getComponent`, command buffers). Index SoA columns with `getEntityIndex(e)`: `pos.x[getEntityIndex(e)]`. Hoist it once (`const i = getEntityIndex(e)`) per callback. Indexing a column with the raw `e` only works while no slot has been recycled (generation 0); after any `destroyEntity` it reads the wrong/out-of-bounds slot.
+- **A tag occupies a callback slot too.** `defineQuery([Tag, Position])` calls the callback as `(e, true, posCols)` — the tag is passed as the literal `true`. Put tags **last** in the array (`defineQuery([Position, Tag])`) so data columns come first; or accept and ignore the trailing `true`. Binding `(e, pos)` to a tag-first query makes `pos === true`, and `pos.x` throws.
 - **`forEachEntity` is the fast path.** `runQuery` allocates an array; `for...of iterQuery(...)` allocates an iterator. In hot loops, use `forEachEntity`.
 - **`defineObjectComponent` factory runs ONCE at definition**, not per entity. Mutate the entity's instance via `setComponent` / `getComponent`.
 - **The component reference is the storage handle.** `Position` is not a constructor — it's a value object that aiecsjs uses to address the right archetype columns.

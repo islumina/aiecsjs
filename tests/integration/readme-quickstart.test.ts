@@ -10,6 +10,7 @@ import {
   entityExists,
   forEachEntity,
   getComponent,
+  getEntityIndex,
   pipe,
   removeComponent,
 } from '../../src/index.js'
@@ -38,8 +39,9 @@ describe('integration: README Quick Start', () => {
 
     const movementSystem = (w: any, dt: number) => {
       forEachEntity(w, movers, (e, pos: any, vel: any) => {
-        pos.x[e] += vel.x[e] * dt
-        pos.y[e] += vel.y[e] * dt
+        const i = getEntityIndex(e) // packed EntityId → column index
+        pos.x[i] += vel.x[i] * dt
+        pos.y[i] += vel.y[i] * dt
       })
       return w
     }
@@ -47,10 +49,11 @@ describe('integration: README Quick Start', () => {
     const lifetimeSystem = (w: any, dt: number) => {
       const toDestroy: number[] = []
       forEachEntity(w, decaying, (e, life: any) => {
-        life.remaining[e] -= dt
-        if (life.remaining[e] <= 0) toDestroy.push(e as number)
+        const i = getEntityIndex(e)
+        life.remaining[i] -= dt
+        if (life.remaining[i] <= 0) toDestroy.push(e as number)
       })
-      for (const e of toDestroy) destroyEntity(w, e as any)
+      for (const e of toDestroy) destroyEntity(w, e as any) // destroyEntity takes the packed `e`
       return w
     }
 
@@ -64,8 +67,8 @@ describe('integration: README Quick Start', () => {
     for (const e of ents) {
       if (entityExists(world, e as any)) {
         const pos = getComponent(world, e as any, Position) as any
-        // Verify x has been integrated by the velocity
-        expect(pos.x[e]).toBeGreaterThan(0)
+        // Verify x has been integrated by the velocity (index columns with getEntityIndex)
+        expect(pos.x[getEntityIndex(e as any)]).toBeGreaterThan(0)
       }
     }
 

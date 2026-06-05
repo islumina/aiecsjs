@@ -10,6 +10,7 @@ import {
   entityExists,
   exitQuery,
   forEachEntity,
+  getComponent,
   getEntityGeneration,
   getEntityIndex,
   isEntity,
@@ -192,5 +193,70 @@ describe('entity', () => {
       seen = eid as number
     })
     expect(seen).toBe(e)
+  })
+
+  // A1 regression (0.5.3): forEachEntity yields a PACKED EntityId, not a column
+  // index. Doc examples historically wrote `pos.x[e]`, which is only correct
+  // while generation 0 (e === getEntityIndex(e)). Once a slot is recycled the
+  // packed id carries a non-zero generation in its high bits, so indexing a
+  // column with the raw `e` reads an out-of-bounds slot (undefined/NaN), while
+  // `getEntityIndex(e)` reads the correct slot. This test proves BOTH the bug
+  // (raw `e` is wrong) and the fix (getEntityIndex(e) is right) after recycle.
+  it('forEachEntity: index SoA columns with getEntityIndex(e), not the packed e (recycle regression)', () => {
+    const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+    const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+    const w = createWorld()
+
+    // Spawn a batch, then destroy them so their slots return to the free list
+    // with a bumped generation. Re-spawning reuses those slots at generation >= 1.
+    const firstWave: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: 0, y: 0 })
+      addComponent(w, e, Velocity, { x: 1, y: 2 })
+      firstWave.push(e as number)
+    }
+    for (const e of firstWave) destroyEntity(w, e as any)
+
+    // Second wave reuses the recycled slots; assert the packed id now differs
+    // from its index (generation bumped), so `e` and `getEntityIndex(e)` diverge.
+    const secondWave: number[] = []
+    for (let i = 0; i < 8; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: 0, y: 0 })
+      addComponent(w, e, Velocity, { x: 1, y: 2 })
+      secondWave.push(e as number)
+    }
+    const recycled = secondWave.filter((e) => getEntityIndex(e as any) !== (e as any))
+    expect(recycled.length).toBeGreaterThan(0) // at least one slot recycled with gen >= 1
+    for (const e of recycled) {
+      expect(getEntityGeneration(e as any)).toBeGreaterThanOrEqual(1)
+    }
+
+    // Run a movement-style loop indexing columns with getEntityIndex(e) (the fix).
+    const movers = defineQuery([Position, Velocity])
+    const dt = 0.5
+    forEachEntity(w, movers, (e, pos: any, vel: any) => {
+      const i = getEntityIndex(e)
+      pos.x[i] += vel.x[i] * dt
+      pos.y[i] += vel.y[i] * dt
+    })
+
+    // Correct read path: every live entity integrated by velocity * dt.
+    for (const e of secondWave) {
+      const i = getEntityIndex(e as any)
+      const pos = getComponent(w, e as any, Position) as any
+      expect(pos.x[i]).toBeCloseTo(0.5) // 1 * 0.5
+      expect(pos.y[i]).toBeCloseTo(1.0) // 2 * 0.5
+    }
+
+    // Demonstrate the BUG: indexing the same column with the raw packed `e`
+    // (for a recycled, gen>=1 entity) reads outside the written range. The
+    // column is capacity-sized, so the high-bit-shifted index is out of bounds
+    // → TypedArray returns undefined.
+    const posStorage = getComponent(w, recycled[0] as any, Position) as any
+    const packed = recycled[0] as number
+    expect(packed).toBeGreaterThanOrEqual(posStorage.x.length) // packed id is past the column end
+    expect(posStorage.x[packed]).toBeUndefined() // raw-`e` indexing → out of bounds
   })
 })

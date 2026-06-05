@@ -63,11 +63,12 @@ for (let i = 0; i < eids.length; i++) {
 // aiecsjs:
 const movers = defineQuery([Position, Velocity])
 forEachEntity(world, movers, (e, pos, vel) => {
-  pos.x[e] += vel.x[e]
+  const i = getEntityIndex(e)   // `e` is a packed EntityId, not a column index
+  pos.x[i] += vel.x[i]
 })
 ```
 
-The aiecsjs version is shorter and gets typed column views as callback arguments.
+The aiecsjs version is shorter and gets column views as callback arguments. Note the key difference from bitECS: there, the query yields a bare entity index and `Position.x[eid]` indexes the column directly. In aiecsjs the callback `e` is a **packed `EntityId`** (index + generation), so index columns with `getEntityIndex(e)` — the packed id only equals the index until a slot is recycled.
 
 **Entity versioning.** Both support it. bitECS exposes `withVersioning(bits)`; aiecsjs takes `indexBits` and `generationBits` directly in `WorldOptions`.
 
@@ -98,8 +99,9 @@ aiecsjs:
 ```ts
 const movementSystem = (world, dt = 1) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -172,8 +174,9 @@ aiecsjs:
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -228,8 +231,9 @@ world.execute(1/60)
 const movers = defineQuery([Position, Velocity])
 const movement = (world, dt) => {
   forEachEntity(world, movers, (e, pos, vel) => {
-    pos.x[e] += vel.x[e] * dt
-    pos.y[e] += vel.y[e] * dt
+    const i = getEntityIndex(e)
+    pos.x[i] += vel.x[i] * dt
+    pos.y[i] += vel.y[i] * dt
   })
   return world
 }
@@ -237,7 +241,7 @@ const tick = pipe(movement)
 tick(world, 1/60)
 ```
 
-**SoA columns vs. component instances.** ECSY components are class instances with fields like `pos.x`. aiecsjs SoA components are column maps; you index by entity ID: `pos.x[e]`.
+**SoA columns vs. component instances.** ECSY components are class instances with fields like `pos.x`. aiecsjs SoA components are column maps; you index by the entity **index**: `pos.x[getEntityIndex(e)]`. The `forEachEntity` callback's `e` is a packed `EntityId`, not a column offset — convert it with `getEntityIndex(e)` (they coincide only until a slot is recycled).
 
 **No `priority` or scheduling DSL.** aiecsjs systems run in `pipe()` order. If you depended on ECSY's `priority` for ordering, just write the pipe in the right order.
 

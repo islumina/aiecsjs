@@ -841,7 +841,7 @@ describe('worker.ts: transferableSnapshot is callable', () => {
     const e = createEntity(w)
     addComponent(w, e, Position, { x: 1 })
     const snap = transferableSnapshot(w)
-    expect(snap.meta.aiecsjsVersion).toBe('0.5.2')
+    expect(snap.meta.aiecsjsVersion).toBe('0.5.3')
     expect(snap.meta.formatVersion).toBe(1)
     expect(snap.meta.capacity).toBeGreaterThan(0)
   })

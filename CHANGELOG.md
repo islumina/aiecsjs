@@ -19,11 +19,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   65 536 entities × 65 536 generations). See test
   [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
-## [0.5.2] - 2026-06-05
+## [0.5.3] - 2026-06-05
 
 ### Docs
 
-- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`): clarity and accuracy from a cross-package code review.
+- **Correctness clarification — `forEachEntity`'s `e` is a packed `EntityId`, not a column index.** Every doc/example that indexed an SoA column with the raw callback `e` (e.g. `pos.x[e]`) now hoists `const i = getEntityIndex(e)` and indexes with `i` (`README.md`, `README_ZHTW.md`, `docs/MIGRATION.md`, `docs/MIGRATION_ZHTW.md`, regenerated `llms-full.txt`). The old pattern only worked while generation 0 (`e === getEntityIndex(e)`); after any `destroyEntity` recycles a slot it read an out-of-bounds column slot. Added a recycle regression test proving both the bug and the fix; `e`'s packed semantics are intentionally unchanged (it is still what you pass to `destroyEntity`/`hasComponent`/command buffers). Corrected the 0.1.0 storage note that implied `Position.x[eid]` indexes by the packed id.
+- **A2 (tag slot footgun).** Documented that each tag in `defineQuery([...])` occupies a callback slot passed as `true`, with a correct mixed-query example; recommend placing tags last so data columns come first. Docs-only — the callback arity is intentionally unchanged (changing it would shift data params for code that correctly writes `(e, _tag, pos)`; deferred to a future major). Column arguments remain `any`-typed.
+- **A3 (reactive-query lazy arm).** Documented that enter/exit buffers are armed lazily on first registration/read, and recommend defining reactive queries at module scope so the first `tick` already observes transitions.
 
 ### Fixed
 
@@ -288,7 +290,7 @@ The "documentation honesty + test backstop" release. No new public APIs; this is
 
 ### Implementation notes
 
-- **Storage**: world-level TypedArray columns per SoA component field, sized to world capacity. Archetypes track entity membership (a `Uint32Array entities[]`) but do not own column data. This makes archetype migration O(1) and lets `Position.x[eid]` work directly without per-archetype indirection. Trade-off: iteration over archetypes reads columns at potentially non-contiguous offsets; for hot data this stays in L1.
+- **Storage**: world-level TypedArray columns per SoA component field, sized to world capacity. Archetypes track entity membership (a `Uint32Array entities[]`) but do not own column data. This makes archetype migration O(1) and lets columns be indexed by the entity **index** (`getEntityIndex(eid)`) directly, without per-archetype indirection. (In 0.1 `EntityId` *was* the index, so `Position.x[eid]` worked literally; since 0.3 packs a generation into the id, hot-loop code must index with `Position.x[getEntityIndex(eid)]` — the raw packed id is no longer the column offset.) Trade-off: iteration over archetypes reads columns at potentially non-contiguous offsets; for hot data this stays in L1.
 - **EntityId is unversioned in 0.1**: `EntityId` is the entity index. Generation is tracked internally for slot reuse but not encoded in the ID. `getEntityIndex` / `getEntityGeneration` / `packEntity` are identity helpers. ABA-safe references via a separate `EntityRef` type are planned for 0.2.
 - **Bitmask queries**: multi-word Uint32 masks, default 8 words (256 components). Per-world bit allocation, global component identity.
 - **Worker / SAB**: 0.1 implements snapshot-copy semantics (serialize-into-SAB on send, deserialize-on-adopt) rather than true shared-memory column aliasing. The API surface matches the documented contract; true shared columns ship in 0.2.
