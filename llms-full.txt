@@ -954,6 +954,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   65 536 entities × 65 536 generations). See test
   [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
+## [0.5.2] - 2026-06-05
+
+### Docs
+
+- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`): clarity and accuracy from a cross-package code review. No runtime or API change; `dist` byte-identical to 0.5.1.
+
 ## [0.5.1] - 2026-06-02
 
 ### Fixed
