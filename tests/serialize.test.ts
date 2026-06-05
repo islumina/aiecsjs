@@ -61,7 +61,7 @@ describe('serialize', () => {
   it('toJSON / fromJSON round-trip', () => {
     const { w, e1 } = setupWorld()
     const snap = toJSON(w)
-    expect(snap.version).toBe('0.5.1')
+    expect(snap.version).toBe('0.5.2')
     expect(snap.entities.length).toBe(3)
     const w2 = fromJSON(snap)
     expect(hasComponent(w2, e1 as any, Position)).toBe(true)

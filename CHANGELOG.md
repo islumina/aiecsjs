@@ -23,7 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Docs
 
-- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`): clarity and accuracy from a cross-package code review. No runtime or API change; `dist` byte-identical to 0.5.1.
+- Review-driven documentation fixes (`README.md`, `README_ZHTW.md`, `llms-full.txt`): clarity and accuracy from a cross-package code review.
+
+### Fixed
+
+- Synced the embedded `VERSION` constant (`src/version.ts`) to `0.5.2` to match `package.json` — the release gate asserts they are equal (`tests/utils.test.ts`). No API change; `dist` differs from 0.5.1 only by this version stamp.
 
 ## [0.5.1] - 2026-06-02
 
