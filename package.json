@@ -1,6 +1,6 @@
 {
   "name": "aiecsjs",
-  "version": "0.5.3",
+  "version": "0.5.5",
   "description": "TypeScript-first archetype ECS with TypedArray SoA, SAB-ready snapshot transport, and AI-readable docs.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -61,7 +61,7 @@
   "author": "yshengliao",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yshengliao/aiecsjs.git"
+    "url": "git+https://github.com/islumina/aiecsjs.git"
   },
   "keywords": [
     "ecs",

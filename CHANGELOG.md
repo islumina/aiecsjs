@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   65 536 entities × 65 536 generations). See test
   [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
+## [0.5.5] - 2026-06-08
+
+### Changed
+
+- Project home migrated to the [`islumina`](https://github.com/islumina) GitHub org; published from there via npm trusted publisher (OIDC + SLSA provenance). Family-wide version alignment at `0.5.5`.
+
+### Internal
+
+- Test version assertions now derive from `package.json` instead of a hard-coded string, shrinking the release version-sync surface.
+
 ## [0.5.3] - 2026-06-05
 
 ### Added
