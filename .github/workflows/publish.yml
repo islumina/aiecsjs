@@ -6,7 +6,7 @@ name: Publish
 # Authentication: npm Trusted Publishing via OIDC. The package's trusted
 # publisher must be configured on npmjs.com:
 #   Packages → aiecsjs → Settings → Publishing access → Trusted publisher
-#   Repository:  yshengliao/aiecsjs
+#   Repository:  islumina/aiecsjs
 #   Workflow:    publish.yml
 #   Permissions: npm publish (and optionally npm stage publish)
 # No NPM_TOKEN secret is required; the GitHub OIDC token is exchanged for

@@ -6,26 +6,26 @@ aiecsjs uses archetype tables with TypedArray columns and bitmask queries. The A
 
 ## Documentation
 
-- [README](https://github.com/yshengliao/aiecsjs/blob/main/README.md): Full project documentation with quick start, guide, API reference, and migration notes
-- [Full reference for LLMs](https://github.com/yshengliao/aiecsjs/blob/main/llms-full.txt): Single file containing the complete API surface, recipes, anti-patterns, and invariants for direct LLM consumption
-- [Machine-readable API manifest](https://github.com/yshengliao/aiecsjs/blob/main/api.json): Structured JSON of every export with signatures, parameter types, examples, stability flags, and `since` version
+- [README](https://github.com/islumina/aiecsjs/blob/main/README.md): Full project documentation with quick start, guide, API reference, and migration notes
+- [Full reference for LLMs](https://github.com/islumina/aiecsjs/blob/main/llms-full.txt): Single file containing the complete API surface, recipes, anti-patterns, and invariants for direct LLM consumption
+- [Machine-readable API manifest](https://github.com/islumina/aiecsjs/blob/main/api.json): Structured JSON of every export with signatures, parameter types, examples, stability flags, and `since` version
 
 ## Core API
 
-- [Quick start](https://github.com/yshengliao/aiecsjs/blob/main/README.md#quick-start): Minimal working program with 2 components, 2 systems, and the fixed-timestep loop helper
-- [API reference](https://github.com/yshengliao/aiecsjs/blob/main/README.md#api-reference): All exported functions grouped by surface (World, Entity, Component, Query, System, Observer, Command, Serialize, Worker, Utility)
-- [Core concepts](https://github.com/yshengliao/aiecsjs/blob/main/README.md#core-concepts): Entity, Component (SoA vs AoS), System, Query, World, Archetype
-- [Serialization guide](https://github.com/yshengliao/aiecsjs/blob/main/README.md#serialization-guide): Binary save/load, JSON save/load, and network delta serializer
-- [Multi-threading guide](https://github.com/yshengliao/aiecsjs/blob/main/README.md#multi-threading-guide): SharedArrayBuffer + Worker setup, COOP/COEP headers, Atomics conventions, pitfalls
-- [WebGPU interop](https://github.com/yshengliao/aiecsjs/blob/main/README.md#webgpu-interop): Viewing SoA columns as GPUBuffer source
+- [Quick start](https://github.com/islumina/aiecsjs/blob/main/README.md#quick-start): Minimal working program with 2 components, 2 systems, and the fixed-timestep loop helper
+- [API reference](https://github.com/islumina/aiecsjs/blob/main/README.md#api-reference): All exported functions grouped by surface (World, Entity, Component, Query, System, Observer, Command, Serialize, Worker, Utility)
+- [Core concepts](https://github.com/islumina/aiecsjs/blob/main/README.md#core-concepts): Entity, Component (SoA vs AoS), System, Query, World, Archetype
+- [Serialization guide](https://github.com/islumina/aiecsjs/blob/main/README.md#serialization-guide): Binary save/load, JSON save/load, and network delta serializer
+- [Multi-threading guide](https://github.com/islumina/aiecsjs/blob/main/README.md#multi-threading-guide): SharedArrayBuffer + Worker setup, COOP/COEP headers, Atomics conventions, pitfalls
+- [WebGPU interop](https://github.com/islumina/aiecsjs/blob/main/README.md#webgpu-interop): Viewing SoA columns as GPUBuffer source
 
 ## Optional
 
-- [Migration from bitECS 0.4](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION.md#from-bitecs-04): Name-mapping table and mental-shift notes
-- [Migration from miniplex 2.0](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION.md#from-miniplex)
-- [Migration from ECSY (archived)](https://github.com/yshengliao/aiecsjs/blob/main/docs/MIGRATION.md#from-ecsy)
-- [Performance characteristics](https://github.com/yshengliao/aiecsjs/blob/main/README.md#performance): Storage model diagram, cost model, tips, reproducible micro-benchmark
-- [For AI Agents](https://github.com/yshengliao/aiecsjs/blob/main/README.md#for-ai-agents): Decision matrix, common patterns, anti-patterns, invariants, glossary
-- [Stability contract](https://github.com/yshengliao/aiecsjs/blob/main/STABILITY.md): Per-export `stable | experimental | internal | deprecated` tags and version pinning policy
-- [Changelog](https://github.com/yshengliao/aiecsjs/blob/main/CHANGELOG.md): Keep-a-Changelog format
-- [Traditional Chinese README](https://github.com/yshengliao/aiecsjs/blob/main/README_ZHTW.md): 繁體中文版主文件
+- [Migration from bitECS 0.4](https://github.com/islumina/aiecsjs/blob/main/docs/MIGRATION.md#from-bitecs-04): Name-mapping table and mental-shift notes
+- [Migration from miniplex 2.0](https://github.com/islumina/aiecsjs/blob/main/docs/MIGRATION.md#from-miniplex)
+- [Migration from ECSY (archived)](https://github.com/islumina/aiecsjs/blob/main/docs/MIGRATION.md#from-ecsy)
+- [Performance characteristics](https://github.com/islumina/aiecsjs/blob/main/README.md#performance): Storage model diagram, cost model, tips, reproducible micro-benchmark
+- [For AI Agents](https://github.com/islumina/aiecsjs/blob/main/README.md#for-ai-agents): Decision matrix, common patterns, anti-patterns, invariants, glossary
+- [Stability contract](https://github.com/islumina/aiecsjs/blob/main/STABILITY.md): Per-export `stable | experimental | internal | deprecated` tags and version pinning policy
+- [Changelog](https://github.com/islumina/aiecsjs/blob/main/CHANGELOG.md): Keep-a-Changelog format
+- [Traditional Chinese README](https://github.com/islumina/aiecsjs/blob/main/README_ZHTW.md): 繁體中文版主文件

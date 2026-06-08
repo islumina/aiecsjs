@@ -60,7 +60,7 @@ ai\*js family version-unify milestone — the seven packages align on a common `
 
 ### Changed
 
-- **Migration-guide links repointed to GitHub blob URLs.** `docs/` became repository-only in 0.4.1 (dropped from the npm `files[]`), so the relative `./docs/MIGRATION*.md` links in `README.md` / `README_ZHTW.md` no longer resolved from the npm package page or the installed tarball. They now point at `https://github.com/yshengliao/aiecsjs/blob/main/docs/…` so consumers can follow them.
+- **Migration-guide links repointed to GitHub blob URLs.** `docs/` became repository-only in 0.4.1 (dropped from the npm `files[]`), so the relative `./docs/MIGRATION*.md` links in `README.md` / `README_ZHTW.md` no longer resolved from the npm package page or the installed tarball. They now point at `https://github.com/islumina/aiecsjs/blob/main/docs/…` so consumers can follow them.
 - **Version aligned to the ai\*js family `0.5.0` unify milestone.** A coordinated family-wide minor bump; aiecsjs carries no source / public-API / relations change in this release.
 
 ## [0.4.1] - 2026-05-29
@@ -69,7 +69,7 @@ Consistency patch — packaging and documentation surface aligned to the ai*js f
 
 ### Changed
 
-- **`package.json` packaging metadata aligned to family conventions**: `engines.node` `">=18"` → `">=18.0.0"`; `repository.url` gains the `git+` prefix (`git+https://github.com/yshengliao/aiecsjs.git`). Both are semantically equivalent — registry/tooling hygiene only.
+- **`package.json` packaging metadata aligned to family conventions**: `engines.node` `">=18"` → `">=18.0.0"`; `repository.url` gains the `git+` prefix (`git+https://github.com/islumina/aiecsjs.git`). Both are semantically equivalent — registry/tooling hygiene only.
 - **`files[]` trimmed to the family-minimal set plus `api.json`**: the npm tarball now ships `dist`, `README.md`, `README_ZHTW.md`, `LICENSE`, `llms.txt`, `llms-full.txt`, and `api.json`. `LICENSE` is now listed explicitly (it was already published via npm's automatic root-LICENSE inclusion). `STABILITY.md`, `CHANGELOG.md`, and `docs/` are no longer bundled — they remain in the repository and stay reachable from the README/`llms.txt` links on GitHub. `api.json` is **deliberately retained**: it is the machine-readable export manifest (stability + `since` per entry) that this package's "AI-readable docs" contract advertises, so it remains the tarball's stability surface for tooling.
 
 ### Removed
@@ -343,6 +343,6 @@ The "documentation honesty + test backstop" release. No new public APIs; this is
 - Worker/SAB uses snapshot-copy in 0.1 rather than true shared-memory aliasing.
 - EntityId is unversioned; ABA-safe references arrive with `EntityRef` in 0.2.
 
-[Unreleased]: https://github.com/yshengliao/aiecsjs/compare/v0.5.1...HEAD
-[0.5.1]: https://github.com/yshengliao/aiecsjs/compare/v0.5.0...v0.5.1
-[0.1.0]: https://github.com/yshengliao/aiecsjs/releases/tag/v0.1.0
+[Unreleased]: https://github.com/islumina/aiecsjs/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/islumina/aiecsjs/compare/v0.5.0...v0.5.1
+[0.1.0]: https://github.com/islumina/aiecsjs/releases/tag/v0.1.0
