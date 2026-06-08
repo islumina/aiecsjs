@@ -2,6 +2,7 @@
 // Organised by source file rather than feature.
 
 import { describe, expect, it } from 'vitest'
+import pkg from '../package.json' with { type: 'json' }
 import { createCommandBuffer, flush, withCommandBuffer } from '../src/commands.js'
 import {
   Types,
@@ -841,7 +842,7 @@ describe('worker.ts: transferableSnapshot is callable', () => {
     const e = createEntity(w)
     addComponent(w, e, Position, { x: 1 })
     const snap = transferableSnapshot(w)
-    expect(snap.meta.aiecsjsVersion).toBe('0.5.3')
+    expect(snap.meta.aiecsjsVersion).toBe(pkg.version)
     expect(snap.meta.formatVersion).toBe(1)
     expect(snap.meta.capacity).toBeGreaterThan(0)
   })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import pkg from '../package.json' with { type: 'json' }
 import {
   IS_SAB_SUPPORTED,
   Types,
@@ -24,7 +25,7 @@ describe('worker / SAB', () => {
     const snap = transferableSnapshot(w)
     expect(snap.buffer).toBeDefined()
     expect(snap.meta.magic).toBe(0x41494543)
-    expect(snap.meta.aiecsjsVersion).toBe('0.5.3')
+    expect(snap.meta.aiecsjsVersion).toBe(pkg.version)
   })
 
   it.skipIf(!IS_SAB_SUPPORTED)('adoptSnapshot rebuilds a usable world', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import pkg from '../package.json' with { type: 'json' }
 import {
   Types,
   addComponent,
@@ -61,7 +62,7 @@ describe('serialize', () => {
   it('toJSON / fromJSON round-trip', () => {
     const { w, e1 } = setupWorld()
     const snap = toJSON(w)
-    expect(snap.version).toBe('0.5.3')
+    expect(snap.version).toBe(pkg.version)
     expect(snap.entities.length).toBe(3)
     const w2 = fromJSON(snap)
     expect(hasComponent(w2, e1 as any, Position)).toBe(true)

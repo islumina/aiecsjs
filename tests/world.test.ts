@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import pkg from '../package.json' with { type: 'json' }
 import {
   Types,
   addComponent,
@@ -19,7 +20,7 @@ describe('world', () => {
   it('creates a world with default options', () => {
     const w = createWorld()
     expect(w.id).toBeGreaterThan(0)
-    expect(w.version).toBe('0.5.3')
+    expect(w.version).toBe(pkg.version)
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(1024)
   })
