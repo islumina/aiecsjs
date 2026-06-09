@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   65 536 entities × 65 536 generations). See test
   [tests/ref.test.ts](./tests/ref.test.ts) `generation wrap` describe block.
 
+## [0.5.6] - 2026-06-09
+
+### Changed
+
+- Docs: document `forEachEntity`'s packed-EntityId footgun and cross-link `forEachEntityIndexed` / `getEntityIndex` (closes downstream issue #3). No runtime change — the JSDoc reaches consumers through the generated `.d.ts` / `.d.cts`.
+
 ## [0.5.5] - 2026-06-08
 
 ### Changed
@@ -343,6 +349,7 @@ The "documentation honesty + test backstop" release. No new public APIs; this is
 - Worker/SAB uses snapshot-copy in 0.1 rather than true shared-memory aliasing.
 - EntityId is unversioned; ABA-safe references arrive with `EntityRef` in 0.2.
 
-[Unreleased]: https://github.com/islumina/aiecsjs/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/islumina/aiecsjs/compare/v0.5.6...HEAD
+[0.5.6]: https://github.com/islumina/aiecsjs/compare/v0.5.5...v0.5.6
 [0.5.1]: https://github.com/islumina/aiecsjs/compare/v0.5.0...v0.5.1
 [0.1.0]: https://github.com/islumina/aiecsjs/releases/tag/v0.1.0
