@@ -254,6 +254,20 @@ export function* iterQuery(world: World, query: Query): IterableIterator<EntityI
   }
 }
 
+/**
+ * Iterate every entity matching `query`, invoking `fn(e, ...cols)` once per row
+ * with the packed {@link EntityId} and the query's SoA column views.
+ *
+ * **Caution — `e` is a packed EntityId, not a column subscript.** It carries the
+ * generation in its high bits, so indexing a column view with it directly
+ * (`pos.x[e]`) reads out of bounds once a slot has been recycled. Use `e` only
+ * for identity operations (`destroyEntity` / `hasComponent` / `refOf`). To index
+ * columns safely, prefer {@link forEachEntityIndexed} — which yields the masked
+ * slot index `i` alongside `e` — or mask it yourself with {@link getEntityIndex}.
+ *
+ * @see {@link forEachEntityIndexed} — same iteration plus the safe column index `i`.
+ * @see {@link getEntityIndex} — mask a packed EntityId to its raw slot index.
+ */
 export function forEachEntity(
   world: World,
   query: Query,
