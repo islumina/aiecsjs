@@ -256,7 +256,12 @@ export interface WorldMeta {
 }
 
 export interface TransferableSnapshot {
-  buffer: SharedArrayBuffer
+  // Union, not bare SharedArrayBuffer: in a non-cross-origin-isolated environment
+  // `SharedArrayBuffer` is undefined, so transferableSnapshot falls back to a
+  // plain ArrayBuffer (worker.ts). Declaring the honest union lets consumers
+  // branch on `instanceof SharedArrayBuffer` instead of trusting a type that
+  // would otherwise lie. Experimental subpath — the union is allowed to land in 0.x.
+  buffer: SharedArrayBuffer | ArrayBuffer
   meta: WorldMeta
 }
 
