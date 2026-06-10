@@ -31,7 +31,7 @@ pipe(movement)(world, 1/60)
 
 > **欄位迭代請用 `forEachEntityIndexed`。** 其 callback 為 `(e, i, ...cols)`：`e` 是封裝後的 `EntityId`（直接用於 `destroyEntity`、`hasComponent`、`getComponent`、command buffer），`i` 則是**安全的欄位索引** —— 以它索引每個 SoA 欄位（`pos.x[i]`）。封裝後的 `e` **不是**欄位索引：它只有在 slot 尚未被回收（世代 0）時才等於索引；任何 `destroyEntity` 回收 slot 之後，`e !== i`，以 `e` 索引欄位會讀到錯誤的 slot（越界 → `undefined`/`NaN`）。`forEachEntityIndexed` 直接給你正確的 `i`，因此這個陷阱已在程式碼層面消除。若只需要 `EntityId`，仍可用 `forEachEntity`（必要時以 `getEntityIndex(e)` 索引欄位）。
 
-> **狀態：實驗版（v0.5.x）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
+> **狀態：0.5.6 — 實驗版（0.5.x 系列）。** `STABILITY.md` 中載明的 API 表面在 0.x 系列內承諾穩定，但仍可能微調。1.0 穩定凍結會在收集社群回饋後執行。
 
 ## 目錄
 
