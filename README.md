@@ -31,7 +31,7 @@ pipe(movement)(world, 1/60)
 
 > **Use `forEachEntityIndexed` for column iteration.** Its callback is `(e, i, ...cols)`: `e` is the packed `EntityId` (use it directly for `destroyEntity`, `hasComponent`, `getComponent`, command buffers), and `i` is the **safe column subscript** — index every SoA column with it (`pos.x[i]`). The packed `e` is **not** a column index: it only equals the index until a slot is recycled (generation 0); after any `destroyEntity` recycles a slot, `e !== i` and indexing a column with `e` reads the wrong slot (out of bounds → `undefined`/`NaN`). `forEachEntityIndexed` hands you the correct `i` so this footgun is closed in code. Use `forEachEntity` when you only need the `EntityId` (and index columns via `getEntityIndex(e)` if you must).
 
-> **Status: 0.5.6 — experimental (0.5.x line).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
+> **Status: 0.5.7 — experimental (0.5.x line).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
 
 ## Table of contents
 

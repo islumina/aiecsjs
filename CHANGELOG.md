@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-06-10
+
+### Fixed
+
+- **In-loop `destroyEntity` no longer hands the callback the reserved eid 0** — `forEachEntity` / `forEachEntityIndexed` re-read `arch.size` every iteration instead of caching it, so the swap-pop of the visited row can't walk into zeroed tail slots. The README Quick Start pattern (destroy inside the loop) is now exercised verbatim by the integration suite, which had been rewritten to defer destroys and thereby masked the defect. Semantics pinned by tests: the callback never sees eid 0 or a dead eid; a survivor swapped into the destroyed row is visited on the *next* pass; destroy+create interleaving never exposes eid 0. (Review wave 2026-06-10, ECS-B-01.)
+- **Hostile snapshot `capacity` is clamped** — `fromJSON` / `deserializeWorld` cap the restored world's initial capacity at the actual entity count (floor 1024), so a ~100-byte payload with an inflated `capacity` can no longer force a ~590 MB TypedArray allocation (browser-tab OOM DoS) through the documented localStorage/network restore flows. Restored worlds still grow on demand; no data is lost. (ECS-S-01.)
+- `TransferableSnapshot.buffer` is typed `SharedArrayBuffer | ArrayBuffer` (the non-SAB fallback returns a plain `ArrayBuffer`; the old type lied via a cast). (ECS-B-04.)
+
+### Added
+
+- `EcsError` — named error class for core invariant failures; the seven bare `Error` throws in `world.ts` now use it (messages unchanged, `aiecsjs:` prefix retained). Exported from the root; recorded in `STABILITY.md` / `api.json`. (FAM-C-04.)
+- `homepage` / `bugs` package metadata (islumina org), matching the rest of the family. (FAM-C-13.)
+
+### Changed
+
+- `tsconfig`: `exactOptionalPropertyTypes` and `verbatimModuleSyntax` enabled (both compile clean); the coverage-threshold rationale in `vitest.config.ts` now states the actual flag set and records the measured cost (30 errors) of the four still-disabled strict flags as the deferral basis. (FAM-B-05.)
+- Dead `attachState` scaffolding removed from `commands.ts`. (ECS-C-02.)
+- Supply-chain and release hardening: CI/publish actions SHA-pinned, npm CLI pinned (`11.16.0`), tag↔package.json version guard, `npm publish --ignore-scripts` (gates run as explicit steps), workflow_dispatch input added (defaults to dry-run; manual dispatch previously performed a real publish), job timeouts, new `verify:docs` banner gate that also locks `src/version.ts` to `package.json`.
+
+### Docs
+
+- **Multi-threading Guide rewritten to the working handoff** (`transferableSnapshot(world)` + `aiecsjs/worker` adoption — the old guide passed a dead `createWorld({ buffer })` option and imported a non-existent root export; a test now exercises the documented postMessage shape). `WorldOptions.buffer` is marked reserved/unimplemented. (ECS-B-02.)
+- README over-claims corrected: no NODE_ENV-gated dev checks exist; `forEach*` column parameters are `any[]`, not inferred tuples. (ECS-B-03.)
+- `enterQuery` / `exitQuery` must-drain contract documented (unbounded by design; read every view you create). (ECS-R-01.)
+- Status banner switched to the exact-version family format (EN + ZHTW); golden rule rewritten — in-loop destroy is safe, add/removeComponent still goes through the command buffer.
+
 ### Planned
 
 - Add `pipeAsync` for async system composition.
