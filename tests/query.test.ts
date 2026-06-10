@@ -593,3 +593,117 @@ describe('query stability and cache invalidation', () => {
     expect(after).toBe(before)
   })
 })
+
+// ECS-B-01: in-loop destroyEntity (the README Quick Start pattern) must not leak
+// the swap-pop sentinel. Before the per-iteration `arch.size` re-read, both
+// forEachEntity loops captured `n = arch.size` up front: each in-loop destroy
+// shrank arch.size and zeroed a tail row, so the loop's trailing iterations
+// invoked the callback with the freed slot `e = 0` (and skipped the swapped-in
+// survivor). These tests fail RED on the captured-`n` HEAD.
+describe('ECS-B-01: in-loop destroy never leaks eid 0 (forEachEntity / forEachEntityIndexed)', () => {
+  it('forEachEntity: destroying every visited entity never calls back with eid 0 or a dead eid', () => {
+    const w = createWorld()
+    const live = new Set<number>()
+    for (let i = 0; i < 16; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+      live.add(e as number)
+    }
+    const q = defineQuery([Position])
+
+    const seen: number[] = []
+    forEachEntity(w, q, (e) => {
+      seen.push(e as number)
+      // Invariant (a): the reserved sentinel must never cross the boundary.
+      expect(e as number).not.toBe(0)
+      // Invariant (a): a callback never receives an already-destroyed eid.
+      expect(live.has(e as number)).toBe(true)
+      // Destroy the entity we are currently visiting (Quick Start pattern).
+      destroyEntity(w, e)
+      live.delete(e as number)
+    })
+
+    // Each surviving entity that was swapped into a visited row is deferred to a
+    // later pass — so a single pass cannot visit all 16. The pass visits a
+    // strict subset, every member of which is a real (non-zero) entity id.
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.length).toBeLessThan(16)
+    expect(new Set(seen).size).toBe(seen.length) // no row visited twice
+  })
+
+  it('forEachEntityIndexed: destroying every visited entity never calls back with eid 0 or a dead eid', () => {
+    const w = createWorld()
+    const live = new Set<number>()
+    for (let i = 0; i < 16; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+      live.add(e as number)
+    }
+    const q = defineQuery([Position])
+
+    const seen: number[] = []
+    forEachEntityIndexed(w, q, (e, i) => {
+      seen.push(e as number)
+      expect(e as number).not.toBe(0)
+      // The masked index must also stay a real slot (0 is the reserved slot).
+      expect(i).toBeGreaterThan(0)
+      expect(live.has(e as number)).toBe(true)
+      destroyEntity(w, e)
+      live.delete(e as number)
+    })
+
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.length).toBeLessThan(16)
+    expect(new Set(seen).size).toBe(seen.length)
+  })
+
+  it('deferred-to-next-pass: swapped-in survivors are all seen across repeated passes, never eid 0', () => {
+    const w = createWorld()
+    const created = new Set<number>()
+    for (let i = 0; i < 16; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+      created.add(e as number)
+    }
+    const q = defineQuery([Position])
+
+    // Repeatedly drain: each pass destroys what it sees; survivors come back next
+    // pass. The union over all passes must equal exactly the original 16 — every
+    // entity is destroyed exactly once and eid 0 never appears.
+    const destroyed: number[] = []
+    let guard = 0
+    while (runQuery(w, q).length > 0) {
+      forEachEntity(w, q, (e) => {
+        expect(e as number).not.toBe(0)
+        destroyEntity(w, e)
+        destroyed.push(e as number)
+      })
+      if (++guard > 64) throw new Error('drain did not terminate')
+    }
+    expect(destroyed.length).toBe(16)
+    expect(new Set(destroyed)).toEqual(created)
+  })
+
+  it('destroy + create interleave: callback never receives eid 0 (new-entity visibility unspecified)', () => {
+    const w = createWorld()
+    for (let i = 0; i < 12; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+    }
+    const q = defineQuery([Position])
+
+    // Destroy the visited entity AND spawn a fresh matching one in the same pass.
+    // Whether the freshly created entity is visited this pass is unspecified, but
+    // the reserved sentinel 0 must NEVER be handed to the callback.
+    let spawns = 0
+    forEachEntity(w, q, (e) => {
+      expect(e as number).not.toBe(0)
+      destroyEntity(w, e)
+      if (spawns < 12) {
+        const fresh = createEntity(w)
+        addComponent(w, fresh, Position, { x: 99, y: 99 })
+        spawns++
+      }
+    })
+  })
+})

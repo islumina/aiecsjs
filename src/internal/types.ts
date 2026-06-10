@@ -100,7 +100,17 @@ export interface WorldOptions {
   maxEntities?: number
   indexBits?: number
   generationBits?: number
+  /**
+   * RESERVED / UNIMPLEMENTED (0.x). Setting this has **no effect** today: the
+   * world always allocates its own column storage and never reads or writes a
+   * caller-supplied SAB. The 0.x Worker handoff is a snapshot-copy transport —
+   * post `transferableSnapshot(world)` and rebuild via `adoptSnapshot` from
+   * `aiecsjs/worker`; do not pre-allocate a SAB here. The field is kept so the
+   * shape is forward-compatible with the true shared-column backing targeted
+   * for 0.3+ (see STABILITY.md, `aiecsjs/worker`).
+   */
   buffer?: SharedArrayBuffer
+  /** RESERVED / UNIMPLEMENTED (0.x). Paired with {@link WorldOptions.buffer}; no effect today. */
   bufferByteOffset?: number
 }
 
@@ -246,7 +256,12 @@ export interface WorldMeta {
 }
 
 export interface TransferableSnapshot {
-  buffer: SharedArrayBuffer
+  // Union, not bare SharedArrayBuffer: in a non-cross-origin-isolated environment
+  // `SharedArrayBuffer` is undefined, so transferableSnapshot falls back to a
+  // plain ArrayBuffer (worker.ts). Declaring the honest union lets consumers
+  // branch on `instanceof SharedArrayBuffer` instead of trusting a type that
+  // would otherwise lie. Experimental subpath — the union is allowed to land in 0.x.
+  buffer: SharedArrayBuffer | ArrayBuffer
   meta: WorldMeta
 }
 

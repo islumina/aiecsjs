@@ -59,4 +59,37 @@ describe('worker / SAB', () => {
     // Subsequent ops on `view` should fail since the world is destroyed.
     expect(() => createEntity(view)).toThrow()
   })
+
+  // ECS-B-02: the rewritten Multi-threading Guide mirrors the working "For AI
+  // Agents" §4 pattern. The old guide was doubly broken: it posted a
+  // user-allocated SAB via createWorld({ buffer }) (inert — the world never
+  // writes it) and imported adoptSnapshot from the root entry (which does not
+  // export it). This test walks the corrected shape end to end:
+  //   main:   worker.postMessage(transferableSnapshot(world))
+  //   worker: const world = adoptSnapshot(e.data)
+  // structuredClone stands in for the structured-clone step postMessage performs.
+  it.skipIf(!IS_SAB_SUPPORTED)(
+    'guide postMessage shape: post transferableSnapshot, adopt e.data',
+    () => {
+      const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+      const world = createWorld()
+      const e = createEntity(world)
+      addComponent(world, e, Position, { x: 3, y: 4 })
+      addComponent(world, e, Velocity, { x: 1, y: -1 })
+
+      // main.ts side — post the snapshot object verbatim (NOT { buffer, meta: ... }).
+      const messageData = transferableSnapshot(world)
+      // The posted payload carries exactly the documented shape.
+      expect(messageData).toHaveProperty('buffer')
+      expect(messageData).toHaveProperty('meta')
+
+      // The structured-clone boundary a real postMessage crosses.
+      const received = structuredClone(messageData)
+
+      // worker side — adoptSnapshot reads the whole received object (`e.data`).
+      const workerWorld = adoptSnapshot(received)
+      expect(hasComponent(workerWorld, e as any, Position)).toBe(true)
+      expect(hasComponent(workerWorld, e as any, Velocity)).toBe(true)
+    },
+  )
 })

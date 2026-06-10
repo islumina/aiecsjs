@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
+  EcsError,
   Types,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
+  defineTag,
   destroyEntity,
   destroyWorld,
   disposeWorld,
@@ -175,5 +177,68 @@ describe('world', () => {
     expect(state.bitToQueries.size).toBe(0)
     expect(state.queryArchetypeStamp.length).toBe(0)
     expect(state.sab).toBeNull()
+  })
+})
+
+// FAM-C-04: the 7 bare `Error` throws in world.ts are now a named EcsError so
+// callers can `instanceof EcsError` instead of string-matching the message. The
+// `aiecsjs: ` message prefix is preserved. EcsError extends Error, so every
+// existing `toThrow()` / `toThrow(/regex/)` assertion above still holds.
+describe('FAM-C-04: world invariant failures throw EcsError', () => {
+  it('EcsError is an Error subclass named "EcsError"', () => {
+    const err = new EcsError('aiecsjs: probe')
+    expect(err).toBeInstanceOf(Error)
+    expect(err).toBeInstanceOf(EcsError)
+    expect(err.name).toBe('EcsError')
+    expect(err.message).toBe('aiecsjs: probe')
+  })
+
+  it('bad indexBits throws EcsError', () => {
+    expect(() => createWorld({ indexBits: 0 })).toThrow(EcsError)
+    expect(() => createWorld({ indexBits: 25 })).toThrow(EcsError)
+  })
+
+  it('bad generationBits throws EcsError', () => {
+    expect(() => createWorld({ generationBits: -1 })).toThrow(EcsError)
+    expect(() => createWorld({ generationBits: 17 })).toThrow(EcsError)
+  })
+
+  it('indexBits + generationBits > 32 throws EcsError (message prefix preserved)', () => {
+    let caught: unknown
+    try {
+      createWorld({ indexBits: 24, generationBits: 16 })
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(EcsError)
+    expect((caught as Error).message).toMatch(/^aiecsjs: /)
+  })
+
+  it('getWorldState on an unknown world id throws EcsError', () => {
+    // world.ts getWorldState: the "destroyed or unknown" guard (a world handle
+    // whose id was never registered) is one of the 7 converted throws.
+    const bogus = { id: 999_999_999, capacity: 0, version: '0.0.0' } as Parameters<
+      typeof getWorldState
+    >[0]
+    expect(() => getWorldState(bogus)).toThrow(EcsError)
+  })
+
+  it('exhausting maxComponents throws EcsError', () => {
+    // maxComponents is 256. Registering a 257th distinct component into one world
+    // trips the maxComponents guard (world.ts getOrRegisterComponentBit).
+    const w = createWorld()
+    const e = createEntity(w)
+    expect(() => {
+      for (let i = 0; i < 300; i++) {
+        const tag = defineTag()
+        addComponent(w, e, tag)
+      }
+    }).toThrow(EcsError)
+  })
+
+  it('accessing a disposed world throws EcsError', () => {
+    const w = createWorld()
+    disposeWorld(w)
+    expect(() => getWorldSize(w)).toThrow(EcsError)
   })
 })

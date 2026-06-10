@@ -38,6 +38,7 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `deref` | stable | 0.3.0 | Returns null for stale / cross-world refs; never throws. |
 | `aliveRef` | stable | 0.3.0 | Boolean guard form of `deref`; never throws. |
 | `EntityRef` (type) | stable | 0.3.0 | In-memory only; not serializable. |
+| `EcsError` | stable | 0.5.6 | Base error for core invariant failures (bad world options, destroyed/unknown world, exhausted component slots, capacity overflow). `instanceof`-catchable; `aiecsjs:`-prefixed message. |
 | `EntityNotAliveError` | stable | 0.3.0 | Thrown only by `refOf`. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
@@ -60,6 +61,8 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `IS_SAB_SUPPORTED` | stable | 0.1.0 | |
 | `isWorld` | stable | 0.1.0 | |
 | `isEntity` | stable | 0.1.0 | |
+
+**Reactive query must-drain contract (`enterQuery` / `exitQuery`).** The enter and exit buffers are **unbounded** — there is no cap and no drop-oldest policy. Each structural change that flips an entity into (enter) or out of (exit) a query pushes exactly one id; the buffer shrinks only when the reactive view is read (`runQuery`, `iterQuery`, `forEachEntity`, `forEachEntityIndexed`). A view that is created but never read — a disabled system, or reading only one of the enter/exit pair — accumulates one number per matching event for the lifetime of the world, which is an unbounded memory leak under churn. **Read every reactive view you create, once per frame.** Capping is deliberately omitted: silently dropping ids would break enter/exit symmetry, so draining is the caller's contract, not the library's.
 
 ### `aiecsjs/loop` (utility sub-path)
 

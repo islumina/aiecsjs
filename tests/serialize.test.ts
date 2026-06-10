@@ -11,10 +11,12 @@ import {
   defineTag,
   destroyEntity,
   getComponent,
+  getWorldCapacity,
   hasComponent,
   runQuery,
   setComponent,
 } from '../src/index.js'
+import type { WorldSnapshot } from '../src/internal/types.js'
 import {
   createDeltaSerializer,
   deserializeWorld,
@@ -249,4 +251,90 @@ describe('serialize', () => {
       .sort((a, b) => a - b)
     expect(eids).toEqual([1, 3])
   })
+
+  // ECS-S-01 (P1/security): a hostile JSON snapshot can inflate the `capacity`
+  // field independently of how many entities it actually carries. fromJSON fed
+  // that field straight to createWorld({ initialCapacity }), and world.ts clamps
+  // only to 1<<indexBits (16,777,216) — so a ~100-byte payload with capacity
+  // 1<<24 forced ~590 MB of TypedArray allocation (entityMask 512 MB +
+  // entityArchetype 64 MB + generations 16 MB): a browser-tab OOM DoS. The clamp
+  // ties restored capacity to the real entity count, not the attacker's number.
+  describe('ECS-S-01: hostile snapshot capacity is clamped', () => {
+    function makeHostileSnapshot(capacity: number): WorldSnapshot {
+      // A genuinely tiny payload: a single entity carrying one Position, but a
+      // wildly inflated capacity. Position's internal id is what the source world
+      // assigned it (1-based registration order in this test module).
+      return {
+        version: pkg.version,
+        capacity,
+        entities: [
+          { eid: 1, components: [{ kind: 'soa', id: Position.__id, data: { x: 1, y: 2 } }] },
+        ],
+      }
+    }
+
+    it('fromJSON clamps capacity from a tiny payload (no ~590 MB allocation)', () => {
+      const HOSTILE = 1 << 24 // 16,777,216 — the pre-fix path would allocate ~590 MB
+      const w = fromJSON(makeHostileSnapshot(HOSTILE))
+      // The restored world must NOT honour the inflated number. It tracks the
+      // single carried entity (plus a small allocation floor), nowhere near 16 M.
+      expect(getWorldCapacity(w)).toBeLessThan(HOSTILE)
+      expect(getWorldCapacity(w)).toBeLessThanOrEqual(4096)
+      // The world is still usable and the actual entity survived.
+      const snap = toJSON(w)
+      expect(snap.entities.length).toBe(1)
+    })
+
+    it('deserializeWorld (binary path) is clamped too', () => {
+      const HOSTILE = 1 << 24
+      // Pack the hostile JSON through the real binary writer so the binary entry
+      // point (deserializeWorld) is exercised, not just fromJSON.
+      const bytes = serializeBinaryFromSnapshot(makeHostileSnapshot(HOSTILE))
+      const w = deserializeWorld(bytes)
+      expect(getWorldCapacity(w)).toBeLessThan(HOSTILE)
+      expect(getWorldCapacity(w)).toBeLessThanOrEqual(4096)
+    })
+
+    it('a legitimate large capacity still round-trips (clamp tracks entity count, not a fixed ceiling)', () => {
+      // 2,000 real entities → restored capacity must be able to hold them all.
+      const w = createWorld()
+      for (let i = 0; i < 2000; i++) {
+        const e = createEntity(w)
+        addComponent(w, e, Position, { x: i, y: i })
+      }
+      const restored = fromJSON(toJSON(w))
+      expect(toJSON(restored).entities.length).toBe(2000)
+      expect(getWorldCapacity(restored)).toBeGreaterThanOrEqual(2000)
+    })
+  })
 })
+
+// Build a binary snapshot blob from a raw WorldSnapshot using the SAME header
+// layout serializeWorld emits (magic + format version + version string + json),
+// so deserializeWorld accepts it. Lets a test feed a hand-crafted hostile body
+// through the binary entry point.
+function serializeBinaryFromSnapshot(snapshot: WorldSnapshot): Uint8Array {
+  const MAGIC = 'AIEC'
+  const FORMAT_VERSION = 1
+  const json = JSON.stringify(snapshot)
+  const jsonBytes = new TextEncoder().encode(json)
+  const versionBytes = new TextEncoder().encode(pkg.version)
+  const total = 4 + 4 + 4 + versionBytes.length + 4 + jsonBytes.length
+  const out = new Uint8Array(total)
+  const view = new DataView(out.buffer)
+  let off = 0
+  out[off++] = MAGIC.charCodeAt(0)
+  out[off++] = MAGIC.charCodeAt(1)
+  out[off++] = MAGIC.charCodeAt(2)
+  out[off++] = MAGIC.charCodeAt(3)
+  view.setUint32(off, FORMAT_VERSION, true)
+  off += 4
+  view.setUint32(off, versionBytes.length, true)
+  off += 4
+  out.set(versionBytes, off)
+  off += versionBytes.length
+  view.setUint32(off, jsonBytes.length, true)
+  off += 4
+  out.set(jsonBytes, off)
+  return out
+}

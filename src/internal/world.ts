@@ -1,5 +1,6 @@
 import { VERSION } from '../version.js'
 import { cloneMask, copyMask, createMask, maskHash } from './bitmask.js'
+import { EcsError } from './errors.js'
 import type {
   ArchetypeState,
   ComponentInfo,
@@ -27,8 +28,8 @@ const worldRegistry = new Map<number, WorldState>()
 
 export function getWorldState(world: World): WorldState {
   const state = worldRegistry.get(world.id)
-  if (!state) throw new Error(`aiecsjs: world ${world.id} is destroyed or unknown`)
-  if (state.destroyed) throw new Error(`aiecsjs: world ${world.id} is destroyed`)
+  if (!state) throw new EcsError(`aiecsjs: world ${world.id} is destroyed or unknown`)
+  if (state.destroyed) throw new EcsError(`aiecsjs: world ${world.id} is destroyed`)
   return state
 }
 
@@ -50,13 +51,13 @@ function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
   const generationBits = o.generationBits ?? DEFAULT_OPTIONS.generationBits
   const maxComponents = DEFAULT_MAX_COMPONENTS
   if (indexBits < 1 || indexBits > 24) {
-    throw new Error('aiecsjs: indexBits must be in [1, 24]')
+    throw new EcsError('aiecsjs: indexBits must be in [1, 24]')
   }
   if (generationBits < 0 || generationBits > 16) {
-    throw new Error('aiecsjs: generationBits must be in [0, 16]')
+    throw new EcsError('aiecsjs: generationBits must be in [0, 16]')
   }
   if (indexBits + generationBits > 32) {
-    throw new Error(
+    throw new EcsError(
       `aiecsjs: indexBits (${indexBits}) + generationBits (${generationBits}) must be <= 32`,
     )
   }
@@ -233,7 +234,7 @@ export function getWorldCapacity(world: World): number {
 export function ensureCapacity(state: WorldState, needed: number): void {
   if (needed <= state.capacity) return
   if (needed > state.options.maxEntities) {
-    throw new Error(
+    throw new EcsError(
       `aiecsjs: requested capacity ${needed} exceeds maxEntities ${state.options.maxEntities}`,
     )
   }
@@ -345,7 +346,7 @@ export function getOrRegisterComponentBit(state: WorldState, info: ComponentInfo
   if (existing !== undefined) return existing
 
   if (state.nextComponentBit >= state.options.maxComponents) {
-    throw new Error(`aiecsjs: world reached maxComponents=${state.options.maxComponents}`)
+    throw new EcsError(`aiecsjs: world reached maxComponents=${state.options.maxComponents}`)
   }
   const bit = state.nextComponentBit++
   state.componentBitFor.set(info.id, bit)

@@ -49,6 +49,7 @@
         "refOf",
         "deref",
         "aliveRef",
+        "EcsError",
         "EntityNotAliveError"
       ]
     },
@@ -1410,6 +1411,28 @@
         { "title": "Early return pattern", "code": "if (!aliveRef(world, bulletRef)) return" }
       ],
       "seeAlso": ["refOf", "deref", "EntityRef"]
+    },
+    {
+      "name": "EcsError",
+      "kind": "class",
+      "module": "aiecsjs",
+      "since": "0.5.6",
+      "stability": "stable",
+      "deprecated": false,
+      "signature": "class EcsError extends Error {}",
+      "summary": "Thrown by core world/entity/component operations for invariant violations and misuse (bad world options, a destroyed or unknown world, exhausted component slots, capacity overflow). Carries the aiecsjs:-prefixed message.",
+      "params": [],
+      "returns": {
+        "type": "EcsError",
+        "description": "Error instance with the aiecsjs: message prefix."
+      },
+      "examples": [
+        {
+          "title": "Catch an aiecsjs invariant failure",
+          "code": "try { createWorld({ indexBits: 99 }) } catch (e) { if (e instanceof EcsError) { /* an aiecsjs invariant was violated */ } }"
+        }
+      ],
+      "seeAlso": ["createWorld", "EntityNotAliveError"]
     },
     {
       "name": "EntityNotAliveError",

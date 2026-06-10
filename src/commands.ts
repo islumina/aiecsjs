@@ -21,7 +21,6 @@ export function createCommandBuffer(world: World): CommandBuffer {
     nextPlaceholder: -1,
     flushing: false,
   }
-  attachState(buf)
   return makeApi(buf)
 }
 
@@ -88,11 +87,6 @@ export function withCommandBuffer<R>(world: World, fn: (cb: CommandBuffer) => R)
 // --- Internals ---
 
 const cbStateMap = new WeakMap<object, CommandBufferState>()
-
-function attachState(state: CommandBufferState): void {
-  // The CommandBuffer API object is created in makeApi; we link them via WeakMap there.
-  void state
-}
 
 function makeApi(state: CommandBufferState): CommandBuffer {
   const api: CommandBuffer = {

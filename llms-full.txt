@@ -43,7 +43,7 @@ pipe(movement)(world, 1/60)
 
 > **Use `forEachEntityIndexed` for column iteration.** Its callback is `(e, i, ...cols)`: `e` is the packed `EntityId` (use it directly for `destroyEntity`, `hasComponent`, `getComponent`, command buffers), and `i` is the **safe column subscript** — index every SoA column with it (`pos.x[i]`). The packed `e` is **not** a column index: it only equals the index until a slot is recycled (generation 0); after any `destroyEntity` recycles a slot, `e !== i` and indexing a column with `e` reads the wrong slot (out of bounds → `undefined`/`NaN`). `forEachEntityIndexed` hands you the correct `i` so this footgun is closed in code. Use `forEachEntity` when you only need the `EntityId` (and index columns via `getEntityIndex(e)` if you must).
 
-> **Status: experimental (v0.5.x).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
+> **Status: 0.5.6 — experimental (0.5.x line).** The API surface in `STABILITY.md` is committed for the 0.x line, but expect adjustments. A stable 1.0 freeze is targeted after community feedback.
 
 ## Table of contents
 
@@ -68,7 +68,7 @@ pipe(movement)(world, 1/60)
 ## Why aiecsjs?
 
 - **Archetype-first storage** — entities sharing the same component set live in one contiguous table; queries walk straight `for` loops over parallel TypedArrays. Iteration is cache-friendly by construction.
-- **Zero-config TypeScript inference** — `defineQuery([Position, Velocity])` returns an iterator that yields `(eid, posCols, velCols)` with the correct TypedArray types. No manual generics.
+- **First-class TypeScript** — typed `EntityId`, components, worlds, and queries with no manual generics. Iteration helpers pass the SoA column views positionally (`forEachEntityIndexed(w, q, (e, i, pos, vel) => …)`); the **column arguments are `any`-typed** today — statically tuple-typed columns are future work — while `e` (`EntityId`) and `i` (`number`) are fully typed.
 - **AI-first documentation contract** — every public export has a stability tag and a `since` version. Ships `llms.txt`, `llms-full.txt`, and `api.json` so LLM tools can read the API surface directly.
 
 ### Comparison
@@ -77,7 +77,7 @@ pipe(movement)(world, 1/60)
 |---|---|---|---|---|
 | Storage | Archetype + SoA columns | SparseSet + bitmask + SoA/AoS | Archetype + JS objects | Configurable (packed/sparse/compact) + ArrayBuffer |
 | API style | Functional + `pipe` | Functional + `pipe` | Chainable OO | Decorator classes |
-| TS inference on query | Tuple-aware columns | Manual | Predicate inference | Class-based |
+| TS inference on query | Typed `e`/`i`; columns `any` | Manual | Predicate inference | Class-based |
 | Multi-thread | SAB snapshot transport (0.x); true shared cols planned 0.3+ | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
 | AI docs | `llms.txt` + `llms-full.txt` + `api.json` | No | No | No |
 | Maintenance | Active (new) | Active | Slowed (~3y since npm release) | Active |
@@ -349,7 +349,7 @@ Observers fire synchronously inside the mutation call. Use them for side effects
 
 ### Command buffers — when and why
 
-The golden rule: **do not add or remove components on entities you're currently iterating over.** Doing so can skip or double-process entities because the archetype membership changes mid-walk. Use a command buffer to defer:
+The golden rule: **add or remove components via a command buffer while iterating** — never mutate an iterated entity's component set inline. Adding or removing a component changes archetype membership mid-walk, which can skip or double-process entities. In-loop `destroyEntity` **is** safe (the iteration re-reads the live row count each step, so the callback never sees the reserved eid 0 and never a destroyed entity), but with two caveats: a surviving entity swapped into a freed row is **deferred to the next pass** (not visited again this pass), and iteration order after a destroy is not guaranteed. Use a command buffer to defer component mutations:
 
 ```ts
 import { withCommandBuffer } from 'aiecsjs/commands'
@@ -414,10 +414,12 @@ type WorldOptions = {
   maxEntities?: number           // default 1_000_000
   indexBits?: 20 | 24            // default 24 → 16M entities
   generationBits?: 8 | 12 | 16   // default 8 → 256 recycles
-  buffer?: SharedArrayBuffer     // opt-in SAB backing
-  bufferByteOffset?: number      // when sharing one SAB across worlds
+  buffer?: SharedArrayBuffer     // RESERVED — no effect in 0.x (see note below)
+  bufferByteOffset?: number      // RESERVED — paired with buffer; no effect in 0.x
 }
 ```
+
+> **`buffer` / `bufferByteOffset` are reserved and currently unimplemented.** Setting them has no effect: a world always allocates its own column storage and never reads a caller-supplied SAB. For Worker handoff use the snapshot-copy transport — post `transferableSnapshot(world)` and rebuild via `adoptSnapshot` from `aiecsjs/worker` (see [Multi-threading Guide](#multi-threading-guide)). The fields are kept for forward-compatibility with the true shared-column backing targeted for 0.3+.
 
 ### Entity — `aiecsjs`
 
@@ -598,7 +600,7 @@ These tips are derived from public ECS benchmarks (noctjs/ecs-benchmark, ddmills
 
 ## Multi-threading Guide
 
-aiecsjs is **SharedArrayBuffer-ready**: a world's archetype columns can live in shared memory and a Worker can iterate them in parallel.
+aiecsjs hands a world to a Worker via a **transferable snapshot**: the world is serialized into a `SharedArrayBuffer` (a plain `ArrayBuffer` when SAB is unavailable) and the Worker reconstructs a fresh world from it. In 0.x this is a snapshot-**copy** transport, not true shared-memory column aliasing — the two worlds do not see each other's writes after the handoff. True shared columns are targeted for 0.3+ (see [`STABILITY.md`](./STABILITY.md), `aiecsjs/worker`).
 
 ### Capability detection
 
@@ -613,21 +615,28 @@ In browsers, `SharedArrayBuffer` requires the page to be **cross-origin isolated
 
 ### Main thread
 
+Post the whole `transferableSnapshot(world)` — it already carries `{ buffer, meta }`. Do **not** allocate your own SAB and pass it to `createWorld`; `WorldOptions.buffer` is reserved and currently has no effect (see [Entity — `aiecsjs`](#entity--aiecsjs)).
+
 ```ts
-const buffer = new SharedArrayBuffer(64 * 1024 * 1024)  // 64 MB
-const world = createWorld({ buffer })
+import { createWorld } from 'aiecsjs'
+import { transferableSnapshot } from 'aiecsjs/worker'
+
+const world = createWorld()
 
 // populate world...
 
 const worker = new Worker(new URL('./sim-worker.ts', import.meta.url), { type: 'module' })
-worker.postMessage({ buffer, meta: transferableSnapshot(world).meta })
+worker.postMessage(transferableSnapshot(world))
 ```
 
 ### Worker thread
 
+`adoptSnapshot` is imported from the **`aiecsjs/worker`** sub-path (it is not exported from the root entry).
+
 ```ts
 // sim-worker.ts
-import { adoptSnapshot, defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { adoptSnapshot } from 'aiecsjs/worker'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -952,7 +961,7 @@ A: It will be on first stable publish. Until then, the docs are the contract.
 - **AoS components** not SAB-shareable across workers.
 - **Network delta serializer** wire format is experimental in 0.1; may change.
 - **WebGPU integration is one-way** (CPU → GPU). No compute-shader system generation.
-- **Limited dev-mode validation.** Production builds skip invariant checks for speed; dev builds (`process.env.NODE_ENV !== 'production'`) include argument-order and entity-existence checks.
+- **No build-mode-gated validation.** There is no `process.env.NODE_ENV` branching — the same checks run in every build. Entity-liveness is validated unconditionally on the mutation paths (`addComponent` / `setComponent` throw on a dead entity), so there is no separate "dev build" with extra runtime guards. Argument order is enforced statically by the TypeScript types, not by a runtime check.
 
 ## Contributing
 
@@ -1370,6 +1379,7 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `deref` | stable | 0.3.0 | Returns null for stale / cross-world refs; never throws. |
 | `aliveRef` | stable | 0.3.0 | Boolean guard form of `deref`; never throws. |
 | `EntityRef` (type) | stable | 0.3.0 | In-memory only; not serializable. |
+| `EcsError` | stable | 0.5.6 | Base error for core invariant failures (bad world options, destroyed/unknown world, exhausted component slots, capacity overflow). `instanceof`-catchable; `aiecsjs:`-prefixed message. |
 | `EntityNotAliveError` | stable | 0.3.0 | Thrown only by `refOf`. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
@@ -1392,6 +1402,8 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `IS_SAB_SUPPORTED` | stable | 0.1.0 | |
 | `isWorld` | stable | 0.1.0 | |
 | `isEntity` | stable | 0.1.0 | |
+
+**Reactive query must-drain contract (`enterQuery` / `exitQuery`).** The enter and exit buffers are **unbounded** — there is no cap and no drop-oldest policy. Each structural change that flips an entity into (enter) or out of (exit) a query pushes exactly one id; the buffer shrinks only when the reactive view is read (`runQuery`, `iterQuery`, `forEachEntity`, `forEachEntityIndexed`). A view that is created but never read — a disabled system, or reading only one of the enter/exit pair — accumulates one number per matching event for the lifetime of the world, which is an unbounded memory leak under churn. **Read every reactive view you create, once per frame.** Capping is deliberately omitted: silently dropping ids would break enter/exit symmetry, so draining is the caller's contract, not the library's.
 
 ### `aiecsjs/loop` (utility sub-path)
 

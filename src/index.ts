@@ -105,6 +105,9 @@ export { pipe } from './internal/pipe.js'
 // --- Utility ---
 export const IS_SAB_SUPPORTED: boolean = typeof SharedArrayBuffer !== 'undefined'
 
+// --- Errors ---
+export { EcsError } from './internal/errors.js'
+
 // --- EntityRef (ABA-safe references) ---
 export type { EntityRef } from './ref.js'
 export { refOf, deref, aliveRef, EntityNotAliveError } from './ref.js'

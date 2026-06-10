@@ -23,11 +23,13 @@ export function transferableSnapshot(world: World): TransferableSnapshot {
   const bytes = serializeWorld(world)
 
   if (typeof SharedArrayBuffer === 'undefined') {
-    // Fallback: ArrayBuffer wrapped to look like a SAB at runtime
+    // Fallback: a plain ArrayBuffer. TransferableSnapshot.buffer is typed
+    // `SharedArrayBuffer | ArrayBuffer`, so this needs no cast — the type tells
+    // the truth instead of pretending the fallback is a SAB.
     const ab = new ArrayBuffer(bytes.byteLength)
     new Uint8Array(ab).set(bytes)
     return {
-      buffer: ab as unknown as SharedArrayBuffer,
+      buffer: ab,
       meta: buildMeta(state),
     }
   }
@@ -65,7 +67,10 @@ export function adoptSnapshot(snap: TransferableSnapshot): World {
  * pattern, which lets you validate the shape at the application boundary
  * before constructing entities.
  */
-export function attachWorld(buffer: SharedArrayBuffer, options?: { readOnly?: boolean }): World {
+export function attachWorld(
+  buffer: SharedArrayBuffer | ArrayBuffer,
+  options?: { readOnly?: boolean },
+): World {
   const bytes = new Uint8Array(buffer)
   const world = deserializeWorld(bytes)
   if (options?.readOnly) {
