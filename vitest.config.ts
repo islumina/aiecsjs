@@ -16,11 +16,12 @@ export default defineConfig({
       // WHY THIS REPO'S THRESHOLDS DIFFER FROM THE FAMILY 95/90/100/100 TARGET:
       //
       // branches (81, not 90):
-      //   The dominant cause is structural: aiecsjs uses noUncheckedIndexedAccess +
-      //   exactOptionalPropertyTypes throughout, which generates nullish-fallback
-      //   branches (`?? 0`, `?.foo`, `storage?.soa`) on every TypedArray access.
-      //   These false branches are semantically unreachable — the array is always
-      //   allocated before access — but V8 still counts them. Additional sources:
+      //   The dominant cause is structural: tsconfig enables both
+      //   `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` (both true),
+      //   which generates nullish-fallback branches (`?? 0`, `?.foo`, `storage?.soa`)
+      //   on every TypedArray access. These false branches are semantically
+      //   unreachable — the array is always allocated before access — but V8 still
+      //   counts them. Additional sources:
       //   • bitmask.ts bit-twiddling: `word & -word`, `clz32` edge cases — 67.18%
       //     branches, all structural (bit ops on known-nonzero values).
       //   • query.ts:327-329 (buildColumnViews `bit === undefined`) and :332-334
@@ -52,6 +53,15 @@ export default defineConfig({
       //   • serialize.ts:209 — "truncated before verLen" throw; the `bytes.length
       //     < 12` check at line 184 fires first for all short inputs, making this
       //     guard permanently unreachable.
+      //
+      // DEFERRED STRICT FLAGS (not enabled this wave):
+      //   `exactOptionalPropertyTypes` and `verbatimModuleSyntax` are now ON (0
+      //   errors). The four remaining strict-family flags stay off because turning
+      //   them on surfaces 30 pre-existing type errors (src 15 / tests 15):
+      //   `noUnusedLocals` (28) dominates, `noUnusedParameters` (2);
+      //   `noImplicitReturns` and `noFallthroughCasesInSwitch` are already clean (0
+      //   each). These are a proper narrowing/cleanup task, deferred to a dedicated
+      //   pass rather than smuggled into this review wave.
       thresholds: { statements: 95, branches: 81, functions: 98, lines: 99 },
     },
   },
