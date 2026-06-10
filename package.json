@@ -59,9 +59,13 @@
   },
   "license": "MIT",
   "author": "yshengliao",
+  "homepage": "https://github.com/islumina/aiecsjs#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/islumina/aiecsjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/islumina/aiecsjs/issues"
   },
   "keywords": [
     "ecs",
