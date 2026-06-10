@@ -116,8 +116,30 @@ export function toJSON(world: World): WorldSnapshot {
   }
 }
 
+// Default initial-capacity floor for a restored world (matches createWorld's
+// own default). Keeps the common round-trip from needlessly shrinking while
+// staying a trivial allocation (~36 KB of index arrays at 1024 slots).
+const RESTORE_CAPACITY_FLOOR = 1024
+
+// SECURITY (ECS-S-01): the snapshot `capacity` field is attacker-controlled on
+// any untrusted-load path (localStorage, network — both documented flows for the
+// stable deserializeWorld). createWorld only clamps to 1<<indexBits (16,777,216),
+// so an inflated value forces a near-600 MB TypedArray allocation from a tiny
+// payload — a browser-tab OOM DoS. Clamp the *starting* capacity to the real
+// entity count (fromJSON re-creates entities via createEntity, which grows the
+// world on demand, so a tight initial hint never loses data). A garbage/missing
+// value falls back to the count too.
+function clampRestoreCapacity(rawCapacity: unknown, entityCount: number): number {
+  const needed = Math.max(RESTORE_CAPACITY_FLOOR, entityCount + 1)
+  if (typeof rawCapacity !== 'number' || !Number.isFinite(rawCapacity) || rawCapacity <= 0) {
+    return needed
+  }
+  return Math.min(Math.floor(rawCapacity), needed)
+}
+
 export function fromJSON(snapshot: WorldSnapshot): World {
-  const world = createWorld({ initialCapacity: snapshot.capacity })
+  const initialCapacity = clampRestoreCapacity(snapshot.capacity, snapshot.entities.length)
+  const world = createWorld({ initialCapacity })
   const eidMap = new Map<number, EntityId>()
   for (const e of snapshot.entities) {
     const eid = createEntity(world)
