@@ -402,10 +402,12 @@ type WorldOptions = {
   maxEntities?: number           // default 1_000_000
   indexBits?: 20 | 24            // default 24 → 16M entities
   generationBits?: 8 | 12 | 16   // default 8 → 256 recycles
-  buffer?: SharedArrayBuffer     // opt-in SAB backing
-  bufferByteOffset?: number      // when sharing one SAB across worlds
+  buffer?: SharedArrayBuffer     // RESERVED — no effect in 0.x (see note below)
+  bufferByteOffset?: number      // RESERVED — paired with buffer; no effect in 0.x
 }
 ```
+
+> **`buffer` / `bufferByteOffset` are reserved and currently unimplemented.** Setting them has no effect: a world always allocates its own column storage and never reads a caller-supplied SAB. For Worker handoff use the snapshot-copy transport — post `transferableSnapshot(world)` and rebuild via `adoptSnapshot` from `aiecsjs/worker` (see [Multi-threading Guide](#multi-threading-guide)). The fields are kept for forward-compatibility with the true shared-column backing targeted for 0.3+.
 
 ### Entity — `aiecsjs`
 
@@ -586,7 +588,7 @@ These tips are derived from public ECS benchmarks (noctjs/ecs-benchmark, ddmills
 
 ## Multi-threading Guide
 
-aiecsjs is **SharedArrayBuffer-ready**: a world's archetype columns can live in shared memory and a Worker can iterate them in parallel.
+aiecsjs hands a world to a Worker via a **transferable snapshot**: the world is serialized into a `SharedArrayBuffer` (a plain `ArrayBuffer` when SAB is unavailable) and the Worker reconstructs a fresh world from it. In 0.x this is a snapshot-**copy** transport, not true shared-memory column aliasing — the two worlds do not see each other's writes after the handoff. True shared columns are targeted for 0.3+ (see [`STABILITY.md`](./STABILITY.md), `aiecsjs/worker`).
 
 ### Capability detection
 
@@ -601,21 +603,28 @@ In browsers, `SharedArrayBuffer` requires the page to be **cross-origin isolated
 
 ### Main thread
 
+Post the whole `transferableSnapshot(world)` — it already carries `{ buffer, meta }`. Do **not** allocate your own SAB and pass it to `createWorld`; `WorldOptions.buffer` is reserved and currently has no effect (see [Entity — `aiecsjs`](#entity--aiecsjs)).
+
 ```ts
-const buffer = new SharedArrayBuffer(64 * 1024 * 1024)  // 64 MB
-const world = createWorld({ buffer })
+import { createWorld } from 'aiecsjs'
+import { transferableSnapshot } from 'aiecsjs/worker'
+
+const world = createWorld()
 
 // populate world...
 
 const worker = new Worker(new URL('./sim-worker.ts', import.meta.url), { type: 'module' })
-worker.postMessage({ buffer, meta: transferableSnapshot(world).meta })
+worker.postMessage(transferableSnapshot(world))
 ```
 
 ### Worker thread
 
+`adoptSnapshot` is imported from the **`aiecsjs/worker`** sub-path (it is not exported from the root entry).
+
 ```ts
 // sim-worker.ts
-import { adoptSnapshot, defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { adoptSnapshot } from 'aiecsjs/worker'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })

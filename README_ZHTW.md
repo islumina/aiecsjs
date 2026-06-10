@@ -409,10 +409,12 @@ type WorldOptions = {
   maxEntities?: number           // 預設 1_000_000
   indexBits?: 20 | 24            // 預設 24 → 16M 實體
   generationBits?: 8 | 12 | 16   // 預設 8 → 256 次回收
-  buffer?: SharedArrayBuffer     // 啟用 SAB 儲存
-  bufferByteOffset?: number      // 一個 SAB 給多個 world 用時的位移
+  buffer?: SharedArrayBuffer     // 保留欄位 —— 0.x 無效（見下方說明）
+  bufferByteOffset?: number      // 保留欄位 —— 與 buffer 配對；0.x 無效
 }
 ```
+
+> **`buffer` / `bufferByteOffset`為保留欄位，目前尚未實作。** 設定它們沒有任何效果：world 一律自行配置欄位儲存，從不讀取呼叫端提供的 SAB。Worker 交接請改用 snapshot 複製傳輸 —— post `transferableSnapshot(world)`，並從 `aiecsjs/worker` 以 `adoptSnapshot` 重建（見 [多執行緒指引](#多執行緒指引)）。保留這些欄位是為了與 0.3+ 規劃中的真正共享欄位列保持向前相容。
 
 ### Entity — `aiecsjs`
 
@@ -593,7 +595,7 @@ console.log('每幀毫秒:', (performance.now() - start) / 1000)
 
 ## 多執行緒指引
 
-aiecsjs **支援 SharedArrayBuffer**：world 的 archetype 欄位可放在共享記憶體中，並由 Worker 平行迭代。
+aiecsjs 透過 **transferable snapshot** 把 world 交給 Worker：world 會被序列化進一個 `SharedArrayBuffer`（SAB 不可用時退回普通 `ArrayBuffer`），Worker 端再從中重建一個全新的 world。0.x 中這是 snapshot **複製**傳輸，而非真正的共享記憶體欄位別名 —— 交接後兩個 world 不會看到彼此的寫入。真正的共享欄位列在 0.3+ 規劃中（見 [`STABILITY.md`](./STABILITY.md) 的 `aiecsjs/worker`）。
 
 ### 能力偵測
 
@@ -608,21 +610,28 @@ if (!IS_SAB_SUPPORTED) {
 
 ### 主執行緒
 
+直接 post 整個 `transferableSnapshot(world)` —— 它本身已帶有 `{ buffer, meta }`。請**不要**自行配置 SAB 再傳給 `createWorld`；`WorldOptions.buffer` 為保留欄位，目前沒有任何效果（見 [Entity — `aiecsjs`](#entity--aiecsjs)）。
+
 ```ts
-const buffer = new SharedArrayBuffer(64 * 1024 * 1024)  // 64 MB
-const world = createWorld({ buffer })
+import { createWorld } from 'aiecsjs'
+import { transferableSnapshot } from 'aiecsjs/worker'
+
+const world = createWorld()
 
 // 填入實體與元件 ...
 
 const worker = new Worker(new URL('./sim-worker.ts', import.meta.url), { type: 'module' })
-worker.postMessage({ buffer, meta: transferableSnapshot(world).meta })
+worker.postMessage(transferableSnapshot(world))
 ```
 
 ### Worker 端
 
+`adoptSnapshot` 從 **`aiecsjs/worker`** sub-path 匯入（root entry 不匯出它）。
+
 ```ts
 // sim-worker.ts
-import { adoptSnapshot, defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { defineComponent, defineQuery, forEachEntityIndexed, Types } from 'aiecsjs'
+import { adoptSnapshot } from 'aiecsjs/worker'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
