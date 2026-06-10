@@ -68,6 +68,19 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
   return q
 }
 
+/**
+ * Reactive "entered" view of `query`: each read drains the entities that began
+ * matching since the last read (via `runQuery` / `iterQuery` / `forEachEntity`).
+ *
+ * **MUST-DRAIN CONTRACT (unbounded buffer).** The enter buffer has **no cap**.
+ * Every structural change that makes an entity newly match pushes one id; the
+ * buffer only shrinks when you read the reactive view. A view that is created
+ * but never read — e.g. a disabled system, or reading only the {@link exitQuery}
+ * twin — accumulates one number per event **forever**, an unbounded memory leak
+ * at churn rates (e.g. ~1k spawns/frame). Read every enter view you create, once
+ * per frame. Dropping ids silently would corrupt enter/exit symmetry, so capping
+ * is intentionally not done — draining is the caller's responsibility.
+ */
 export function enterQuery(query: Query): Query {
   const q = query as QueryInternal
   const key = `enter:${q.id}`
@@ -88,6 +101,16 @@ export function enterQuery(query: Query): Query {
   return reactive
 }
 
+/**
+ * Reactive "exited" view of `query`: each read drains the entities that stopped
+ * matching since the last read (via `runQuery` / `iterQuery` / `forEachEntity`).
+ *
+ * **MUST-DRAIN CONTRACT (unbounded buffer).** The exit buffer has **no cap** —
+ * same discipline as {@link enterQuery}. An unread exit view accumulates one id
+ * per matching structural change (including every `destroyEntity` of a matching
+ * entity) without bound. Read every exit view you create, once per frame. Capping
+ * is intentionally not done because dropping ids would break enter/exit symmetry.
+ */
 export function exitQuery(query: Query): Query {
   const q = query as QueryInternal
   const key = `exit:${q.id}`

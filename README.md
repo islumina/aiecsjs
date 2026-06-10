@@ -56,7 +56,7 @@ pipe(movement)(world, 1/60)
 ## Why aiecsjs?
 
 - **Archetype-first storage** — entities sharing the same component set live in one contiguous table; queries walk straight `for` loops over parallel TypedArrays. Iteration is cache-friendly by construction.
-- **Zero-config TypeScript inference** — `defineQuery([Position, Velocity])` returns an iterator that yields `(eid, posCols, velCols)` with the correct TypedArray types. No manual generics.
+- **First-class TypeScript** — typed `EntityId`, components, worlds, and queries with no manual generics. Iteration helpers pass the SoA column views positionally (`forEachEntityIndexed(w, q, (e, i, pos, vel) => …)`); the **column arguments are `any`-typed** today — statically tuple-typed columns are future work — while `e` (`EntityId`) and `i` (`number`) are fully typed.
 - **AI-first documentation contract** — every public export has a stability tag and a `since` version. Ships `llms.txt`, `llms-full.txt`, and `api.json` so LLM tools can read the API surface directly.
 
 ### Comparison
@@ -65,7 +65,7 @@ pipe(movement)(world, 1/60)
 |---|---|---|---|---|
 | Storage | Archetype + SoA columns | SparseSet + bitmask + SoA/AoS | Archetype + JS objects | Configurable (packed/sparse/compact) + ArrayBuffer |
 | API style | Functional + `pipe` | Functional + `pipe` | Chainable OO | Decorator classes |
-| TS inference on query | Tuple-aware columns | Manual | Predicate inference | Class-based |
+| TS inference on query | Typed `e`/`i`; columns `any` | Manual | Predicate inference | Class-based |
 | Multi-thread | SAB snapshot transport (0.x); true shared cols planned 0.3+ | SAB-ready, scheduling DIY | Single-thread | Roadmap (not shipped) |
 | AI docs | `llms.txt` + `llms-full.txt` + `api.json` | No | No | No |
 | Maintenance | Active (new) | Active | Slowed (~3y since npm release) | Active |
@@ -949,7 +949,7 @@ A: It will be on first stable publish. Until then, the docs are the contract.
 - **AoS components** not SAB-shareable across workers.
 - **Network delta serializer** wire format is experimental in 0.1; may change.
 - **WebGPU integration is one-way** (CPU → GPU). No compute-shader system generation.
-- **Limited dev-mode validation.** Production builds skip invariant checks for speed; dev builds (`process.env.NODE_ENV !== 'production'`) include argument-order and entity-existence checks.
+- **No build-mode-gated validation.** There is no `process.env.NODE_ENV` branching — the same checks run in every build. Entity-liveness is validated unconditionally on the mutation paths (`addComponent` / `setComponent` throw on a dead entity), so there is no separate "dev build" with extra runtime guards. Argument order is enforced statically by the TypeScript types, not by a runtime check.
 
 ## Contributing
 

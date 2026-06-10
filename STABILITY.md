@@ -61,6 +61,8 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `isWorld` | stable | 0.1.0 | |
 | `isEntity` | stable | 0.1.0 | |
 
+**Reactive query must-drain contract (`enterQuery` / `exitQuery`).** The enter and exit buffers are **unbounded** — there is no cap and no drop-oldest policy. Each structural change that flips an entity into (enter) or out of (exit) a query pushes exactly one id; the buffer shrinks only when the reactive view is read (`runQuery`, `iterQuery`, `forEachEntity`, `forEachEntityIndexed`). A view that is created but never read — a disabled system, or reading only one of the enter/exit pair — accumulates one number per matching event for the lifetime of the world, which is an unbounded memory leak under churn. **Read every reactive view you create, once per frame.** Capping is deliberately omitted: silently dropping ids would break enter/exit symmetry, so draining is the caller's contract, not the library's.
+
 ### `aiecsjs/loop` (utility sub-path)
 
 Fixed-timestep accumulator loop. Drop this sub-path if you already drive frame updates yourself (PixiJS `Ticker`, requestAnimationFrame, server-side simulation).

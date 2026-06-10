@@ -56,7 +56,7 @@ pipe(movement)(world, 1/60)
 ## 為什麼選 aiecsjs？
 
 - **原型優先儲存** — 擁有相同元件集合的實體共用一張連續表格；查詢時直接以 `for` 迴圈走訪平行的 TypedArray。從架構上就保證快取友善。
-- **零設定的 TypeScript 推導** — `defineQuery([Position, Velocity])` 回傳的迭代器會丟出 `(eid, posCols, velCols)`，欄位型別自動從 `defineComponent` 推導。不必手寫泛型。
+- **一流的 TypeScript 支援** — `EntityId`、component、world、query 皆有型別，且不必手寫泛型。迭代輔助函式以位置參數傳入 SoA 欄位視圖（`forEachEntityIndexed(w, q, (e, i, pos, vel) => …)`）；目前**欄位參數為 `any` 型別**（靜態元組型別欄位屬未來工作），而 `e`（`EntityId`）與 `i`（`number`）則完整具型別。
 - **AI 優先的文件契約** — 每個公開匯出都有穩定度標籤與 `since` 版本。內建 `llms.txt`、`llms-full.txt`、`api.json`，讓 LLM 工具直接讀懂 API 表面。
 
 ### 與其他函式庫比較
@@ -65,7 +65,7 @@ pipe(movement)(world, 1/60)
 |---|---|---|---|---|
 | 儲存模型 | 原型 + SoA 欄位 | SparseSet + bitmask + SoA/AoS | 原型 + JS 物件 | 可選（packed/sparse/compact）+ ArrayBuffer |
 | API 風格 | 函式式 + `pipe` | 函式式 + `pipe` | 鏈式 OO | 裝飾器 class |
-| 查詢 TS 推導 | 欄位元組支援 | 手動 | 述詞推導 | class-based |
+| 查詢 TS 推導 | `e`/`i` 具型別；欄位為 `any` | 手動 | 述詞推導 | class-based |
 | 多執行緒 | SAB 快照傳輸（0.x）；真共享欄位預計 0.3+ | SAB-ready，排程自理 | 單執行緒 | Roadmap（未實作） |
 | AI 文件 | `llms.txt` + `llms-full.txt` + `api.json` | 無 | 無 | 無 |
 | 維護狀態 | 活躍（新） | 活躍 | 趨緩（npm 已 ~3 年） | 活躍 |
@@ -958,7 +958,7 @@ A：將在首次穩定發佈時上架。在那之前，文件即契約。
 - **AoS 元件** 無法跨 Worker 透過 SAB 共享。
 - **網路 delta 序列器** wire format 在 0.1 為 experimental，可能改變。
 - **WebGPU 整合為單向**（CPU → GPU）。無 compute-shader 系統生成。
-- **開發模式驗證有限。** Production build 跳過不變量檢查以追求速度；dev build（`process.env.NODE_ENV !== 'production'`）會包含參數順序與實體存活檢查。
+- **無依建置模式切換的驗證。** 不存在 `process.env.NODE_ENV` 分支 —— 每種建置都跑相同的檢查。實體存活在 mutation 路徑上無條件驗證（`addComponent` / `setComponent` 對已 destroy 的實體會拋例外），因此沒有額外加裝 runtime guard 的獨立「dev build」。參數順序由 TypeScript 型別在靜態層強制，而非 runtime 檢查。
 
 ## 貢獻
 
