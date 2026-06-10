@@ -46,12 +46,16 @@ describe('integration: README Quick Start', () => {
     }
 
     const lifetimeSystem = (w: any, dt: number) => {
-      const toDestroy: number[] = []
+      // Mirror the README Quick Start verbatim: destroy IN the loop. This is the
+      // ECS-B-01 falsification path — on the captured-`n` HEAD this callback was
+      // handed the reserved eid 0, so `expect(e).not.toBe(0)` fails RED there.
       forEachEntityIndexed(w, decaying, (e, i, life: any) => {
         life.remaining[i] -= dt
-        if (life.remaining[i] <= 0) toDestroy.push(e as number)
+        if (life.remaining[i] <= 0) {
+          expect(e as number).not.toBe(0) // never the swap-pop sentinel
+          destroyEntity(w, e as any) // destroyEntity takes the packed `e`
+        }
       })
-      for (const e of toDestroy) destroyEntity(w, e as any) // destroyEntity takes the packed `e`
       return w
     }
 

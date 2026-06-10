@@ -296,8 +296,14 @@ export function forEachEntity(
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     const ents = arch.entities
-    const n = arch.size
-    for (let r = 0; r < n; r++) {
+    // Re-read `arch.size` each iteration (do NOT cache it as `n`): an in-loop
+    // `destroyEntity` swap-pops the visited row, shrinks `arch.size`, and zeroes
+    // the freed tail slot. A cached bound would keep walking into those zeroed
+    // tail rows and hand the callback the reserved sentinel eid 0 (ECS-B-01).
+    // The swapped-in survivor is intentionally skipped this pass (deferred to the
+    // next). This is a scalar property read — no per-iteration allocation, so the
+    // zero-allocation hot-path contract holds. Mirrors runQuery (:230) / iterQuery.
+    for (let r = 0; r < arch.size; r++) {
       callWithCols(fn, ents[r] as EntityId, cols)
     }
   }
@@ -377,8 +383,11 @@ export function forEachEntityIndexed(
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     const ents = arch.entities
-    const n = arch.size
-    for (let r = 0; r < n; r++) {
+    // Re-read `arch.size` each iteration — see forEachEntity for the rationale.
+    // An in-loop `destroyEntity` swap-pops the row and zeroes the freed tail; a
+    // cached bound would replay the sentinel eid 0 across the public boundary
+    // (ECS-B-01). Scalar read only; the zero-allocation hot-path contract holds.
+    for (let r = 0; r < arch.size; r++) {
       const e = ents[r] as EntityId
       callWithColsIndexed(fn, e, e & indexMask, cols)
     }

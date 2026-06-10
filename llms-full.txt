@@ -349,7 +349,7 @@ Observers fire synchronously inside the mutation call. Use them for side effects
 
 ### Command buffers — when and why
 
-The golden rule: **do not add or remove components on entities you're currently iterating over.** Doing so can skip or double-process entities because the archetype membership changes mid-walk. Use a command buffer to defer:
+The golden rule: **add or remove components via a command buffer while iterating** — never mutate an iterated entity's component set inline. Adding or removing a component changes archetype membership mid-walk, which can skip or double-process entities. In-loop `destroyEntity` **is** safe (the iteration re-reads the live row count each step, so the callback never sees the reserved eid 0 and never a destroyed entity), but with two caveats: a surviving entity swapped into a freed row is **deferred to the next pass** (not visited again this pass), and iteration order after a destroy is not guaranteed. Use a command buffer to defer component mutations:
 
 ```ts
 import { withCommandBuffer } from 'aiecsjs/commands'
