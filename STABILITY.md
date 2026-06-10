@@ -38,6 +38,7 @@ The **root** entry (`aiecsjs`) is the stable core: world, entity, component, que
 | `deref` | stable | 0.3.0 | Returns null for stale / cross-world refs; never throws. |
 | `aliveRef` | stable | 0.3.0 | Boolean guard form of `deref`; never throws. |
 | `EntityRef` (type) | stable | 0.3.0 | In-memory only; not serializable. |
+| `EcsError` | stable | 0.5.6 | Base error for core invariant failures (bad world options, destroyed/unknown world, exhausted component slots, capacity overflow). `instanceof`-catchable; `aiecsjs:`-prefixed message. |
 | `EntityNotAliveError` | stable | 0.3.0 | Thrown only by `refOf`. |
 | `defineComponent` | stable | 0.1.0 | |
 | `defineTag` | stable | 0.1.0 | |
