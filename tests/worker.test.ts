@@ -68,25 +68,28 @@ describe('worker / SAB', () => {
   //   main:   worker.postMessage(transferableSnapshot(world))
   //   worker: const world = adoptSnapshot(e.data)
   // structuredClone stands in for the structured-clone step postMessage performs.
-  it.skipIf(!IS_SAB_SUPPORTED)('guide postMessage shape: post transferableSnapshot, adopt e.data', () => {
-    const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
-    const world = createWorld()
-    const e = createEntity(world)
-    addComponent(world, e, Position, { x: 3, y: 4 })
-    addComponent(world, e, Velocity, { x: 1, y: -1 })
+  it.skipIf(!IS_SAB_SUPPORTED)(
+    'guide postMessage shape: post transferableSnapshot, adopt e.data',
+    () => {
+      const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+      const world = createWorld()
+      const e = createEntity(world)
+      addComponent(world, e, Position, { x: 3, y: 4 })
+      addComponent(world, e, Velocity, { x: 1, y: -1 })
 
-    // main.ts side — post the snapshot object verbatim (NOT { buffer, meta: ... }).
-    const messageData = transferableSnapshot(world)
-    // The posted payload carries exactly the documented shape.
-    expect(messageData).toHaveProperty('buffer')
-    expect(messageData).toHaveProperty('meta')
+      // main.ts side — post the snapshot object verbatim (NOT { buffer, meta: ... }).
+      const messageData = transferableSnapshot(world)
+      // The posted payload carries exactly the documented shape.
+      expect(messageData).toHaveProperty('buffer')
+      expect(messageData).toHaveProperty('meta')
 
-    // The structured-clone boundary a real postMessage crosses.
-    const received = structuredClone(messageData)
+      // The structured-clone boundary a real postMessage crosses.
+      const received = structuredClone(messageData)
 
-    // worker side — adoptSnapshot reads the whole received object (`e.data`).
-    const workerWorld = adoptSnapshot(received)
-    expect(hasComponent(workerWorld, e as any, Position)).toBe(true)
-    expect(hasComponent(workerWorld, e as any, Velocity)).toBe(true)
-  })
+      // worker side — adoptSnapshot reads the whole received object (`e.data`).
+      const workerWorld = adoptSnapshot(received)
+      expect(hasComponent(workerWorld, e as any, Position)).toBe(true)
+      expect(hasComponent(workerWorld, e as any, Velocity)).toBe(true)
+    },
+  )
 })

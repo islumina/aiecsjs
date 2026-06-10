@@ -267,7 +267,9 @@ describe('serialize', () => {
       return {
         version: pkg.version,
         capacity,
-        entities: [{ eid: 1, components: [{ kind: 'soa', id: Position.__id, data: { x: 1, y: 2 } }] }],
+        entities: [
+          { eid: 1, components: [{ kind: 'soa', id: Position.__id, data: { x: 1, y: 2 } }] },
+        ],
       }
     }
 
