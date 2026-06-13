@@ -68,7 +68,7 @@ export function addRelation<T>(
 ): void {
   const state = getWorldState(world)
   if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
-  const storage = getOrCreateStorage(state, rel as Relation<any>)
+  const storage = getOrCreateStorage(state, rel as Relation<unknown>)
   // Use raw idx as keys in relation storage so slot reuse invalidation is consistent
   const src = (source as number) & state.options.indexMask
   const tgt = (target as number) & state.options.indexMask

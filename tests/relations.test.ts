@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type EntityId,
   createEntity,
   createWorld,
   destroyEntity,
@@ -245,21 +246,21 @@ describe('relations', () => {
   it('destroying an exclusive target clears ALL sources pointing at it', () => {
     const w = createWorld()
     const parent = createEntity(w)
-    const sources: number[] = []
+    const sources: EntityId[] = []
     for (let i = 0; i < 8; i++) {
       const s = createEntity(w)
       addRelation(w, s, ChildOf, parent)
-      sources.push(s as number)
+      sources.push(s)
     }
     // Every source resolves to the shared parent.
     for (const s of sources) {
-      expect(getRelationTargets(w, s as any, ChildOf)).toEqual([parent])
+      expect(getRelationTargets(w, s, ChildOf)).toEqual([parent])
     }
 
     destroyEntity(w, parent)
     // Destroying the shared target must clear every incoming source.
     for (const s of sources) {
-      expect(getRelationTargets(w, s as any, ChildOf)).toEqual([])
+      expect(getRelationTargets(w, s, ChildOf)).toEqual([])
     }
   })
 
@@ -320,7 +321,7 @@ describe('relations', () => {
     destroyEntity(w, child)
     // Source gone: no targets, and destroying the (still-alive) parent afterwards
     // must be a clean no-op for this relation.
-    expect(getRelationTargets(w, child as any, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
     expect(() => destroyEntity(w, parent)).not.toThrow()
   })
 
@@ -331,28 +332,28 @@ describe('relations', () => {
     // the sources pointing at it and nothing else.
     const w = createWorld({ initialCapacity: 4 })
     // Fill enough entities to force several doublings of capacity.
-    const ents: number[] = []
-    for (let i = 0; i < 5000; i++) ents.push(createEntity(w) as number)
+    const ents: EntityId[] = []
+    for (let i = 0; i < 5000; i++) ents.push(createEntity(w))
 
     const target = ents[4000]!
     const srcHigh = ents[4999]!
     const srcMid = ents[2500]!
-    addRelation(w, srcHigh as any, ChildOf, target as any)
-    addRelation(w, srcMid as any, ChildOf, target as any)
+    addRelation(w, srcHigh, ChildOf, target)
+    addRelation(w, srcMid, ChildOf, target)
     // An unrelated edge that must survive.
     const otherTarget = ents[10]!
     const otherSrc = ents[20]!
-    addRelation(w, otherSrc as any, ChildOf, otherTarget as any)
+    addRelation(w, otherSrc, ChildOf, otherTarget)
 
-    expect(getRelationTargets(w, srcHigh as any, ChildOf)).toEqual([target])
-    expect(getRelationTargets(w, srcMid as any, ChildOf)).toEqual([target])
+    expect(getRelationTargets(w, srcHigh, ChildOf)).toEqual([target])
+    expect(getRelationTargets(w, srcMid, ChildOf)).toEqual([target])
 
-    destroyEntity(w, target as any)
+    destroyEntity(w, target)
 
     // Both incoming sources cleared; the unrelated edge is intact.
-    expect(getRelationTargets(w, srcHigh as any, ChildOf)).toEqual([])
-    expect(getRelationTargets(w, srcMid as any, ChildOf)).toEqual([])
-    expect(getRelationTargets(w, otherSrc as any, ChildOf)).toEqual([otherTarget])
+    expect(getRelationTargets(w, srcHigh, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, srcMid, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, otherSrc, ChildOf)).toEqual([otherTarget])
   })
 
   it('exclusive incoming cleanup survives a capacity grow between add and destroy', () => {

@@ -9,6 +9,8 @@ import type {
   FieldInfo,
   SoAColumns,
   SoAComponent,
+  SoAFieldDecl,
+  SoAFieldType,
   SoASchema,
   TagComponent,
   TypedArrayConstructor,
@@ -47,8 +49,8 @@ const componentInfoById = new Map<number, ComponentInfo>()
 
 export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S> {
   const fields: FieldInfo[] = []
-  for (const [name, decl] of Object.entries(schema)) {
-    let type: keyof typeof TYPE_CTOR
+  for (const [name, decl] of Object.entries(schema) as [string, SoAFieldDecl][]) {
+    let type: SoAFieldType
     let vectorLen = 1
     if (typeof decl === 'string') {
       type = decl
@@ -63,10 +65,10 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
     if (!ctor) throw new TypeError(`aiecsjs: unknown field type "${type}" for field "${name}"`)
     fields.push({
       name,
-      type: type as any,
+      type,
       vectorLen,
       ctor,
-      bytesPerElement: (ctor as any).BYTES_PER_ELEMENT,
+      bytesPerElement: ctor.BYTES_PER_ELEMENT,
     })
   }
   const id = nextComponentId++
@@ -90,7 +92,13 @@ export function defineTag(): TagComponent {
 export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
   const id = nextComponentId++
   const fac = factory ?? (() => ({}) as T)
-  const info: ComponentInfo = { id, kind: 'aos', schema: null, fields: [], factory: fac as any }
+  const info: ComponentInfo = {
+    id,
+    kind: 'aos',
+    schema: null,
+    fields: [],
+    factory: fac as () => unknown,
+  }
   componentInfoById.set(id, info)
   return { __kind: 'aos', __id: id, __factory: fac }
 }
@@ -222,15 +230,15 @@ export function setComponent<C extends ComponentLike, V>(
   const bit = tryGetComponentBit(state, info)
   if (bit === undefined) {
     // Adding via set
-    addComponent(world, eid, component, value as any)
+    addComponent(world, eid, component, value as ComponentInit<C>)
     return
   }
   const mask = readEntityMask(state, eid)
   if (!testBit(mask, bit)) {
-    addComponent(world, eid, component, value as any)
+    addComponent(world, eid, component, value as ComponentInit<C>)
     return
   }
-  writeInitial(state, eid as number, component, value as any)
+  writeInitial(state, eid as number, component, value)
   fireSetObservers(state, eid, bit, value)
 }
 

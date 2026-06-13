@@ -6,6 +6,7 @@ import type {
   ComponentInfo,
   FieldInfo,
   ResolvedWorldOptions,
+  SoAColumns,
   World,
   WorldComponentStorage,
   WorldOptions,
@@ -245,8 +246,8 @@ export function ensureCapacity(state: WorldState, needed: number): void {
 
 function growEntityArrays(state: WorldState, newCap: number): void {
   // generations
-  const genCtor: any = state.generations.constructor
-  const newGen = new genCtor(newCap) as Uint8Array | Uint16Array
+  const genCtor = state.generations.constructor as new (len: number) => Uint8Array | Uint16Array
+  const newGen = new genCtor(newCap)
   ;(newGen as Uint8Array).set(state.generations as Uint8Array)
   state.generations = newGen
 
@@ -275,7 +276,7 @@ function growEntityArrays(state: WorldState, newCap: number): void {
   state.capacity = newCap
 }
 
-function growSoAColumns(soa: Record<string, any>, fields: FieldInfo[], newCap: number): void {
+function growSoAColumns(soa: SoAColumns, fields: FieldInfo[], newCap: number): void {
   for (const f of fields) {
     const old = soa[f.name]
     if (!old) continue
@@ -355,7 +356,7 @@ export function getOrRegisterComponentBit(state: WorldState, info: ComponentInfo
   // Create storage
   let storage: WorldComponentStorage
   if (info.kind === 'soa') {
-    const soa: Record<string, any> = {}
+    const soa: SoAColumns = {}
     for (const f of info.fields) {
       soa[f.name] = new f.ctor(state.capacity * f.vectorLen)
     }
