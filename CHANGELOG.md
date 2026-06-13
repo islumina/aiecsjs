@@ -4,8 +4,11 @@ All notable changes to aiecsjs are summarized here. Detailed historical review n
 
 ## [Unreleased]
 
-- Documentation-only slimming pass across README, stability notes, review backlog, and LLM context.
-- Known follow-ups: reactive query indexing, relation cleanup cost, and lint warning reduction.
+## [0.5.8] - 2026-06-14
+
+- Changed: exclusive-relation destroy cleanup now clears incoming edges in O(incoming) via a reverse index instead of scanning the full relation capacity per destroy. Behaviour is unchanged; large sparse relation tables no longer pay a per-destroy capacity scan.
+- Changed: reduced `noExplicitAny` lint warnings in source (154 to 140) with no behaviour change.
+- Documentation-only slimming pass across README, stability notes, review backlog, and LLM context. Reactive query world-local indexing remains a deferred follow-up (design note in the review backlog).
 
 ## [0.5.7] - 2026-06-10
 

@@ -2,7 +2,7 @@
 
 TypeScript-first archetype ECS with TypedArray SoA components, command buffers, relations, serialization, and SAB-ready snapshot transport.
 
-> **Status: 0.5.7 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent.
+> **Status: 0.5.8 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent.
 
 ## Install
 
