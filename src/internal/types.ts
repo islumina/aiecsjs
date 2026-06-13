@@ -301,8 +301,13 @@ export interface Relation<T = void> {
 }
 
 export interface RelationStorage {
-  rel: Relation<any>
+  rel: Relation<unknown>
   exclusive: Int32Array | null // [srcEid] → tgtEid; -1 means none
+  // Reverse index for exclusive relations: tgtEid → set of srcEids currently
+  // pointing at it. Lets destroy cleanup clear incoming edges in O(incoming)
+  // instead of scanning the whole `exclusive` capacity. null for non-exclusive
+  // storage. Kept in lockstep with every write to `exclusive`.
+  incoming: Map<number, Set<number>> | null
   outgoing: Map<number, number[]> // srcEid → tgtEid[]
   data: Map<number, Map<number, unknown>> // srcEid → (tgtEid → data); nested to stay correct across capacity growth
 }
