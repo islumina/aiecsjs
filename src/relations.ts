@@ -18,17 +18,45 @@ export function defineRelation<T = void>(options?: { exclusive?: boolean }): Rel
 
 export const ChildOf: Relation = defineRelation({ exclusive: true })
 
-function getOrCreateStorage(state: WorldState, rel: Relation<any>): RelationStorage {
+function getOrCreateStorage(state: WorldState, rel: Relation<unknown>): RelationStorage {
   let storage = state.relationStorage.get(rel.__id)
   if (storage) return storage
   storage = {
     rel,
     exclusive: rel.__exclusive ? new Int32Array(state.capacity).fill(-1) : null,
+    incoming: rel.__exclusive ? new Map<number, Set<number>>() : null,
     outgoing: new Map<number, number[]>(),
     data: new Map<number, Map<number, unknown>>(),
   }
   state.relationStorage.set(rel.__id, storage)
   return storage
+}
+
+// --- Exclusive reverse-index (incoming) helpers ---
+// `incoming` mirrors the `exclusive` array: incoming.get(tgt) is the set of
+// source slots whose exclusive[src] === tgt. Every place that writes a non-`-1`
+// value into `exclusive` must call `linkIncoming`, and every place that clears a
+// slot (sets it back to -1) must call `unlinkIncoming`, so the reverse index
+// never drifts from the forward array.
+
+function linkIncoming(storage: RelationStorage, src: number, tgt: number): void {
+  const incoming = storage.incoming
+  if (!incoming) return
+  let set = incoming.get(tgt)
+  if (!set) {
+    set = new Set<number>()
+    incoming.set(tgt, set)
+  }
+  set.add(src)
+}
+
+function unlinkIncoming(storage: RelationStorage, src: number, tgt: number): void {
+  const incoming = storage.incoming
+  if (!incoming) return
+  const set = incoming.get(tgt)
+  if (!set) return
+  set.delete(src)
+  if (set.size === 0) incoming.delete(tgt)
 }
 
 export function addRelation<T>(
@@ -40,7 +68,7 @@ export function addRelation<T>(
 ): void {
   const state = getWorldState(world)
   if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
-  const storage = getOrCreateStorage(state, rel as Relation<any>)
+  const storage = getOrCreateStorage(state, rel as Relation<unknown>)
   // Use raw idx as keys in relation storage so slot reuse invalidation is consistent
   const src = (source as number) & state.options.indexMask
   const tgt = (target as number) & state.options.indexMask
@@ -59,8 +87,10 @@ export function addRelation<T>(
       const prevInner = storage.data.get(src)
       prevInner?.delete(prevTgt)
       if (prevInner && prevInner.size === 0) storage.data.delete(src)
+      unlinkIncoming(storage, src, prevTgt)
     }
     storage.exclusive[src] = tgt
+    if (prevTgt !== tgt) linkIncoming(storage, src, tgt)
   } else {
     let list = storage.outgoing.get(src)
     if (!list) {
@@ -95,6 +125,7 @@ export function removeRelation(
   if (storage.exclusive) {
     if (src < storage.exclusive.length && storage.exclusive[src] === tgt) {
       storage.exclusive[src] = -1
+      unlinkIncoming(storage, src, tgt)
     }
   } else {
     const list = storage.outgoing.get(src)
@@ -175,10 +206,24 @@ registerRelationsCleanup((state: WorldState, eid: EntityId) => {
   const e = (eid as number) & state.options.indexMask
   for (const storage of state.relationStorage.values()) {
     if (storage.exclusive) {
-      if (e < storage.exclusive.length) storage.exclusive[e] = -1
-      // Also clear any references TO this entity as target
-      for (let i = 0; i < storage.exclusive.length; i++) {
-        if (storage.exclusive[i] === e) storage.exclusive[i] = -1
+      // `e` as a SOURCE: clear its own exclusive slot and unlink it from whatever
+      // target it currently points at, so the reverse index stays consistent.
+      if (e < storage.exclusive.length) {
+        const cur = storage.exclusive[e] ?? -1
+        if (cur >= 0) unlinkIncoming(storage, e, cur)
+        storage.exclusive[e] = -1
+      }
+      // `e` as a TARGET: clear every source that points at it. Use the reverse
+      // index to touch only the actual incoming sources (O(incoming)) instead of
+      // scanning the entire `exclusive` capacity (O(capacity)) — the bounded-cost
+      // path for large sparse relation tables. Behaviour is identical to the old
+      // full scan: every src with exclusive[src] === e is reset to -1.
+      const incomingSet = storage.incoming?.get(e)
+      if (incomingSet) {
+        for (const src of incomingSet) {
+          if (src < storage.exclusive.length) storage.exclusive[src] = -1
+        }
+        storage.incoming?.delete(e)
       }
     }
     storage.outgoing.delete(e)

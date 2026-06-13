@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type EntityId,
   createEntity,
   createWorld,
   destroyEntity,
@@ -220,6 +221,153 @@ describe('relations', () => {
     const returned = targets[0]!
     expect(entityExists(w, returned)).toBe(true)
     expect(getEntityGeneration(returned)).toBe(expectedGen)
+  })
+
+  // --- Exclusive-relation destroy cleanup (Finding 1: bounded incoming cleanup) ---
+  // These pin the OBSERVABLE behaviour of destroying an entity that is the TARGET
+  // of one or more exclusive edges. The cleanup must clear every source that
+  // pointed at the destroyed target, leave unrelated edges intact, and stay correct
+  // across exclusive redirects and capacity growth. They are behaviour-preserving:
+  // they pass against the full-capacity-scan implementation and the reverse-index
+  // optimisation alike (the optimisation only changes *how much* is scanned).
+
+  it('destroying an exclusive target clears the single source pointing at it', () => {
+    const w = createWorld()
+    const child = createEntity(w)
+    const parent = createEntity(w)
+    addRelation(w, child, ChildOf, parent)
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([parent])
+
+    destroyEntity(w, parent)
+    // The source's exclusive slot must be cleared now that its target is gone.
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
+  })
+
+  it('destroying an exclusive target clears ALL sources pointing at it', () => {
+    const w = createWorld()
+    const parent = createEntity(w)
+    const sources: EntityId[] = []
+    for (let i = 0; i < 8; i++) {
+      const s = createEntity(w)
+      addRelation(w, s, ChildOf, parent)
+      sources.push(s)
+    }
+    // Every source resolves to the shared parent.
+    for (const s of sources) {
+      expect(getRelationTargets(w, s, ChildOf)).toEqual([parent])
+    }
+
+    destroyEntity(w, parent)
+    // Destroying the shared target must clear every incoming source.
+    for (const s of sources) {
+      expect(getRelationTargets(w, s, ChildOf)).toEqual([])
+    }
+  })
+
+  it('destroying an exclusive target leaves edges aimed at OTHER targets intact', () => {
+    const w = createWorld()
+    const parentA = createEntity(w)
+    const parentB = createEntity(w)
+    const childA = createEntity(w)
+    const childB = createEntity(w)
+    addRelation(w, childA, ChildOf, parentA)
+    addRelation(w, childB, ChildOf, parentB)
+
+    destroyEntity(w, parentA)
+    // Only childA's edge drops; childB → parentB is untouched.
+    expect(getRelationTargets(w, childA, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, childB, ChildOf)).toEqual([parentB])
+  })
+
+  it('exclusive redirect updates incoming bookkeeping: destroying the OLD target is a no-op', () => {
+    const w = createWorld()
+    const hero = createEntity(w)
+    const sword = createEntity(w)
+    const shield = createEntity(w)
+    addRelation(w, hero, ChildOf, sword)
+    // Redirect to a new target; hero no longer points at sword.
+    addRelation(w, hero, ChildOf, shield)
+    expect(getRelationTargets(w, hero, ChildOf)).toEqual([shield])
+
+    // Destroying the stale (old) target must NOT disturb the live edge.
+    destroyEntity(w, sword)
+    expect(getRelationTargets(w, hero, ChildOf)).toEqual([shield])
+
+    // Destroying the live (new) target clears the edge.
+    destroyEntity(w, shield)
+    expect(getRelationTargets(w, hero, ChildOf)).toEqual([])
+  })
+
+  it('removeRelation updates incoming bookkeeping: later destroy of the ex-target is a no-op', () => {
+    const w = createWorld()
+    const child = createEntity(w)
+    const parent = createEntity(w)
+    addRelation(w, child, ChildOf, parent)
+    removeRelation(w, child, ChildOf, parent)
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
+
+    // The edge is already gone; destroying the former target must not throw or
+    // resurrect anything.
+    expect(() => destroyEntity(w, parent)).not.toThrow()
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
+  })
+
+  it('destroying the SOURCE of an exclusive edge clears it and frees the slot for reuse', () => {
+    const w = createWorld()
+    const child = createEntity(w)
+    const parent = createEntity(w)
+    addRelation(w, child, ChildOf, parent)
+
+    destroyEntity(w, child)
+    // Source gone: no targets, and destroying the (still-alive) parent afterwards
+    // must be a clean no-op for this relation.
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
+    expect(() => destroyEntity(w, parent)).not.toThrow()
+  })
+
+  it('destroy cleanup is correct on a large SPARSE exclusive table', () => {
+    // Grow the exclusive Int32Array large (many high-index sources) while keeping
+    // only a couple of live edges — the sparse case the optimisation targets. The
+    // observable contract is unchanged: destroying a shared target clears exactly
+    // the sources pointing at it and nothing else.
+    const w = createWorld({ initialCapacity: 4 })
+    // Fill enough entities to force several doublings of capacity.
+    const ents: EntityId[] = []
+    for (let i = 0; i < 5000; i++) ents.push(createEntity(w))
+
+    const target = ents[4000]!
+    const srcHigh = ents[4999]!
+    const srcMid = ents[2500]!
+    addRelation(w, srcHigh, ChildOf, target)
+    addRelation(w, srcMid, ChildOf, target)
+    // An unrelated edge that must survive.
+    const otherTarget = ents[10]!
+    const otherSrc = ents[20]!
+    addRelation(w, otherSrc, ChildOf, otherTarget)
+
+    expect(getRelationTargets(w, srcHigh, ChildOf)).toEqual([target])
+    expect(getRelationTargets(w, srcMid, ChildOf)).toEqual([target])
+
+    destroyEntity(w, target)
+
+    // Both incoming sources cleared; the unrelated edge is intact.
+    expect(getRelationTargets(w, srcHigh, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, srcMid, ChildOf)).toEqual([])
+    expect(getRelationTargets(w, otherSrc, ChildOf)).toEqual([otherTarget])
+  })
+
+  it('exclusive incoming cleanup survives a capacity grow between add and destroy', () => {
+    const w = createWorld({ initialCapacity: 4 })
+    const child = createEntity(w)
+    const parent = createEntity(w)
+    addRelation(w, child, ChildOf, parent)
+    // Grow capacity AFTER the edge exists, so the exclusive array is resized while
+    // the incoming bookkeeping must stay consistent.
+    for (let i = 0; i < 64; i++) createEntity(w)
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([parent])
+
+    destroyEntity(w, parent)
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([])
   })
 
   it('relation data survives a capacity grow and cleans up correctly on destroy', () => {

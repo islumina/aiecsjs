@@ -13,6 +13,7 @@ import {
 import { createEntity, destroyEntity, ensureEntityAtSlot, packEid } from './internal/entity.js'
 import type {
   ComponentInfo,
+  ComponentInit,
   ComponentLike,
   DeltaSerializer,
   DeserializeOptions,
@@ -155,7 +156,7 @@ export function fromJSON(snapshot: WorldSnapshot): World {
       }
       const handle = getComponentHandle(info)
       if (handle) {
-        addComponent(world, eid, handle, comp.data as any)
+        addComponent(world, eid, handle, comp.data as ComponentInit<ComponentLike>)
       }
     }
   }
@@ -310,7 +311,8 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
           const info = getComponentByInternalId(comp.id)
           if (!info) continue
           const handle = getComponentHandle(info)
-          if (handle) addComponent(targetWorld, eid, handle, comp.data as any)
+          if (handle)
+            addComponent(targetWorld, eid, handle, comp.data as ComponentInit<ComponentLike>)
         }
       }
     },
