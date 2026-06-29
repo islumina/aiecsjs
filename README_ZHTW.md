@@ -2,7 +2,7 @@
 
 TypeScript-first archetype ECS，提供 TypedArray SoA component、command buffer、relations、serialization，以及 SAB-ready snapshot transport。
 
-> **狀態：0.5.8 - 穩定 1.0 軌道核心。** Root ECS API 穩定；worker transport 仍取決於執行環境。
+> **狀態：0.5.9 - 穩定 1.0 軌道核心。** Root ECS API 穩定；worker transport 仍取決於執行環境。
 
 ## 安裝
 
@@ -60,7 +60,7 @@ marker component 用 `defineTag()`；需要物件參照而非 TypedArray storage
 - Query loop 期間可以 structural mutation，但在 system 內 add/remove/destroy entity 時建議用 `withCommandBuffer()`。
 - Reactive query buffers 在 drain 前沒有上限。請每 frame 或每 event tick poll 並清空。
 - Query registration 目前使用全域 module cache；大量 worlds/components 會讓 structural change 掃描較多 query metadata。
-- Exclusive relation cleanup 在 destroy 時掃 relation capacity；大型稀疏 relation table 會讓 destroy 成本變明顯。
+- Exclusive relation cleanup 在 destroy 時為 `O(incoming)`：透過 reverse index 只處理指向被刪除 entity 的 edge，不再掃整個 relation capacity。
 - Serialization restore capacity 有安全 clamp，但不可信 snapshot 仍應視為 hostile input。
 - Worker/SAB helper 取決於環境。瀏覽器中請 feature-detect `SharedArrayBuffer` 與 cross-origin isolation。
 - `pnpm lint` 目前仍有大量 `noExplicitAny` warnings；不阻擋 release，但會增加 AI review 雜訊。

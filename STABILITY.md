@@ -27,5 +27,5 @@ aiecsjs keeps the root ECS surface stable and treats subpaths as explicit public
 ## Current Caveats
 
 - Reactive query registration scans a module-level query cache on structural changes.
-- Exclusive relation cleanup scans relation capacity when an entity is destroyed.
+- Exclusive relation cleanup touches only the incoming edges (`O(incoming)`) when an entity is destroyed, via a reverse index — no full relation-capacity scan.
 - Lint has many `noExplicitAny` warnings pending cleanup.

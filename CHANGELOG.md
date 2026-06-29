@@ -4,6 +4,12 @@ All notable changes to aiecsjs are summarized here. Detailed historical review n
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-06-29
+
+- Fixed: `forEachEntity` / `forEachEntityIndexed` no longer cache the archetype's entity array, so an in-loop `createEntity`/`addComponent` that reallocates the iterated archetype can no longer yield `undefined` EntityIds or a bogus index `0`.
+- Fixed: `resetWorld` now clears relation storage, so recycled entity slots no longer inherit stale relation edges/data.
+- Docs: relation destroy is documented as `O(incoming)` (was stale `O(capacity)`).
+
 ## [0.5.8] - 2026-06-14
 
 - Changed: exclusive-relation destroy cleanup now clears incoming edges in O(incoming) via a reverse index instead of scanning the full relation capacity per destroy. Behaviour is unchanged; large sparse relation tables no longer pay a per-destroy capacity scan.
