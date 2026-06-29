@@ -14,7 +14,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 TypeScript-first archetype ECS with TypedArray SoA components, command buffers, relations, serialization, and SAB-ready snapshot transport.
 
-> **Status: 0.5.8 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent.
+> **Status: 0.5.9 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent.
 
 ## Install
 
@@ -72,7 +72,7 @@ Use `defineTag()` for marker components and `defineObjectComponent()` when you n
 - Structural mutation during a query loop is allowed by the library, but app systems should prefer `withCommandBuffer()` when adding/removing/destroying entities from inside iteration.
 - Reactive query buffers are unbounded until drained. Poll and clear them every frame or event tick.
 - Query registration currently uses a global module cache; many worlds/components can make structural changes scan more query metadata than expected.
-- Exclusive relation cleanup scans relation capacity on destroy. Large sparse relation tables can make destroy cost visible.
+- Exclusive relation cleanup is `O(incoming)` on destroy — a reverse index touches only the edges pointing at the destroyed entity, not the whole relation capacity.
 - Serialization restores capacity with safety clamps, but snapshots from untrusted sources should still be treated as hostile input.
 - Worker/SAB helpers depend on the runtime environment. Feature-detect `SharedArrayBuffer` and cross-origin isolation in browsers.
 - `pnpm lint` currently reports many `noExplicitAny` warnings. They are not release-blocking, but they add AI-review noise.
@@ -99,6 +99,12 @@ MIT
 All notable changes to aiecsjs are summarized here. Detailed historical review notes live in Git history; this file keeps current release context compact.
 
 ## [Unreleased]
+
+## [0.5.9] - 2026-06-29
+
+- Fixed: `forEachEntity` / `forEachEntityIndexed` no longer cache the archetype's entity array, so an in-loop `createEntity`/`addComponent` that reallocates the iterated archetype can no longer yield `undefined` EntityIds or a bogus index `0`.
+- Fixed: `resetWorld` now clears relation storage, so recycled entity slots no longer inherit stale relation edges/data.
+- Docs: relation destroy is documented as `O(incoming)` (was stale `O(capacity)`).
 
 ## [0.5.8] - 2026-06-14
 
@@ -155,7 +161,7 @@ aiecsjs keeps the root ECS surface stable and treats subpaths as explicit public
 ## Current Caveats
 
 - Reactive query registration scans a module-level query cache on structural changes.
-- Exclusive relation cleanup scans relation capacity when an entity is destroyed.
+- Exclusive relation cleanup touches only the incoming edges (`O(incoming)`) when an entity is destroyed, via a reverse index — no full relation-capacity scan.
 - Lint has many `noExplicitAny` warnings pending cleanup.
 
 ---

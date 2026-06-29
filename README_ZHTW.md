@@ -2,7 +2,7 @@
 
 TypeScript-first archetype ECS，提供 TypedArray SoA component、command buffer、relations、serialization，以及 SAB-ready snapshot transport。
 
-> **狀態：0.5.8 - 穩定 1.0 軌道核心。** Root ECS API 穩定；worker transport 仍取決於執行環境。
+> **狀態：0.5.9 - 穩定 1.0 軌道核心。** Root ECS API 穩定；worker transport 仍取決於執行環境。
 
 ## 安裝
 
