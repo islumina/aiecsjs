@@ -215,6 +215,11 @@ export function resetWorld(world: World): void {
       storage.aos.fill(undefined as unknown as never)
     }
   }
+  // Clear relation edges, exactly as destroyWorld does. relationStorage is keyed
+  // by raw slot index; resetWorld restarts nextFreshIndex=1 and zeroes generations,
+  // so recycled slots would otherwise inherit the prior occupant's relation edges
+  // and data (C5). Storage is recreated lazily on the next addRelation.
+  state.relationStorage.clear()
   state.queryVersion++
   for (const buf of state.reactiveBuffers.values()) {
     buf.entered.length = 0

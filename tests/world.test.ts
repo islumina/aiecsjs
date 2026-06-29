@@ -17,6 +17,7 @@ import {
   resetWorld,
 } from '../src/index.js'
 import { getWorldState } from '../src/internal/world.js'
+import { ChildOf, addRelation, defineRelation, getRelationTargets } from '../src/relations.js'
 
 describe('world', () => {
   it('creates a world with default options', () => {
@@ -72,6 +73,49 @@ describe('world', () => {
     resetWorld(w)
     expect(getWorldSize(w)).toBe(0)
     expect(getWorldCapacity(w)).toBe(128)
+  })
+
+  // C5: resetWorld restarts nextFreshIndex=1 and zeroes generations, so the next
+  // createEntity calls reclaim the SAME raw slots (1, 2, ...) the old entities
+  // held — and relationStorage is keyed by raw slot index. destroyWorld clears
+  // relationStorage; resetWorld must do the same, or stale relation edges (and
+  // their data) leak onto the recycled slots.
+  it('C5: resetWorld clears relation edges (exclusive) so recycled slots inherit none', () => {
+    const w = createWorld()
+    const parent = createEntity(w) // slot 1
+    const child = createEntity(w) // slot 2
+    addRelation(w, child, ChildOf, parent)
+    expect(getRelationTargets(w, child, ChildOf)).toEqual([parent])
+
+    resetWorld(w)
+
+    // Recreate two entities — they reclaim slots 1 & 2 (and gen 0), so their
+    // packed EntityIds match the originals exactly.
+    const newParent = createEntity(w)
+    const newChild = createEntity(w)
+    expect(newParent).toBe(parent)
+    expect(newChild).toBe(child)
+
+    // The recycled child must NOT inherit the pre-reset ChildOf edge.
+    expect(getRelationTargets(w, newChild, ChildOf)).toEqual([])
+  })
+
+  it('C5: resetWorld clears relation edges (non-exclusive) so recycled slots inherit none', () => {
+    const Likes = defineRelation()
+    const w = createWorld()
+    const alice = createEntity(w) // slot 1
+    const bob = createEntity(w) // slot 2
+    addRelation(w, alice, Likes, bob)
+    expect(getRelationTargets(w, alice, Likes)).toEqual([bob])
+
+    resetWorld(w)
+
+    const newAlice = createEntity(w)
+    const newBob = createEntity(w)
+    expect(newAlice).toBe(alice)
+    expect(newBob).toBe(bob)
+
+    expect(getRelationTargets(w, newAlice, Likes)).toEqual([])
   })
 
   it('multiple worlds have distinct ids', () => {

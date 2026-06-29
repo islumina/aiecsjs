@@ -60,7 +60,7 @@ Use `defineTag()` for marker components and `defineObjectComponent()` when you n
 - Structural mutation during a query loop is allowed by the library, but app systems should prefer `withCommandBuffer()` when adding/removing/destroying entities from inside iteration.
 - Reactive query buffers are unbounded until drained. Poll and clear them every frame or event tick.
 - Query registration currently uses a global module cache; many worlds/components can make structural changes scan more query metadata than expected.
-- Exclusive relation cleanup scans relation capacity on destroy. Large sparse relation tables can make destroy cost visible.
+- Exclusive relation cleanup is `O(incoming)` on destroy — a reverse index touches only the edges pointing at the destroyed entity, not the whole relation capacity.
 - Serialization restores capacity with safety clamps, but snapshots from untrusted sources should still be treated as hostile input.
 - Worker/SAB helpers depend on the runtime environment. Feature-detect `SharedArrayBuffer` and cross-origin isolation in browsers.
 - `pnpm lint` currently reports many `noExplicitAny` warnings. They are not release-blocking, but they add AI-review noise.

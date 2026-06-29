@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type EntityId,
   Types,
   addComponent,
   createEntity,
@@ -705,5 +706,80 @@ describe('ECS-B-01: in-loop destroy never leaks eid 0 (forEachEntity / forEachEn
         spawns++
       }
     })
+  })
+
+  // C4: forEachEntity must index the LIVE arch.entities each iteration, not a
+  // reference cached once before the loop. An archetype's `entities` array starts
+  // at capacity 16; seeding exactly 16 rows fills it. A callback that creates a
+  // 17th matching entity triggers ensureArchetypeCapacity → a fresh, larger
+  // Uint32Array is swapped into `arch.entities`. A cached reference still points
+  // at the OLD length-16 array, so the tail rows (16..) read `undefined` and the
+  // sentinel leaks across the public callback boundary.
+  it('C4: forEachEntity never yields undefined when an in-loop create reallocates arch.entities', () => {
+    const w = createWorld()
+    // Fill the Position archetype to its initial capacity (16) exactly.
+    for (let i = 0; i < 16; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+    }
+    const q = defineQuery([Position])
+
+    const seen: EntityId[] = []
+    let grew = false
+    forEachEntity(w, q, (e) => {
+      // The eid handed in must always be a live, non-sentinel EntityId.
+      expect(e as number).not.toBe(0)
+      expect(e).not.toBeUndefined()
+      seen.push(e)
+      // On the first row, grow the SAME archetype past capacity 16 so
+      // ensureArchetypeCapacity reallocates arch.entities mid-iteration.
+      if (!grew) {
+        grew = true
+        for (let k = 0; k < 8; k++) {
+          const fresh = createEntity(w)
+          addComponent(w, fresh, Position, { x: 100 + k, y: 100 + k })
+        }
+      }
+    })
+    // The 16 originally-present rows must all have been delivered intact.
+    expect(seen.length).toBeGreaterThanOrEqual(16)
+    expect(seen.every((e) => (e as number) !== 0)).toBe(true)
+    expect(seen.every((e) => e !== undefined)).toBe(true)
+  })
+
+  // C4: forEachEntityIndexed has the same cached-array hazard, and additionally
+  // computes `i = e & indexMask`. When the cached array's tail reads `undefined`,
+  // `undefined & mask === 0`, so a bogus i=0 payload leaks alongside the bad eid.
+  it('C4: forEachEntityIndexed never yields undefined eid or bogus i=0 on in-loop realloc', () => {
+    const w = createWorld()
+    for (let i = 0; i < 16; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: i, y: i })
+    }
+    const q = defineQuery([Position])
+
+    const seenE: EntityId[] = []
+    const seenI: number[] = []
+    let grew = false
+    forEachEntityIndexed(w, q, (e, i) => {
+      expect(e as number).not.toBe(0)
+      expect(e).not.toBeUndefined()
+      // i must be the masked slot of the real eid handed in, never a 0 produced
+      // by masking `undefined` off the end of a stale backing array.
+      expect(i).toBe(getEntityIndex(e as EntityId))
+      seenE.push(e)
+      seenI.push(i)
+      if (!grew) {
+        grew = true
+        for (let k = 0; k < 8; k++) {
+          const fresh = createEntity(w)
+          addComponent(w, fresh, Position, { x: 100 + k, y: 100 + k })
+        }
+      }
+    })
+    expect(seenE.length).toBeGreaterThanOrEqual(16)
+    expect(seenE.every((e) => (e as number) !== 0)).toBe(true)
+    // Every delivered slot index must be a genuine masked index of its eid.
+    expect(seenI.every((idx, n) => idx === getEntityIndex(seenE[n] as EntityId))).toBe(true)
   })
 })
