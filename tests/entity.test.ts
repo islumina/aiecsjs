@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   Types,
   addComponent,
   createEntity,
@@ -157,6 +158,18 @@ describe('entity', () => {
     const w = createWorld({ indexBits: 10, maxEntities: 1023 })
     for (let i = 0; i < 1023; i++) createEntity(w)
     expect(() => createEntity(w)).toThrow()
+  })
+
+  // The EcsError docstring lists "capacity overflow" as an EcsError case;
+  // createEntity's maxEntities guard is the only capacity throw actually
+  // reachable in normal use, so it must be an EcsError (not a bare Error) for
+  // that doc to hold and for `err instanceof EcsError` to work here.
+  it('exceeding maxEntities throws EcsError, not a bare Error', () => {
+    const w = createWorld({ initialCapacity: 4, maxEntities: 4 })
+    // Slot 0 is the reserved sentinel, so slots 1-3 (3 entities) are all
+    // that fit under maxEntities: 4; the 4th createEntity call must throw.
+    for (let i = 0; i < 3; i++) createEntity(w)
+    expect(() => createEntity(w)).toThrow(EcsError)
   })
 
   it('entityExists returns false for garbage numbers (large, negative, float)', () => {

@@ -1,4 +1,5 @@
 import { clearAllEntityStorages, dispatchDestroyMaskChange } from './component.js'
+import { EcsError } from './errors.js'
 import { shared } from './registry.js'
 import type { EntityId, ResolvedWorldOptions, World, WorldState } from './types.js'
 import { ensureArchetypeCapacity, ensureCapacity, getWorldState, readEntityMask } from './world.js'
@@ -41,7 +42,7 @@ export function createEntity(world: World): EntityId {
     idx = state.freeList.pop()!
   } else {
     if (state.nextFreshIndex >= state.options.maxEntities) {
-      throw new Error(`aiecsjs: reached maxEntities ${state.options.maxEntities}`)
+      throw new EcsError(`aiecsjs: reached maxEntities ${state.options.maxEntities}`)
     }
     if (state.nextFreshIndex >= state.capacity) {
       ensureCapacity(state, state.nextFreshIndex + 1)
@@ -90,7 +91,7 @@ export function ensureEntityAtSlot(state: WorldState, idx: number): EntityId {
   }
   if (!Number.isInteger(idx) || idx <= 0 || idx >= state.options.maxEntities) {
     /* v8 ignore next — defensive: apply() pre-guards the eid range */
-    throw new Error(`aiecsjs: slot index ${idx} out of range`)
+    throw new EcsError(`aiecsjs: slot index ${idx} out of range`)
   }
   if (idx >= state.capacity) ensureCapacity(state, idx + 1)
 
