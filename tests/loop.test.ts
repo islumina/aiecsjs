@@ -162,7 +162,7 @@ describe('loop (fake-timer driven)', () => {
     expect(alphas.every((a) => a >= 0)).toBe(true)
   })
 
-  it('a first-tick timestamp earlier than start()\'s sample never drives alpha negative', () => {
+  it("a first-tick timestamp earlier than start()'s sample never drives alpha negative", () => {
     // start() seeds lastT from performance.now(), but the environment's first
     // rAF/tick callback can hand back an earlier frame-begin timestamp (e.g.
     // rAF batches to the start of the frame that was already in flight when
