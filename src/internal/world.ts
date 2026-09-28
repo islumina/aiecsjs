@@ -116,6 +116,7 @@ export function createWorld(options?: WorldOptions): World {
     freeList: [],
     generations,
     destroyed: false,
+    destroying: new Set<number>(),
     componentBitFor: new Map<number, number>(),
     componentInfoByBit: new Array(resolved.maxComponents).fill(null),
     componentStorageByBit: new Array(resolved.maxComponents).fill(null),
@@ -183,6 +184,7 @@ export function destroyWorld(world: World): void {
   state.entityArchetype = new Uint32Array(0)
   state.generations = new Uint8Array(0)
   state.freeList = []
+  state.destroying.clear()
   state.componentBitFor.clear()
   state.bitToQueries.clear()
   state.queryArchetypeStamp = []
@@ -196,6 +198,9 @@ export function resetWorld(world: World): void {
   state.size = 0
   state.nextFreshIndex = 1
   state.freeList = []
+  // Abort any destroyEntity in flight (a teardown handler called resetWorld):
+  // the outer call sees its eid gone from this set and skips its own teardown.
+  state.destroying.clear()
   state.generations.fill(0)
   state.entityArchetype.fill(0)
   state.entityMask.fill(0)

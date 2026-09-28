@@ -233,16 +233,17 @@ registerObserversAPI({
     const w = state.options.maskWordCount
     const base = ((eid as number) & state.options.indexMask) * w
 
-    // Snapshot the pre-destroy mask so Phase 2's `wasMatch` is computed
-    // against the state at destroy entry — Phase 1 handlers might reentrant-
-    // mutate `state.entityMask` (e.g. by calling removeComponent on a
-    // sibling), and we still want query observers to fire for queries the
-    // entity was matching *before* the destroy began.
+    // Snapshot the pre-destroy mask so Phase 1 visits a stable bit list even
+    // if a handler reentrant-mutates `state.entityMask`.
     const preMask = new Uint32Array(w)
     for (let i = 0; i < w; i++) preMask[i] = state.entityMask[base + i] ?? 0
 
-    // Phase 1: component-level remove for every bit set at destroy entry.
+    // Phase 1: component-level remove for every bit set at destroy entry that
+    // is still set now. A handler that removed a sibling component via
+    // removeComponent already fired that component's onRemove; firing it here
+    // again would double-report it.
     forEachSetBit(preMask, 0, w, (bit) => {
+      if ((((state.entityMask[base + (bit >>> 5)] ?? 0) >>> (bit & 31)) & 1) === 0) return
       const snapshot = Array.from(state.observers)
       for (const obs of snapshot) {
         if (obs.event !== 'remove') continue
@@ -252,9 +253,10 @@ registerObserversAPI({
       }
     })
 
-    // Phase 2: query-level remove for any query that was matching this entity.
-    // Read the pre-destroy mask snapshot (not live state.entityMask) so this
-    // phase is decoupled from Phase 1 reentrant mutations.
+    // Phase 2: query-level remove for any query this entity matches after
+    // Phase 1. Reentrant component changes made by Phase 1 handlers went
+    // through add/removeComponent, which already dispatched their own query
+    // transitions, so the live mask is the state the entity is leaving from.
     const querySnapshot = Array.from(state.observers)
     for (const obs of querySnapshot) {
       if (obs.event !== 'remove') continue
@@ -263,8 +265,8 @@ registerObserversAPI({
       const bundle = state.queryMasks.get(obs.queryId)
       if (!bundle) continue
       const wasMatch = matchesEntityMask(
-        preMask,
-        0,
+        state.entityMask,
+        base,
         w,
         bundle.withMask,
         bundle.anyMask,

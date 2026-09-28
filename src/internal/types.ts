@@ -327,6 +327,7 @@ export interface WorldState {
   freeList: number[] // recycled indices
   generations: Uint8Array | Uint16Array // [eid] → version
   destroyed: boolean
+  destroying: Set<number> // packed eids mid-destroyEntity (reentrancy guard)
 
   // --- component registry (per-world) ---
   componentBitFor: Map<number, number> // global component id → bit pos in this world

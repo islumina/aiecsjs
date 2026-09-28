@@ -8,8 +8,12 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  exitQuery,
   getComponent,
+  getWorldSize,
   removeComponent,
+  resetWorld,
+  runQuery,
   setComponent,
 } from '../src/index.js'
 import { deref, refOf } from '../src/index.js'
@@ -366,5 +370,66 @@ describe('component observers', () => {
     // New entity works
     const ref2 = refOf(w, e2)
     expect(deref(w, ref2)).toBe(e2)
+  })
+})
+
+describe('destroyEntity reentrancy from teardown handlers', () => {
+  it('onRemove handler that destroys the same entity is a no-op (no recursion)', () => {
+    const w = createWorld()
+    const A = defineTag()
+    onRemove(w, A, (e) => destroyEntity(w, e))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    expect(() => destroyEntity(w, e)).not.toThrow()
+    expect(getWorldSize(w)).toBe(0)
+  })
+
+  it('nested destroy of the same entity does not corrupt size, freeList or exit buffer', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const ex = exitQuery(defineQuery([A]))
+    runQuery(w, ex)
+    let once = true
+    onRemove(w, A, (e) => {
+      if (once) {
+        once = false
+        destroyEntity(w, e)
+      }
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    destroyEntity(w, e)
+    expect(getWorldSize(w)).toBe(0)
+    expect(runQuery(w, ex)).toEqual([e])
+    expect(createEntity(w)).not.toBe(createEntity(w))
+  })
+
+  it('onRemove(A) removing B during destroy fires onRemove(B) and exit(B) once', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const exB = exitQuery(defineQuery([B]))
+    runQuery(w, exB)
+    const seenB: number[] = []
+    onRemove(w, A, (e) => removeComponent(w, e, B))
+    onRemove(w, B, (e) => seenB.push(e as number))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    addComponent(w, e, B)
+    destroyEntity(w, e)
+    expect(seenB).toEqual([e])
+    expect(runQuery(w, exB)).toEqual([e])
+  })
+
+  it('onRemove handler that calls resetWorld aborts the outer teardown', () => {
+    const w = createWorld()
+    const A = defineTag()
+    onRemove(w, A, () => resetWorld(w))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    destroyEntity(w, e)
+    expect(getWorldSize(w)).toBe(0)
+    const ids = [createEntity(w), createEntity(w), createEntity(w)]
+    expect(new Set(ids).size).toBe(3)
   })
 })

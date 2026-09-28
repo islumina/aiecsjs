@@ -420,10 +420,9 @@ function notifyMaskChange(
 // the first component that breaks each query's match, so every query records
 // exactly one exit.
 //
-// SNAPSHOT DISCIPLINE: `prevMask` is captured at destroy entry (a private copy,
-// same discipline as dispatchDestroyObservers' preMask) so reentrant handlers
-// run earlier in destroy cannot mutate live state and suppress the exit. We
-// iterate that snapshot and mutate only our own clones.
+// SNAPSHOT DISCIPLINE: `prevMask` is a private copy captured after destroy's
+// teardown handlers ran (their own add/removeComponent calls already recorded
+// those transitions). We iterate that snapshot and mutate only our own clones.
 export function dispatchDestroyMaskChange(
   state: WorldState,
   eid: EntityId,
