@@ -305,17 +305,10 @@ export function* iterQuery(world: World, query: Query): IterableIterator<EntityI
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    // Detach the buffer up front (swap in a fresh array) instead of clearing
-    // it after the loop completes, so an early `break` still drains exactly
-    // once instead of re-delivering the same entities on the next read.
-    let src: number[]
-    if (q.reactiveKind === 'enter') {
-      src = buf.entered
-      buf.entered = []
-    } else {
-      src = buf.exited
-      buf.exited = []
-    }
+    // splice(0) empties the live buffer immediately (in place) and returns
+    // the removed entries, so it drains exactly once even if the caller
+    // breaks out of this generator early — unlike clearing after the loop.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     for (const e of src) yield e as EntityId
     return
   }
@@ -353,17 +346,9 @@ export function forEachEntity(
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    // Detach the buffer before calling back, so a callback that throws
-    // partway through still leaves the buffer drained — the already-processed
-    // prefix is not re-delivered on the next read.
-    let src: number[]
-    if (q.reactiveKind === 'enter') {
-      src = buf.entered
-      buf.entered = []
-    } else {
-      src = buf.exited
-      buf.exited = []
-    }
+    // splice(0) drains the buffer up front — see iterQuery — so a callback
+    // that throws partway through the loop below still leaves it drained.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
@@ -485,15 +470,8 @@ export function forEachEntityIndexed(
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    // Detach the buffer before calling back — see forEachEntity.
-    let src: number[]
-    if (q.reactiveKind === 'enter') {
-      src = buf.entered
-      buf.entered = []
-    } else {
-      src = buf.exited
-      buf.exited = []
-    }
+    // splice(0) drains the buffer up front — see forEachEntity.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
