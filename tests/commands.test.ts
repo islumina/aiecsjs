@@ -14,6 +14,7 @@ import {
   hasComponent,
   runQuery,
 } from '../src/index.js'
+import { onAdd } from '../src/observers.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Dead = defineTag()
@@ -111,5 +112,34 @@ describe('command buffer', () => {
     expect(() => flush(cb)).not.toThrow()
     expect(getWorldSize(w)).toBe(1)
     expect(runQuery(w, defineQuery([A])).length).toBe(1)
+  })
+
+  it('create + add queued on the same buffer during flush are resolved in that flush', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld()
+    const cb = createCommandBuffer(w)
+    onAdd(w, A, () => {
+      const ph = cb.create()
+      cb.add(ph, B)
+    })
+    const e = createEntity(w)
+    cb.add(e, A)
+    expect(() => flush(cb)).not.toThrow()
+    expect(getWorldSize(w)).toBe(2)
+    expect(runQuery(w, defineQuery([B])).length).toBe(1)
+  })
+
+  it('lone create queued during flush is not dropped', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const cb = createCommandBuffer(w)
+    onAdd(w, A, () => {
+      cb.create()
+    })
+    const e = createEntity(w)
+    cb.add(e, A)
+    flush(cb)
+    expect(getWorldSize(w)).toBe(2)
   })
 })
