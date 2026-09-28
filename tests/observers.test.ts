@@ -123,6 +123,36 @@ describe('component observers', () => {
     expect(seen.length).toBe(0)
   })
 
+  it('query observers fire on match transitions for queries with none terms', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const q = defineQuery({ all: [A], none: [B] })
+    const adds: number[] = []
+    const removes: number[] = []
+    observe(w, q, 'add', (eid) => adds.push(eid as number))
+    observe(w, q, 'remove', (eid) => removes.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, A) // enters
+    addComponent(w, e, B) // leaves via an add
+    removeComponent(w, e, B) // re-enters via a remove
+    expect(adds).toEqual([e, e])
+    expect(removes).toEqual([e])
+  })
+
+  it('query remove observer does not fire for an entity that never matched', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const C = defineTag()
+    const seen: number[] = []
+    observe(w, defineQuery([A, B]), 'remove', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, C)
+    removeComponent(w, e, C)
+    expect(seen).toEqual([])
+  })
+
   it('onAdd { signal } unsubscribes when the signal aborts', () => {
     const w = createWorld()
     const ac = new AbortController()

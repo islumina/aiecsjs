@@ -139,7 +139,7 @@ export function addComponent<C extends ComponentLike>(
 
   writeInitial(state, eid as number, component, initial)
 
-  fireAddObservers(state, eid, bit)
+  fireAddObservers(state, eid, bit, prevMask, newMask)
   notifyMaskChange(state, eid, bit, prevMask, newMask)
 }
 
@@ -168,7 +168,7 @@ export function removeComponent<C extends ComponentLike>(
   clearBit(newMask, bit)
   migrateEntity(state, eid as number, newMask)
 
-  fireRemoveObservers(state, eid, bit)
+  fireRemoveObservers(state, eid, bit, prevMask, newMask)
 
   const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
@@ -374,8 +374,14 @@ function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Arra
 // --- Observer dispatch (lazy-bound) ---
 
 interface ObserversDispatchAPI {
-  fireAdd(state: WorldState, eid: EntityId, bit: number): void
-  fireRemove(state: WorldState, eid: EntityId, bit: number): void
+  fireAdd(state: WorldState, eid: EntityId, bit: number, prev: Uint32Array, next: Uint32Array): void
+  fireRemove(
+    state: WorldState,
+    eid: EntityId,
+    bit: number,
+    prev: Uint32Array,
+    next: Uint32Array,
+  ): void
   fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void
 }
 let _dispatch: ObserversDispatchAPI = {
@@ -440,11 +446,23 @@ export function dispatchDestroyMaskChange(
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
   _dispatch = api
 }
-function fireAddObservers(state: WorldState, eid: number, bit: number): void {
-  _dispatch.fireAdd(state, eid as EntityId, bit)
+function fireAddObservers(
+  state: WorldState,
+  eid: number,
+  bit: number,
+  prev: Uint32Array,
+  next: Uint32Array,
+): void {
+  _dispatch.fireAdd(state, eid as EntityId, bit, prev, next)
 }
-function fireRemoveObservers(state: WorldState, eid: number, bit: number): void {
-  _dispatch.fireRemove(state, eid as EntityId, bit)
+function fireRemoveObservers(
+  state: WorldState,
+  eid: number,
+  bit: number,
+  prev: Uint32Array,
+  next: Uint32Array,
+): void {
+  _dispatch.fireRemove(state, eid as EntityId, bit, prev, next)
 }
 function fireSetObservers(state: WorldState, eid: number, bit: number, value: unknown): void {
   _dispatch.fireSet(state, eid as EntityId, bit, value)
