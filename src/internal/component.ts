@@ -154,21 +154,34 @@ export function removeComponent<C extends ComponentLike>(
   const info = getComponentInfo(component)
   const bit = tryGetComponentBit(state, info)
   if (bit === undefined) return
+  if (!testBit(readEntityMask(state, eid), bit)) return
+
+  // Component-level onRemove fires BEFORE the mask write, while the component
+  // is still attached, so handlers can read the outgoing value with
+  // getComponent — the same guarantee destroyEntity gives. The `removing` key
+  // makes a nested removeComponent of this same component a no-op (the outer
+  // call finishes the removal) instead of re-firing onRemove forever.
+  const key = ((eid as number) & state.options.indexMask) * state.options.maxComponents + bit
+  if (state.removing.has(key)) return
+  state.removing.add(key)
+  try {
+    fireRemoveObservers(state, eid, bit)
+  } finally {
+    state.removing.delete(key)
+  }
+  // A handler may have destroyed the entity (destroy already tore the
+  // component down) or otherwise dropped the component.
+  if (!isAliveInternal(state, eid)) return
   const prevMask = readEntityMask(state, eid)
   if (!testBit(prevMask, bit)) return
 
-  // Write the new mask BEFORE firing observers so query-targeted observers
-  // reading `state.entityMask` see the post-removal state (and thus correctly
-  // detect "entity left this query"). Without this reorder, a query that
-  // requires the removed component would still match during dispatch and the
-  // remove observer would never fire. Component-targeted observers receive the
-  // bit directly and don't depend on mask timing. addComponent already follows
-  // this "mutate then fire" order; keeping removeComponent consistent.
+  // Write the new mask BEFORE firing query observers so they see the
+  // post-removal state (and thus correctly detect "entity left this query").
   const newMask = cloneMask(prevMask)
   clearBit(newMask, bit)
   migrateEntity(state, eid as number, newMask)
 
-  fireRemoveObservers(state, eid, bit, prevMask, newMask)
+  fireRemoveQueryObservers(state, eid, prevMask, newMask)
 
   const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
@@ -375,18 +388,14 @@ function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Arra
 
 interface ObserversDispatchAPI {
   fireAdd(state: WorldState, eid: EntityId, bit: number, prev: Uint32Array, next: Uint32Array): void
-  fireRemove(
-    state: WorldState,
-    eid: EntityId,
-    bit: number,
-    prev: Uint32Array,
-    next: Uint32Array,
-  ): void
+  fireRemove(state: WorldState, eid: EntityId, bit: number): void
+  fireRemoveQuery(state: WorldState, eid: EntityId, prev: Uint32Array, next: Uint32Array): void
   fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void
 }
 let _dispatch: ObserversDispatchAPI = {
   fireAdd: () => {},
   fireRemove: () => {},
+  fireRemoveQuery: () => {},
   fireSet: () => {},
 }
 
@@ -455,14 +464,16 @@ function fireAddObservers(
 ): void {
   _dispatch.fireAdd(state, eid as EntityId, bit, prev, next)
 }
-function fireRemoveObservers(
+function fireRemoveObservers(state: WorldState, eid: number, bit: number): void {
+  _dispatch.fireRemove(state, eid as EntityId, bit)
+}
+function fireRemoveQueryObservers(
   state: WorldState,
   eid: number,
-  bit: number,
   prev: Uint32Array,
   next: Uint32Array,
 ): void {
-  _dispatch.fireRemove(state, eid as EntityId, bit, prev, next)
+  _dispatch.fireRemoveQuery(state, eid as EntityId, prev, next)
 }
 function fireSetObservers(state: WorldState, eid: number, bit: number, value: unknown): void {
   _dispatch.fireSet(state, eid as EntityId, bit, value)

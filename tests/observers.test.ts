@@ -5,12 +5,14 @@ import {
   createEntity,
   createWorld,
   defineComponent,
+  defineObjectComponent,
   defineQuery,
   defineTag,
   destroyEntity,
   exitQuery,
   getComponent,
   getWorldSize,
+  hasComponent,
   removeComponent,
   resetWorld,
   runQuery,
@@ -461,5 +463,56 @@ describe('destroyEntity reentrancy from teardown handlers', () => {
     expect(getWorldSize(w)).toBe(0)
     const ids = [createEntity(w), createEntity(w), createEntity(w)]
     expect(new Set(ids).size).toBe(3)
+  })
+})
+
+describe('onRemove sees the outgoing component', () => {
+  it('handler can read the component on both destroyEntity and removeComponent', () => {
+    const MeshRef = defineObjectComponent<{ mesh: { disposed: boolean } | null }>(() => ({
+      mesh: null,
+    }))
+    const w = createWorld()
+    const seen: unknown[] = []
+    onRemove(w, MeshRef, (e) => seen.push(getComponent(w, e, MeshRef)))
+    const a = createEntity(w)
+    addComponent(w, a, MeshRef, { mesh: { disposed: false } })
+    const b = createEntity(w)
+    addComponent(w, b, MeshRef, { mesh: { disposed: false } })
+    destroyEntity(w, a)
+    removeComponent(w, b, MeshRef)
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toEqual({ mesh: { disposed: false } })
+    expect(seen[1]).toEqual({ mesh: { disposed: false } })
+    expect(getComponent(w, b, MeshRef)).toBeUndefined()
+  })
+
+  it('removing the same component again from its onRemove handler fires once', () => {
+    const A = defineTag()
+    const w = createWorld()
+    let calls = 0
+    onRemove(w, A, (e) => {
+      calls++
+      removeComponent(w, e, A)
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    removeComponent(w, e, A)
+    expect(calls).toBe(1)
+    expect(hasComponent(w, e, A)).toBe(false)
+  })
+
+  it('destroying the entity from onRemove during removeComponent fires onRemove once', () => {
+    const A = defineTag()
+    const w = createWorld()
+    let calls = 0
+    onRemove(w, A, (e) => {
+      calls++
+      destroyEntity(w, e)
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    removeComponent(w, e, A)
+    expect(calls).toBe(1)
+    expect(getWorldSize(w)).toBe(0)
   })
 })

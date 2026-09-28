@@ -166,13 +166,9 @@ function fireAdd(
   dispatchQueryObservers(state, eid, prev, next)
 }
 
-function fireRemove(
-  state: WorldState,
-  eid: EntityId,
-  bit: number,
-  prev: Uint32Array,
-  next: Uint32Array,
-): void {
+// Component-level remove. removeComponent calls this BEFORE writing the new
+// mask, so handlers can still read the outgoing value via getComponent.
+function fireRemove(state: WorldState, eid: EntityId, bit: number): void {
   const snapshot = Array.from(state.observers)
   for (const obs of snapshot) {
     if (obs.event !== 'remove') continue
@@ -180,7 +176,6 @@ function fireRemove(
     if (!state.observers.includes(obs)) continue
     obs.handler(eid)
   }
-  dispatchQueryObservers(state, eid, prev, next)
 }
 
 function fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void {
@@ -225,7 +220,12 @@ function dispatchQueryObservers(
 }
 
 // Wire the dispatch into component.ts
-registerObserverDispatch({ fireAdd, fireRemove, fireSet })
+registerObserverDispatch({
+  fireAdd,
+  fireRemove,
+  fireRemoveQuery: dispatchQueryObservers,
+  fireSet,
+})
 
 // Register destroy hook so onRemove fires for every component on destroy
 // AND so query-targeted observers see the entity exit any matched query.
@@ -243,8 +243,12 @@ registerObserversAPI({
     // is still set now. A handler that removed a sibling component via
     // removeComponent already fired that component's onRemove; firing it here
     // again would double-report it.
+    const removingBase = ((eid as number) & state.options.indexMask) * state.options.maxComponents
     forEachSetBit(preMask, 0, w, (bit) => {
       if ((((state.entityMask[base + (bit >>> 5)] ?? 0) >>> (bit & 31)) & 1) === 0) return
+      // An in-flight removeComponent of this bit (whose onRemove handler
+      // destroyed the entity) is already firing its onRemove.
+      if (state.removing.has(removingBase + bit)) return
       const snapshot = Array.from(state.observers)
       for (const obs of snapshot) {
         if (obs.event !== 'remove') continue

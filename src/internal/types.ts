@@ -328,6 +328,7 @@ export interface WorldState {
   generations: Uint8Array | Uint16Array // [eid] → version
   destroyed: boolean
   destroying: Set<number> // packed eids mid-destroyEntity (reentrancy guard)
+  removing: Set<number> // idx * maxComponents + bit mid-removeComponent dispatch
 
   // --- component registry (per-world) ---
   componentBitFor: Map<number, number> // global component id → bit pos in this world

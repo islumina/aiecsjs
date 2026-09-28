@@ -117,6 +117,7 @@ export function createWorld(options?: WorldOptions): World {
     generations,
     destroyed: false,
     destroying: new Set<number>(),
+    removing: new Set<number>(),
     componentBitFor: new Map<number, number>(),
     componentInfoByBit: new Array(resolved.maxComponents).fill(null),
     componentStorageByBit: new Array(resolved.maxComponents).fill(null),
