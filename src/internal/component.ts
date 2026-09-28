@@ -485,10 +485,6 @@ export function getComponentByInternalId(id: number): ComponentInfo | undefined 
   return componentInfoById.get(id)
 }
 
-export function listAllComponents(): ComponentInfo[] {
-  return Array.from(componentInfoById.values())
-}
-
 export function _resetComponentRegistry_FOR_TESTS_ONLY(): void {
   componentInfoById.clear()
   nextComponentId = 1

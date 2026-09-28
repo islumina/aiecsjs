@@ -8,7 +8,6 @@ import {
   defineTag,
   getComponentByInternalId,
   getComponentInfo,
-  listAllComponents,
 } from './internal/component.js'
 import { createEntity, destroyEntity, ensureEntityAtSlot, packEid } from './internal/entity.js'
 import type {
@@ -29,21 +28,24 @@ const MAGIC = 'AIEC'
 const FORMAT_VERSION = 1
 
 export function serializeWorld(world: World, options?: SerializeOptions): Uint8Array {
-  const snapshot = toJSON(world)
-  if (options?.components) {
-    snapshot.entities = snapshot.entities.map((e) => ({
-      eid: e.eid,
-      components: e.components.filter((c) =>
-        options.components!.some((comp) => comp.__id === c.id),
-      ),
-    }))
-  }
-  return packBinary(snapshot)
+  return packBinary(snapshotWorld(world, allowlistOf(options?.components)))
 }
 
 export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions): World {
   const snapshot = unpackBinary(bytes, options)
+  const allow = allowlistOf(options?.components)
+  if (allow) {
+    snapshot.entities = snapshot.entities.map((e) => ({
+      eid: e.eid,
+      components: e.components.filter((c) => allow.has(c.id)),
+    }))
+  }
   return fromJSON(snapshot)
+}
+
+// `options.components` allowlist as a set of component ids; null = everything.
+function allowlistOf(components: ComponentLike[] | undefined): Set<number> | null {
+  return components ? new Set(components.map((c) => c.__id)) : null
 }
 
 /**
@@ -57,6 +59,12 @@ export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions
  * will deref to null after loading the snapshot into a new world.
  */
 export function toJSON(world: World): WorldSnapshot {
+  return snapshotWorld(world, null)
+}
+
+// toJSON restricted to the `allow` component ids (null = all). Components
+// outside the allowlist are skipped before their data is read or cloned.
+function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
   const state = getWorldState(world)
   const entities: WorldSnapshot['entities'] = []
   // Iterate by raw slot index; snapshot stores raw idx in the `eid` field
@@ -82,7 +90,7 @@ export function toJSON(world: World): WorldSnapshot {
         const lsb = word & -word
         const bit = (wi << 5) + (31 - Math.clz32(lsb))
         const info = state.componentInfoByBit[bit]
-        if (info) {
+        if (info && (!allow || allow.has(info.id))) {
           const storage = state.componentStorageByBit[bit]
           let data: unknown = null
           if (info.kind === 'soa' && storage?.soa) {
@@ -270,7 +278,8 @@ function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSna
 
 interface DeltaState {
   world: World
-  components: ComponentLike[]
+  // `options.components` allowlist (component ids); null = every component.
+  allow: Set<number> | null
   // Per-entity JSON signature of the last captured components. Stored as
   // strings (not the snapshot objects) because toJSON hands out AoS data by
   // reference: a retained snapshot would alias the live instances and every
@@ -281,16 +290,12 @@ interface DeltaState {
 export function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer {
   const state: DeltaState = {
     world,
-    components:
-      options?.components ??
-      listAllComponents()
-        .map((i) => getComponentHandle(i)!)
-        .filter(Boolean),
+    allow: allowlistOf(options?.components),
     lastSigs: null,
   }
   return {
     capture(): Uint8Array {
-      const current = toJSON(state.world)
+      const current = snapshotWorld(state.world, state.allow)
       const sigs = new Map<number, string>()
       for (const e of current.entities) sigs.set(e.eid, JSON.stringify(e.components))
       let delta: WorldSnapshot
@@ -321,6 +326,7 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
         if (e.eid <= 0 || e.eid >= targetState.options.maxEntities) continue
         const eid = ensureEntityAtSlot(targetState, e.eid)
         for (const comp of e.components) {
+          if (state.allow && !state.allow.has(comp.id)) continue
           const info = getComponentByInternalId(comp.id)
           if (!info) continue
           const handle = getComponentHandle(info)

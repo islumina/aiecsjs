@@ -151,6 +151,48 @@ describe('serialize', () => {
     expect((getComponent(w, e, Inv) as { hp?: number }).hp).toBe(1)
   })
 
+  it('delta serializer honours the components allowlist on capture and apply', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    addComponent(w, e, Inv, { items: ['a'] })
+    const ds = createDeltaSerializer(w, { components: [P] })
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect(hasComponent(replica, e, P)).toBe(true)
+    expect(hasComponent(replica, e, Inv)).toBe(false)
+    // apply() also filters a full (unfiltered) payload.
+    const replica2 = createWorld()
+    ds.apply(replica2, serializeWorld(w))
+    expect(hasComponent(replica2, e, Inv)).toBe(false)
+  })
+
+  it('delta capture skips a non-JSON component outside the allowlist', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Cyclic = defineObjectComponent<{ self: unknown }>(() => ({ self: null }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    const obj: { self: unknown } = { self: null }
+    obj.self = obj
+    addComponent(w, e, Cyclic, obj)
+    expect(() => createDeltaSerializer(w, { components: [P] }).capture()).not.toThrow()
+  })
+
+  it('deserializeWorld honours the components allowlist', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    addComponent(w, e, Inv, { items: ['a'] })
+    const restored = deserializeWorld(serializeWorld(w), { components: [P] })
+    expect(hasComponent(restored, e, P)).toBe(true)
+    expect(hasComponent(restored, e, Inv)).toBe(false)
+  })
+
   it('delta reset clears prior state', () => {
     const { w } = setupWorld()
     const tx = createDeltaSerializer(w)
