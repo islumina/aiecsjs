@@ -139,7 +139,7 @@ export function addComponent<C extends ComponentLike>(
 
   writeInitial(state, eid as number, component, initial)
 
-  fireAddObservers(state, eid, bit, prevMask, newMask)
+  shared.hooks.observerDispatch?.fireAdd(state, eid, bit, prevMask, newMask)
   notifyMaskChange(state, eid, bit, prevMask, newMask)
 }
 
@@ -165,7 +165,7 @@ export function removeComponent<C extends ComponentLike>(
   if (state.removing.has(key)) return
   state.removing.add(key)
   try {
-    fireRemoveObservers(state, eid, bit)
+    shared.hooks.observerDispatch?.fireRemove(state, eid, bit)
   } finally {
     state.removing.delete(key)
   }
@@ -181,7 +181,7 @@ export function removeComponent<C extends ComponentLike>(
   clearBit(newMask, bit)
   migrateEntity(state, eid as number, newMask)
 
-  fireRemoveQueryObservers(state, eid, prevMask, newMask)
+  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid, prevMask, newMask)
 
   const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
@@ -252,7 +252,7 @@ export function setComponent<C extends ComponentLike, V>(
     return
   }
   writeInitial(state, eid as number, component, value)
-  fireSetObservers(state, eid, bit, value)
+  shared.hooks.observerDispatch?.fireSet(state, eid, bit, value)
 }
 
 // --- Internals ---
@@ -446,29 +446,6 @@ export function dispatchDestroyMaskChange(
 }
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
   shared.hooks.observerDispatch = api
-}
-function fireAddObservers(
-  state: WorldState,
-  eid: number,
-  bit: number,
-  prev: Uint32Array,
-  next: Uint32Array,
-): void {
-  shared.hooks.observerDispatch?.fireAdd(state, eid as EntityId, bit, prev, next)
-}
-function fireRemoveObservers(state: WorldState, eid: number, bit: number): void {
-  shared.hooks.observerDispatch?.fireRemove(state, eid as EntityId, bit)
-}
-function fireRemoveQueryObservers(
-  state: WorldState,
-  eid: number,
-  prev: Uint32Array,
-  next: Uint32Array,
-): void {
-  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid as EntityId, prev, next)
-}
-function fireSetObservers(state: WorldState, eid: number, bit: number, value: unknown): void {
-  shared.hooks.observerDispatch?.fireSet(state, eid as EntityId, bit, value)
 }
 
 // --- Helper for serialize/worker ---

@@ -168,7 +168,7 @@ function asQueryInternal(query: Query): QueryInternal {
   const q = query as QueryInternal
   const kind = q?.reactiveKind
   if (kind !== 'normal' && kind !== 'enter' && kind !== 'exit') {
-    throw new TypeError('aiecsjs: expected a Query from defineQuery / enterQuery / exitQuery')
+    throw new TypeError('aiecsjs: expected a Query')
   }
   return q
 }
@@ -393,12 +393,10 @@ export function forEachEntity(
 // fresh stamp; the outer pass then merely loses that dedup for the entities
 // the inner pass touched. No per-pass allocation after the first.
 function beginVisitPass(state: WorldState): number {
-  if (state.visitStamp.length < state.capacity) {
+  // First pass in this world, or the stamp counter is about to wrap: start
+  // from a zeroed array.
+  if (state.visitStamp.length < state.capacity || state.visitEpoch === 0xffffffff) {
     state.visitStamp = new Uint32Array(state.capacity)
-    state.visitEpoch = 0
-  }
-  if (state.visitEpoch === 0xffffffff) {
-    state.visitStamp.fill(0)
     state.visitEpoch = 0
   }
   return ++state.visitEpoch
