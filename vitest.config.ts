@@ -34,7 +34,7 @@ export default defineConfig({
       // functions (98, not 100):
       //   Three module-level initialisation stubs that are replaced before any
       //   call reaches them:
-      //   • component.ts:386 `let _maskChange = () => {}` — replaced at index.ts
+      //   • component.ts:386 `let _maskChange = () => {}` — replaced at internal/query.ts
       //     module init; the stub is never invoked in a fully-imported environment.
       //   • component.ts:269 `() => ({})` — fallback factory in writeInitial; only
       //     fires when info.factory is null for an AoS component, which is

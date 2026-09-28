@@ -1,5 +1,9 @@
 import { createMask, isMaskZero, listBits, matches, setBit } from './bitmask.js'
-import { getComponentInfo } from './component.js'
+import {
+  getComponentByInternalId,
+  getComponentInfo,
+  registerMaskChangeDispatch,
+} from './component.js'
 import type {
   Archetype,
   ComponentInfo,
@@ -556,19 +560,17 @@ function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
 // --- Helpers ---
 
 function getComponentInfoById(componentId: number): ComponentInfo {
-  // We need access to the component registry's lookup by id. Re-import dynamically to avoid cycles.
-  const info = lazyGetComponentInfo(componentId)
+  const info = getComponentByInternalId(componentId)
   if (!info) throw new Error(`aiecsjs: component id ${componentId} not registered`)
   return info
 }
 
-let _getComponentInfoFn: ((id: number) => ComponentInfo | undefined) | null = null
-export function registerComponentLookup(fn: (id: number) => ComponentInfo | undefined): void {
-  _getComponentInfoFn = fn
-}
-function lazyGetComponentInfo(id: number): ComponentInfo | undefined {
-  return _getComponentInfoFn ? _getComponentInfoFn(id) : undefined
-}
+// Wire component mask-change → query reactive update. This lives here rather
+// than in index.ts: the package declares `sideEffects: false`, so a bundler may
+// drop index.js when a consumer imports only re-exported names. Every reactive
+// query is created through this module, so registering here guarantees the
+// hook is live whenever a reactive buffer can exist.
+registerMaskChangeDispatch(recordEntityMaskChange)
 
 export function _resetQueryRegistry_FOR_TESTS_ONLY(): void {
   moduleQueryCache.clear()

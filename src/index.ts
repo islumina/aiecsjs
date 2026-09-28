@@ -1,25 +1,15 @@
 // aiecsjs — public root entry.
-// Re-exports the core API and wires up the lazy cross-module references.
+// Re-exports the core API.
 
 export { VERSION } from './version.js'
 
-import {
-  getComponentByInternalId,
-  registerMaskChangeDispatch,
-  registerObserverDispatch,
-} from './internal/component.js'
+import { registerObserverDispatch } from './internal/component.js'
 import { registerObserversAPI, registerRelationsCleanup } from './internal/entity.js'
-import { recordEntityMaskChange, registerComponentLookup } from './internal/query.js'
 import type { EntityId, WorldState } from './internal/types.js'
 
-// Wire query → component lookup
-registerComponentLookup((id) => getComponentByInternalId(id))
-
-// Wire component mask-change → query reactive update
-registerMaskChangeDispatch((state, eid, bit, prev, next) => {
-  recordEntityMaskChange(state, eid, bit, prev, next)
-})
-
+// Component lookup and mask-change → reactive-query wiring live in
+// internal/query.ts, so they survive a bundler dropping this entry module
+// (`sideEffects: false`) when a consumer imports only re-exported names.
 // Observer dispatch is registered lazily by observers.ts on first import.
 // Relations cleanup is registered lazily by relations.ts on first import.
 
