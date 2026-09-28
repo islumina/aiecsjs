@@ -93,4 +93,72 @@ describe('loop (fake-timer driven)', () => {
     vi.advanceTimersByTime(500)
     expect(count).toBe(snapshot)
   })
+
+  it('stop() inside onRender then start() leaves a single tick chain', () => {
+    let renders = 0
+    let first = true
+    const loop = createLoop({
+      fixed: 1 / 60,
+      onUpdate() {},
+      onRender() {
+        renders++
+        if (first) {
+          first = false
+          loop.stop()
+        }
+      },
+    })
+    loop.start()
+    vi.advanceTimersByTime(16)
+    expect(renders).toBe(1)
+    loop.start()
+    renders = 0
+    vi.advanceTimersByTime(160)
+    expect(renders).toBeLessThanOrEqual(11)
+    loop.stop()
+  })
+
+  it('stop() inside onUpdate halts the remaining substeps and the render', () => {
+    let updates = 0
+    let renders = 0
+    const loop = createLoop({
+      fixed: 0.01,
+      maxSubSteps: 5,
+      onUpdate() {
+        updates++
+        loop.stop()
+      },
+      onRender() {
+        renders++
+      },
+    })
+    loop.start()
+    vi.advanceTimersByTime(100)
+    expect(updates).toBe(1)
+    expect(renders).toBe(0)
+  })
+
+  it('stop() + start() inside onUpdate never yields a negative alpha', () => {
+    const alphas: number[] = []
+    let restarted = false
+    const loop = createLoop({
+      fixed: 0.01,
+      maxSubSteps: 5,
+      onUpdate() {
+        if (!restarted) {
+          restarted = true
+          loop.stop()
+          loop.start()
+        }
+      },
+      onRender(a) {
+        alphas.push(a)
+      },
+    })
+    loop.start()
+    vi.advanceTimersByTime(100)
+    loop.stop()
+    expect(alphas.length).toBeGreaterThan(0)
+    expect(alphas.every((a) => a >= 0)).toBe(true)
+  })
 })
