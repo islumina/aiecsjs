@@ -3,7 +3,7 @@
 import { forEachSetBit, matchesEntityMask } from './internal/bitmask.js'
 import { getComponentInfo, registerObserverDispatch } from './internal/component.js'
 import { registerObserversAPI } from './internal/entity.js'
-import { runQuery } from './internal/query.js'
+import { ensureQueryRegistered } from './internal/query.js'
 import type {
   ComponentLike,
   EntityId,
@@ -105,8 +105,10 @@ export function observe(
   opts?: ObserverOptions,
 ): () => void {
   const state = getWorldState(world)
-  // Force registration of the query into this world so dispatch can find it.
-  runQuery(world, query)
+  // Register the query (and, for enter/exit queries, its source query and
+  // reactive buffer) into this world so dispatch can find it. Unlike
+  // `runQuery`, this never drains a reactive buffer as a side effect.
+  ensureQueryRegistered(state, query as QueryInternal)
   const queryId = (query as QueryInternal).id
   return bindAbortSignal(addObserver(state, event, -1, queryId, handler), opts?.signal)
 }

@@ -175,7 +175,7 @@ function asQueryInternal(query: Query): QueryInternal {
 
 // --- Per-world query setup ---
 
-function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
+export function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
   if (state.queries[q.id] === q && state.queryMasks.has(q.id)) return
 
   // Build per-world bitmasks (this may register new bits)

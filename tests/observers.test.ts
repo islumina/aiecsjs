@@ -9,6 +9,7 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  enterQuery,
   exitQuery,
   getComponent,
   getWorldSize,
@@ -540,5 +541,24 @@ describe('onRemove sees the outgoing component', () => {
     removeComponent(w, e, A)
     expect(calls).toBe(1)
     expect(getWorldSize(w)).toBe(0)
+  })
+})
+
+describe('observe() with a reactive (enter/exit) query', () => {
+  it('registers the source query instead of draining it, and the observer fires', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const en = enterQuery(defineQuery([A]))
+    const seen: number[] = []
+    observe(w, en, 'add', (e) => seen.push(e as number))
+    const e1 = createEntity(w)
+    addComponent(w, e1, A)
+    // Before the fix, observe() forced registration via runQuery, which for
+    // a reactive query drains the (not-yet-registered) buffer as a no-op and
+    // never wires up the source query, leaving the observer permanently inert.
+    expect(seen).toEqual([e1])
+    const e2 = createEntity(w)
+    addComponent(w, e2, A)
+    expect(seen).toEqual([e1, e2])
   })
 })
