@@ -329,6 +329,8 @@ export interface WorldState {
   destroyed: boolean
   destroying: Set<number> // packed eids mid-destroyEntity (reentrancy guard)
   removing: Set<number> // idx * maxComponents + bit mid-removeComponent dispatch
+  visitStamp: Uint32Array // [idx] → last forEachEntity pass that visited it (lazy)
+  visitEpoch: number // current forEachEntity pass stamp
 
   // --- component registry (per-world) ---
   componentBitFor: Map<number, number> // global component id → bit pos in this world

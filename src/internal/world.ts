@@ -118,6 +118,8 @@ export function createWorld(options?: WorldOptions): World {
     destroyed: false,
     destroying: new Set<number>(),
     removing: new Set<number>(),
+    visitStamp: new Uint32Array(0),
+    visitEpoch: 0,
     componentBitFor: new Map<number, number>(),
     componentInfoByBit: new Array(resolved.maxComponents).fill(null),
     componentStorageByBit: new Array(resolved.maxComponents).fill(null),
@@ -183,6 +185,7 @@ export function destroyWorld(world: World): void {
   // worlds). Swap to length-0 instances rather than mutating in place.
   state.entityMask = new Uint32Array(0)
   state.entityArchetype = new Uint32Array(0)
+  state.visitStamp = new Uint32Array(0)
   state.generations = new Uint8Array(0)
   state.freeList = []
   state.destroying.clear()
@@ -272,6 +275,14 @@ function growEntityArrays(state: WorldState, newCap: number): void {
   const newMask = new Uint32Array(newCap * wordCount)
   newMask.set(state.entityMask)
   state.entityMask = newMask
+
+  // visit stamps (allocated lazily by the first forEachEntity pass); copied so
+  // a pass that grows the world mid-loop keeps its stamps
+  if (state.visitStamp.length > 0) {
+    const newStamp = new Uint32Array(newCap)
+    newStamp.set(state.visitStamp)
+    state.visitStamp = newStamp
+  }
 
   // Component storages (SoA columns + AoS arrays)
   for (const storage of state.componentStorageByBit) {

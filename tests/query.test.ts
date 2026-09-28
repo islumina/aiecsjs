@@ -817,3 +817,67 @@ describe('query argument validation', () => {
     expect(() => runQuery(world, bogus)).toThrow(TypeError)
   })
 })
+
+describe('in-loop archetype moves visit each matching entity once per pass', () => {
+  function setup() {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld()
+    // Make archetype {A,B} exist first so it is later in the query's archetype list.
+    const pre = createEntity(w)
+    addComponent(w, pre, A)
+    addComponent(w, pre, B)
+    destroyEntity(w, pre)
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    return { A, B, w, ents }
+  }
+
+  it('forEachEntity: moving into an already-matching archetype neither skips nor repeats', () => {
+    const { A, B, w, ents } = setup()
+    const visited: number[] = []
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('forEachEntityIndexed: moving into an already-matching archetype neither skips nor repeats', () => {
+    const { A, B, w, ents } = setup()
+    const visited: number[] = []
+    forEachEntityIndexed(w, defineQuery([A]), (e, i) => {
+      expect(i).toBe(getEntityIndex(e))
+      visited.push(e as number)
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('forEachEntity: removing a component the query does not need still visits the swapped-in entity', () => {
+    const { A, B, w, ents } = setup()
+    for (const e of ents) addComponent(w, e, B)
+    const visited: number[] = []
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      removeComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('nested passes over the same query still visit every pair', () => {
+    const { A, w } = setup()
+    const q = defineQuery([A])
+    let pairs = 0
+    forEachEntity(w, q, () => {
+      forEachEntity(w, q, () => {
+        pairs++
+      })
+    })
+    expect(pairs).toBe(9)
+  })
+})

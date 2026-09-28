@@ -4,6 +4,7 @@ import {
   getComponentInfo,
   registerMaskChangeDispatch,
 } from './component.js'
+import { isAliveInternal } from './entity.js'
 import type {
   Archetype,
   ComponentInfo,
@@ -334,6 +335,8 @@ export function forEachEntity(
   ensureQueryRegistered(state, q)
   const archIds = getQueryArchetypes(state, q)
   const cols = buildColumnViews(state, q)
+  const indexMask = state.options.indexMask
+  const stamp = beginVisitPass(state)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     // Re-read `arch.size` AND `arch.entities` each iteration (do NOT cache either):
@@ -348,10 +351,42 @@ export function forEachEntity(
     //     sentinel leaking across the public callback boundary again.
     // Both are scalar property reads — no per-iteration allocation, so the
     // zero-allocation hot-path contract holds. Mirrors runQuery (:230) / iterQuery.
+    // In-loop add/removeComponent moves (see revisitRow) are handled so every
+    // matching live entity is visited exactly once per pass.
     for (let r = 0; r < arch.size; r++) {
-      callWithCols(fn, arch.entities[r] as EntityId, cols)
+      const e = arch.entities[r] as EntityId
+      const idx = e & indexMask
+      if (state.visitStamp[idx] === stamp) continue
+      state.visitStamp[idx] = stamp
+      callWithCols(fn, e, cols)
+      if (revisitRow(state, arch.entities[r], e)) r--
     }
   }
+}
+
+// Stamp one forEachEntity pass. visitStamp[idx] === stamp marks an entity the
+// pass already visited, so one that an in-loop add/removeComponent moves into
+// an archetype later in the pass is not visited twice. A nested pass takes a
+// fresh stamp; the outer pass then merely loses that dedup for the entities
+// the inner pass touched. No per-pass allocation after the first.
+function beginVisitPass(state: WorldState): number {
+  if (state.visitStamp.length < state.capacity) {
+    state.visitStamp = new Uint32Array(state.capacity)
+    state.visitEpoch = 0
+  }
+  if (state.visitEpoch === 0xffffffff) {
+    state.visitStamp.fill(0)
+    state.visitEpoch = 0
+  }
+  return ++state.visitEpoch
+}
+
+// After the callback for `e` at row r: if an in-loop add/removeComponent moved
+// the still-live `e` out of this archetype, the swap-pop put an unvisited
+// entity into row r — revisit it. After an in-loop destroyEntity the
+// swapped-in survivor is still deferred to the next pass (ECS-B-01).
+function revisitRow(state: WorldState, current: number | undefined, e: EntityId): boolean {
+  return current !== e && isAliveInternal(state, e)
 }
 
 function callWithCols(
@@ -425,6 +460,7 @@ export function forEachEntityIndexed(
   ensureQueryRegistered(state, q)
   const archIds = getQueryArchetypes(state, q)
   const cols = buildColumnViews(state, q)
+  const stamp = beginVisitPass(state)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     // Re-read `arch.size` AND `arch.entities` each iteration — see forEachEntity
@@ -433,9 +469,14 @@ export function forEachEntityIndexed(
     // bound replays the sentinel eid 0, and a cached array reads `undefined` off
     // its stale tail — there `undefined & indexMask === 0`, so a bogus i=0 payload
     // leaks too (C4 / ECS-B-01). Scalar reads only; zero-allocation contract holds.
+    // Visit stamps / revisitRow: see forEachEntity.
     for (let r = 0; r < arch.size; r++) {
       const e = arch.entities[r] as EntityId
-      callWithColsIndexed(fn, e, e & indexMask, cols)
+      const idx = e & indexMask
+      if (state.visitStamp[idx] === stamp) continue
+      state.visitStamp[idx] = stamp
+      callWithColsIndexed(fn, e, idx, cols)
+      if (revisitRow(state, arch.entities[r], e)) r--
     }
   }
 }
