@@ -89,7 +89,7 @@ export function ensureEntityAtSlot(state: WorldState, idx: number): EntityId {
     /* v8 ignore next — defensive: apply() only writes to writable worlds */
     throw new Error('aiecsjs: cannot create entities on a read-only world (worker-attached)')
   }
-  if (!Number.isInteger(idx) || idx <= 0 || idx >= state.options.maxEntities) {
+  if (idx <= 0 || idx >= state.options.maxEntities) {
     /* v8 ignore next — defensive: apply() pre-guards the eid range */
     throw new EcsError(`aiecsjs: slot index ${idx} out of range`)
   }
