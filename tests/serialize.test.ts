@@ -131,6 +131,26 @@ describe('serialize', () => {
     expect(getWorldSize(replica)).toBe(1)
   })
 
+  it('fromJSON(toJSON(w)) does not share nested AoS objects with the source', () => {
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: ['sword'] })
+    const w2 = fromJSON(toJSON(w))
+    ;(getComponent(w2, e, Inv) as { items: string[] }).items.push('shield')
+    expect((getComponent(w, e, Inv) as { items: string[] }).items).toEqual(['sword'])
+  })
+
+  it('mutating a toJSON result does not mutate the world', () => {
+    const Inv = defineObjectComponent<{ items: string[]; hp?: number }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: [], hp: 1 })
+    const snap = toJSON(w)
+    ;(snap.entities[0]!.components[0]!.data as { hp: number }).hp = 99
+    expect((getComponent(w, e, Inv) as { hp?: number }).hp).toBe(1)
+  })
+
   it('delta reset clears prior state', () => {
     const { w } = setupWorld()
     const tx = createDeltaSerializer(w)

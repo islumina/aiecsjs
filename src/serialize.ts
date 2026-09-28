@@ -49,6 +49,9 @@ export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions
 /**
  * Serialize a world snapshot to a plain JSON-compatible object.
  *
+ * AoS component data is deep-copied (`structuredClone`), so the snapshot never
+ * aliases live component instances; AoS values must therefore be cloneable.
+ *
  * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
  * Generation counters reset on world load. Stale refs from before serialization
  * will deref to null after loading the snapshot into a new world.
@@ -98,7 +101,11 @@ export function toJSON(world: World): WorldSnapshot {
             }
             data = obj
           } else if (info.kind === 'aos' && storage?.aos) {
-            data = storage.aos[idx] ?? null
+            // Deep copy: handing out the live instance would let a snapshot
+            // (or a world restored from it) share nested objects with the
+            // source world, and mutating the snapshot would mutate the world.
+            const inst = storage.aos[idx]
+            data = inst == null ? null : structuredClone(inst)
           } else {
             data = true
           }
