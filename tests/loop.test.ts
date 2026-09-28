@@ -161,4 +161,30 @@ describe('loop (fake-timer driven)', () => {
     expect(alphas.length).toBeGreaterThan(0)
     expect(alphas.every((a) => a >= 0)).toBe(true)
   })
+
+  it('a first-tick timestamp earlier than start()\'s sample never drives alpha negative', () => {
+    // start() seeds lastT from performance.now(), but the environment's first
+    // rAF/tick callback can hand back an earlier frame-begin timestamp (e.g.
+    // rAF batches to the start of the frame that was already in flight when
+    // start() ran). Simulate that by making performance.now() go backwards
+    // between the sample start() takes and the first tick's timestamp.
+    const nowSpy = vi.spyOn(performance, 'now')
+    nowSpy.mockReturnValueOnce(2000) // start(): lastT = 2000
+    nowSpy.mockReturnValueOnce(1995) // first tick: t = 1995 (before lastT)
+    nowSpy.mockReturnValue(2011) // every later call advances normally
+
+    const alphas: number[] = []
+    const loop = createLoop({
+      fixed: 1 / 60,
+      onUpdate: () => {},
+      onRender: (alpha) => alphas.push(alpha),
+    })
+    loop.start()
+    vi.advanceTimersByTime(16) // fire the first tick
+    loop.stop()
+    nowSpy.mockRestore()
+
+    expect(alphas.length).toBeGreaterThan(0)
+    expect(alphas.every((a) => a >= 0)).toBe(true)
+  })
 })

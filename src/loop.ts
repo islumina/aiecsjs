@@ -55,7 +55,11 @@ export function createLoop(options: LoopOptions): Loop {
         if (!live()) return
         const dtMs = t - lastT
         lastT = t
-        accumulator += Math.min(dtMs / 1000, fixed * maxSubSteps)
+        // Clamp to non-negative: the first rAF callback can receive a
+        // frame-begin timestamp earlier than the `performance.now()` sampled
+        // by `start()`, which would otherwise drive the accumulator (and thus
+        // `onRender`'s alpha) negative.
+        accumulator += Math.min(Math.max(0, dtMs) / 1000, fixed * maxSubSteps)
         let steps = 0
         while (accumulator >= fixed && steps < maxSubSteps) {
           onUpdate(fixed)
