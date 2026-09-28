@@ -783,3 +783,37 @@ describe('ECS-B-01: in-loop destroy never leaks eid 0 (forEachEntity / forEachEn
     expect(seenI.every((idx, n) => idx === getEntityIndex(seenE[n] as EntityId))).toBe(true)
   })
 })
+
+describe('query argument validation', () => {
+  const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+  const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+
+  it('a raw component array is treated as defineQuery(array)', () => {
+    const world = createWorld()
+    const e = createEntity(world)
+    addComponent(world, e, Position, { x: 0, y: 0 })
+    addComponent(world, e, Velocity, { x: 1, y: 0 })
+    const raw = [Position, Velocity] as unknown as Parameters<typeof runQuery>[1]
+    let calls = 0
+    forEachEntity(world, raw, () => {
+      calls++
+    })
+    let indexedCalls = 0
+    forEachEntityIndexed(world, raw, () => {
+      indexedCalls++
+    })
+    expect(calls).toBe(1)
+    expect(indexedCalls).toBe(1)
+    expect(runQuery(world, raw)).toEqual([e])
+    expect([...iterQuery(world, raw)]).toEqual([e])
+    expect(queryArchetypes(world, raw).length).toBe(1)
+  })
+
+  it('a non-query value throws a TypeError instead of iterating nothing', () => {
+    const world = createWorld()
+    const bogus = { all: [] } as unknown as Parameters<typeof runQuery>[1]
+    expect(() => forEachEntity(world, bogus, () => {})).toThrow(TypeError)
+    expect(() => forEachEntityIndexed(world, bogus, () => {})).toThrow(TypeError)
+    expect(() => runQuery(world, bogus)).toThrow(TypeError)
+  })
+})

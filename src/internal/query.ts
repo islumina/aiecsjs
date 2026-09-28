@@ -135,6 +135,20 @@ export function exitQuery(query: Query): Query {
   return reactive
 }
 
+// Normalise the query argument of the read/iterate entry points. A raw
+// component array (`forEachEntity(world, [A, B], fn)`) is routed through
+// defineQuery; anything else that is not a Query throws instead of silently
+// iterating nothing (the reactive branch would look up an undefined buffer).
+function asQueryInternal(query: Query): QueryInternal {
+  if (Array.isArray(query)) return defineQuery(query as ComponentLike[]) as QueryInternal
+  const q = query as QueryInternal
+  const kind = q?.reactiveKind
+  if (kind !== 'normal' && kind !== 'enter' && kind !== 'exit') {
+    throw new TypeError('aiecsjs: expected a Query from defineQuery / enterQuery / exitQuery')
+  }
+  return q
+}
+
 // --- Per-world query setup ---
 
 function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
@@ -221,7 +235,7 @@ function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
 
 export function queryArchetypes(world: World, query: Query): readonly Archetype[] {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const ids = getQueryArchetypes(state, q)
   const out: Archetype[] = []
   for (const id of ids) {
@@ -233,7 +247,7 @@ export function queryArchetypes(world: World, query: Query): readonly Archetype[
 
 export function runQuery(world: World, query: Query): readonly EntityId[] {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const out: EntityId[] = []
   if (q.reactiveKind === 'enter') {
     const buf = state.reactiveBuffers.get(q.id)
@@ -263,7 +277,7 @@ export function runQuery(world: World, query: Query): readonly EntityId[] {
 
 export function* iterQuery(world: World, query: Query): IterableIterator<EntityId> {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
@@ -301,7 +315,7 @@ export function forEachEntity(
   fn: (eid: EntityId, ...cols: any[]) => void,
 ): void {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
 
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
@@ -391,7 +405,7 @@ export function forEachEntityIndexed(
   fn: (e: EntityId, i: number, ...cols: any[]) => void,
 ): void {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const indexMask = state.options.indexMask
 
   if (q.reactiveKind !== 'normal') {
