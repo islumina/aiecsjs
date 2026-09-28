@@ -5,6 +5,7 @@ import {
   registerMaskChangeDispatch,
 } from './component.js'
 import { isAliveInternal } from './entity.js'
+import { ids, shared } from './registry.js'
 import type {
   Archetype,
   ComponentInfo,
@@ -25,8 +26,8 @@ import {
   tryGetComponentBit,
 } from './world.js'
 
-let nextQueryId = 1
-const moduleQueryCache = new Map<string, QueryInternal>()
+// Shared across every loaded copy of the package (see registry.ts).
+const moduleQueryCache = shared.queryCache
 
 function descKey(d: QueryDescriptor): string {
   const all = (d.all ?? [])
@@ -59,7 +60,7 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
   if (cached) return cached
 
   const q: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: (desc.all ?? []).map((c) => c.__id),
     any: (desc.any ?? []).map((c) => c.__id),
@@ -92,7 +93,7 @@ export function enterQuery(query: Query): Query {
   const cached = moduleQueryCache.get(key)
   if (cached) return cached
   const reactive: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: q.all,
     any: q.any,
@@ -122,7 +123,7 @@ export function exitQuery(query: Query): Query {
   const cached = moduleQueryCache.get(key)
   if (cached) return cached
   const reactive: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: q.all,
     any: q.any,
@@ -629,5 +630,5 @@ registerMaskChangeDispatch(recordEntityMaskChange)
 
 export function _resetQueryRegistry_FOR_TESTS_ONLY(): void {
   moduleQueryCache.clear()
-  nextQueryId = 1
+  ids.query = 1
 }

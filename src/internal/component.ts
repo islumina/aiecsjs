@@ -1,5 +1,6 @@
 import { clearBit, cloneMask, forEachSetBit, setBit, testBit } from './bitmask.js'
 import { isAliveInternal } from './entity.js'
+import { ids, shared } from './registry.js'
 import type {
   AoSComponent,
   ComponentInfo,
@@ -30,8 +31,6 @@ import {
 
 // --- Component factories ---
 
-let nextComponentId = 1
-
 const TYPE_CTOR: Record<string, TypedArrayConstructor> = {
   i8: Int8Array,
   u8: Uint8Array,
@@ -45,7 +44,8 @@ const TYPE_CTOR: Record<string, TypedArrayConstructor> = {
   bool: Uint8Array,
 }
 
-const componentInfoById = new Map<number, ComponentInfo>()
+// Shared across every loaded copy of the package (see registry.ts).
+const componentInfoById = shared.componentInfoById
 
 export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S> {
   const fields: FieldInfo[] = []
@@ -71,7 +71,7 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
       bytesPerElement: ctor.BYTES_PER_ELEMENT,
     })
   }
-  const id = nextComponentId++
+  const id = ids.component++
   const info: ComponentInfo = { id, kind: 'soa', schema, fields, factory: null }
   componentInfoById.set(id, info)
   const handle: SoAComponent<S> = {
@@ -83,14 +83,14 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
 }
 
 export function defineTag(): TagComponent {
-  const id = nextComponentId++
+  const id = ids.component++
   const info: ComponentInfo = { id, kind: 'tag', schema: null, fields: [], factory: null }
   componentInfoById.set(id, info)
   return { __kind: 'tag', __id: id }
 }
 
 export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
-  const id = nextComponentId++
+  const id = ids.component++
   const fac = factory ?? (() => ({}) as T)
   const info: ComponentInfo = {
     id,
@@ -386,29 +386,21 @@ function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Arra
 
 // --- Observer dispatch (lazy-bound) ---
 
-interface ObserversDispatchAPI {
+export interface ObserversDispatchAPI {
   fireAdd(state: WorldState, eid: EntityId, bit: number, prev: Uint32Array, next: Uint32Array): void
   fireRemove(state: WorldState, eid: EntityId, bit: number): void
   fireRemoveQuery(state: WorldState, eid: EntityId, prev: Uint32Array, next: Uint32Array): void
   fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void
 }
-let _dispatch: ObserversDispatchAPI = {
-  fireAdd: () => {},
-  fireRemove: () => {},
-  fireRemoveQuery: () => {},
-  fireSet: () => {},
-}
-
-type MaskChangeFn = (
+export type MaskChangeFn = (
   state: WorldState,
   eid: EntityId,
   bit: number,
   prev: Uint32Array,
   next: Uint32Array,
 ) => void
-let _maskChange: MaskChangeFn = () => {}
 export function registerMaskChangeDispatch(fn: MaskChangeFn): void {
-  _maskChange = fn
+  shared.hooks.maskChange = fn
 }
 function notifyMaskChange(
   state: WorldState,
@@ -417,7 +409,7 @@ function notifyMaskChange(
   prev: Uint32Array,
   next: Uint32Array,
 ): void {
-  _maskChange(state, eid as EntityId, bit, prev, next)
+  shared.hooks.maskChange?.(state, eid as EntityId, bit, prev, next)
 }
 
 // Fire the reactive enter/exit mask-change notification for an entity being
@@ -453,7 +445,7 @@ export function dispatchDestroyMaskChange(
   })
 }
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
-  _dispatch = api
+  shared.hooks.observerDispatch = api
 }
 function fireAddObservers(
   state: WorldState,
@@ -462,10 +454,10 @@ function fireAddObservers(
   prev: Uint32Array,
   next: Uint32Array,
 ): void {
-  _dispatch.fireAdd(state, eid as EntityId, bit, prev, next)
+  shared.hooks.observerDispatch?.fireAdd(state, eid as EntityId, bit, prev, next)
 }
 function fireRemoveObservers(state: WorldState, eid: number, bit: number): void {
-  _dispatch.fireRemove(state, eid as EntityId, bit)
+  shared.hooks.observerDispatch?.fireRemove(state, eid as EntityId, bit)
 }
 function fireRemoveQueryObservers(
   state: WorldState,
@@ -473,10 +465,10 @@ function fireRemoveQueryObservers(
   prev: Uint32Array,
   next: Uint32Array,
 ): void {
-  _dispatch.fireRemoveQuery(state, eid as EntityId, prev, next)
+  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid as EntityId, prev, next)
 }
 function fireSetObservers(state: WorldState, eid: number, bit: number, value: unknown): void {
-  _dispatch.fireSet(state, eid as EntityId, bit, value)
+  shared.hooks.observerDispatch?.fireSet(state, eid as EntityId, bit, value)
 }
 
 // --- Helper for serialize/worker ---
@@ -487,5 +479,5 @@ export function getComponentByInternalId(id: number): ComponentInfo | undefined 
 
 export function _resetComponentRegistry_FOR_TESTS_ONLY(): void {
   componentInfoById.clear()
-  nextComponentId = 1
+  ids.component = 1
 }

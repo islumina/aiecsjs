@@ -1,6 +1,7 @@
 import { VERSION } from '../version.js'
 import { cloneMask, copyMask, createMask, maskHash } from './bitmask.js'
 import { EcsError } from './errors.js'
+import { ids, shared } from './registry.js'
 import type {
   ArchetypeState,
   ComponentInfo,
@@ -24,8 +25,8 @@ const DEFAULT_OPTIONS: Required<Omit<WorldOptions, 'buffer' | 'bufferByteOffset'
 
 const DEFAULT_MAX_COMPONENTS = 256
 
-let nextWorldId = 1
-const worldRegistry = new Map<number, WorldState>()
+// Shared across every loaded copy of the package (see registry.ts).
+const worldRegistry = shared.worlds
 
 export function getWorldState(world: World): WorldState {
   const state = worldRegistry.get(world.id)
@@ -101,7 +102,7 @@ export function createEmptyArchetype(maskWordCount: number, maxComponents: numbe
 
 export function createWorld(options?: WorldOptions): World {
   const resolved = resolveOptions(options)
-  const id = nextWorldId++
+  const id = ids.world++
 
   const generationCtor = resolved.generationBits > 8 ? Uint16Array : Uint8Array
   const generations = new generationCtor(resolved.initialCapacity)

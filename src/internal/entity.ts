@@ -1,4 +1,5 @@
 import { clearAllEntityStorages, dispatchDestroyMaskChange } from './component.js'
+import { shared } from './registry.js'
 import type { EntityId, ResolvedWorldOptions, World, WorldState } from './types.js'
 import { ensureArchetypeCapacity, ensureCapacity, getWorldState, readEntityMask } from './world.js'
 
@@ -146,11 +147,10 @@ export function destroyEntity(world: World, eid: EntityId): void {
 
   // Fire onRemove for every component the entity has, plus reactive exit
   // (Late-bound to avoid circular imports — done via observers module.)
-  const { dispatchDestroyObservers } = lazyObservers()
   state.destroying.add(eid)
   let owned: boolean
   try {
-    dispatchDestroyObservers(state, eid)
+    shared.hooks.destroyObservers?.dispatchDestroyObservers(state, eid)
 
     // Clean up relations referring to this entity
     cleanupRelationsOnDestroy(state, eid)
@@ -271,24 +271,16 @@ export function isEntity(world: World, x: unknown): x is EntityId {
 
 // --- Lazy loaders to break import cycles ---
 
-interface ObserversAPI {
+export interface ObserversAPI {
   dispatchDestroyObservers(state: WorldState, eid: EntityId): void
 }
-let _observersAPI: ObserversAPI | null = null
 export function registerObserversAPI(api: ObserversAPI): void {
-  _observersAPI = api
-}
-function lazyObservers(): ObserversAPI {
-  if (!_observersAPI) {
-    return { dispatchDestroyObservers: () => {} }
-  }
-  return _observersAPI
+  shared.hooks.destroyObservers = api
 }
 
-let _relationsCleanup: ((state: WorldState, eid: EntityId) => void) | null = null
 export function registerRelationsCleanup(fn: (state: WorldState, eid: EntityId) => void): void {
-  _relationsCleanup = fn
+  shared.hooks.relationsCleanup = fn
 }
 function cleanupRelationsOnDestroy(state: WorldState, eid: EntityId): void {
-  if (_relationsCleanup) _relationsCleanup(state, eid)
+  shared.hooks.relationsCleanup?.(state, eid)
 }
