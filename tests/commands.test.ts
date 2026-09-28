@@ -6,10 +6,13 @@ import {
   createEntity,
   createWorld,
   defineComponent,
+  defineQuery,
   defineTag,
   destroyEntity,
   entityExists,
+  getWorldSize,
   hasComponent,
+  runQuery,
 } from '../src/index.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -92,5 +95,21 @@ describe('command buffer', () => {
     cb.add(e, Dead)
     flush(cb)
     expect(hasComponent(w, e, Dead)).toBe(true)
+  })
+
+  it('retrying a failed flush does not replay already-applied ops', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld()
+    const cb = createCommandBuffer(w)
+    const stale = createEntity(w)
+    cb.add(cb.create(), A)
+    cb.add(stale, B)
+    destroyEntity(w, stale)
+    expect(() => flush(cb)).toThrow(/dead entity/)
+    expect(getWorldSize(w)).toBe(1)
+    expect(() => flush(cb)).not.toThrow()
+    expect(getWorldSize(w)).toBe(1)
+    expect(runQuery(w, defineQuery([A])).length).toBe(1)
   })
 })

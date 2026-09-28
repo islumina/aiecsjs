@@ -24,16 +24,23 @@ export function createCommandBuffer(world: World): CommandBuffer {
   return makeApi(buf)
 }
 
+// Applies the queued ops, then empties the queue. The queue is detached
+// before any op runs, so if an op throws midway the ops already applied stay
+// applied and the rest are dropped — a retried flush never replays Phase 1
+// (duplicate entities) or the already-applied prefix.
 export function flush(cb: CommandBuffer): void {
   const state = stateOf(cb)
   if (state.flushing) return
   state.flushing = true
   try {
     const world = lookupWorld(state.worldId)
+    const ops = state.ops
+    state.ops = []
+    state.nextPlaceholder = -1
 
     // Phase 1: resolve placeholders by creating real entities first
     const placeholders = new Map<number, EntityId>()
-    for (const op of state.ops) {
+    for (const op of ops) {
       if (op.kind === 'create') {
         placeholders.set(op.placeholder, createEntity(world))
       }
@@ -50,7 +57,7 @@ export function flush(cb: CommandBuffer): void {
     }
 
     // Phase 2: add/remove in queue order
-    for (const op of state.ops) {
+    for (const op of ops) {
       if (op.kind === 'add') {
         addComponent(
           world,
@@ -64,14 +71,11 @@ export function flush(cb: CommandBuffer): void {
     }
 
     // Phase 3: destroy last
-    for (const op of state.ops) {
+    for (const op of ops) {
       if (op.kind === 'destroy') {
         destroyEntity(world, resolve(op.eid))
       }
     }
-
-    state.ops.length = 0
-    state.nextPlaceholder = -1
   } finally {
     state.flushing = false
   }
