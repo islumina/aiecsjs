@@ -917,3 +917,66 @@ describe('reactive queries do not register foreign components in unrelated world
     expect(() => addComponent(wb, e, T)).not.toThrow()
   })
 })
+
+describe('forEachEntity visit stamps: growth and epoch wrap', () => {
+  it('stamps survive a mid-pass capacity growth', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld({ initialCapacity: 4 })
+    const pre = createEntity(w)
+    addComponent(w, pre, A)
+    addComponent(w, pre, B)
+    destroyEntity(w, pre)
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    const visited: number[] = []
+    let grown = false
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      if (!grown) {
+        grown = true
+        for (let i = 0; i < 8; i++) createEntity(w) // grows capacity past 4
+      }
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect(getWorldState(w).visitStamp.length).toBe(getWorldState(w).capacity)
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('the pass stamp wraps without skipping entities', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    const q = defineQuery([A])
+    forEachEntity(w, q, () => {})
+    getWorldState(w).visitEpoch = 0xffffffff
+    const visited: number[] = []
+    forEachEntity(w, q, (e) => visited.push(e as number))
+    expect(visited).toEqual(ents)
+    expect(getWorldState(w).visitEpoch).toBe(1)
+  })
+})
+
+describe('reactive queries with any terms register once an any component exists', () => {
+  it('enter fires when the first any component is added', () => {
+    const A = defineTag()
+    const X = defineTag()
+    const Y = defineTag()
+    const en = enterQuery(defineQuery({ all: [A], any: [X, Y] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, A) // no any component registered in w yet: cannot match
+    expect(getWorldState(w).componentBitFor.has(X.__id)).toBe(false)
+    addComponent(w, e, X)
+    expect(runQuery(w, en)).toEqual([e])
+  })
+})
