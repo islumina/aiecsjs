@@ -19,6 +19,7 @@ import type {
   EntityId,
   SerializeOptions,
   World,
+  WorldOptions,
   WorldSnapshot,
 } from './internal/types.js'
 import { createWorld, getWorldState } from './internal/world.js'
@@ -128,6 +129,9 @@ function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
   return {
     version: state.version,
     capacity: state.capacity,
+    maxEntities: state.options.maxEntities,
+    indexBits: state.options.indexBits,
+    generationBits: state.options.generationBits,
     entities,
   }
 }
@@ -153,9 +157,21 @@ function clampRestoreCapacity(rawCapacity: unknown, entityCount: number): number
   return Math.min(Math.floor(rawCapacity), needed)
 }
 
+// The source world's maxEntities / indexBits / generationBits, so a restored
+// world keeps its limits and bit layout (only the starting capacity is
+// clamped). Non-integer values are ignored; out-of-range bit widths are
+// rejected by createWorld like any other options.
+function restoredWorldOptions(snapshot: WorldSnapshot): WorldOptions {
+  const opts: WorldOptions = {}
+  if (Number.isInteger(snapshot.maxEntities)) opts.maxEntities = snapshot.maxEntities!
+  if (Number.isInteger(snapshot.indexBits)) opts.indexBits = snapshot.indexBits!
+  if (Number.isInteger(snapshot.generationBits)) opts.generationBits = snapshot.generationBits!
+  return opts
+}
+
 export function fromJSON(snapshot: WorldSnapshot): World {
   const initialCapacity = clampRestoreCapacity(snapshot.capacity, snapshot.entities.length)
-  const world = createWorld({ initialCapacity })
+  const world = createWorld({ ...restoredWorldOptions(snapshot), initialCapacity })
   const eidMap = new Map<number, EntityId>()
   for (const e of snapshot.entities) {
     const eid = createEntity(world)

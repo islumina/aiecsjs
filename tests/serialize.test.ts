@@ -19,6 +19,7 @@ import {
   setComponent,
 } from '../src/index.js'
 import type { WorldSnapshot } from '../src/internal/types.js'
+import { getWorldState } from '../src/internal/world.js'
 import {
   createDeltaSerializer,
   deserializeWorld,
@@ -191,6 +192,25 @@ describe('serialize', () => {
     const restored = deserializeWorld(serializeWorld(w), { components: [P] })
     expect(hasComponent(restored, e, P)).toBe(true)
     expect(hasComponent(restored, e, Inv)).toBe(false)
+  })
+
+  it('restored world keeps the source maxEntities / indexBits / generationBits', () => {
+    const w = createWorld({ maxEntities: 5_000_000, indexBits: 23, generationBits: 9 })
+    createEntity(w)
+    for (const restored of [fromJSON(toJSON(w)), deserializeWorld(serializeWorld(w))]) {
+      const opts = getWorldState(restored).options
+      expect(opts.maxEntities).toBe(5_000_000)
+      expect(opts.indexBits).toBe(23)
+      expect(opts.generationBits).toBe(9)
+    }
+  })
+
+  it('restored world keeps a user-supplied maxEntities limit', () => {
+    const T = defineTag()
+    const w = createWorld({ initialCapacity: 4, maxEntities: 4 })
+    for (let i = 0; i < 3; i++) addComponent(w, createEntity(w), T)
+    expect(() => createEntity(w)).toThrow(/maxEntities/)
+    expect(() => createEntity(fromJSON(toJSON(w)))).toThrow(/maxEntities/)
   })
 
   it('delta reset clears prior state', () => {

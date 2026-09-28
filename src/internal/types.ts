@@ -277,6 +277,11 @@ export interface DeserializeOptions {
 export interface WorldSnapshot {
   version: string
   capacity: number
+  // Source world layout / limits. Absent in snapshots from older versions, in
+  // which case the restored world uses the createWorld defaults.
+  maxEntities?: number
+  indexBits?: number
+  generationBits?: number
   entities: Array<{
     eid: number
     components: Array<{
