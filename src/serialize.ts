@@ -264,7 +264,11 @@ function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSna
 interface DeltaState {
   world: World
   components: ComponentLike[]
-  lastSnapshot: WorldSnapshot | null
+  // Per-entity JSON signature of the last captured components. Stored as
+  // strings (not the snapshot objects) because toJSON hands out AoS data by
+  // reference: a retained snapshot would alias the live instances and every
+  // in-place AoS change would compare equal to itself.
+  lastSigs: Map<number, string> | null
 }
 
 export function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer {
@@ -275,19 +279,21 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
       listAllComponents()
         .map((i) => getComponentHandle(i)!)
         .filter(Boolean),
-    lastSnapshot: null,
+    lastSigs: null,
   }
   return {
     capture(): Uint8Array {
       const current = toJSON(state.world)
+      const sigs = new Map<number, string>()
+      for (const e of current.entities) sigs.set(e.eid, JSON.stringify(e.components))
       let delta: WorldSnapshot
-      if (!state.lastSnapshot) {
+      if (!state.lastSigs) {
         delta = current
       } else {
         // Compute simple delta: entities with changed components
-        delta = computeDelta(state.lastSnapshot, current)
+        delta = computeDelta(state.lastSigs, current, sigs)
       }
-      state.lastSnapshot = current
+      state.lastSigs = sigs
       return packBinary(delta)
     },
     apply(targetWorld: World, deltaBytes: Uint8Array): void {
@@ -317,23 +323,19 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
       }
     },
     reset(): void {
-      state.lastSnapshot = null
+      state.lastSigs = null
     },
   }
 }
 
-function computeDelta(prev: WorldSnapshot, curr: WorldSnapshot): WorldSnapshot {
-  const prevByEid = new Map(prev.entities.map((e) => [e.eid, e]))
+function computeDelta(
+  prevSigs: Map<number, string>,
+  curr: WorldSnapshot,
+  currSigs: Map<number, string>,
+): WorldSnapshot {
   const changed: WorldSnapshot['entities'] = []
   for (const e of curr.entities) {
-    const prevE = prevByEid.get(e.eid)
-    if (!prevE) {
-      changed.push(e)
-      continue
-    }
-    const prevSig = JSON.stringify(prevE.components)
-    const currSig = JSON.stringify(e.components)
-    if (prevSig !== currSig) changed.push(e)
+    if (prevSigs.get(e.eid) !== currSigs.get(e.eid)) changed.push(e)
   }
   return { version: curr.version, capacity: curr.capacity, entities: changed }
 }

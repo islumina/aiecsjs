@@ -85,6 +85,23 @@ describe('serialize', () => {
     expect(second.byteLength).toBeLessThan(first.byteLength)
   })
 
+  it('delta serializer replicates in-place AoS changes', () => {
+    const Inv = defineObjectComponent<{ items: string[]; hp?: number }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: [], hp: 10 })
+    const ds = createDeltaSerializer(w)
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(10)
+    setComponent(w, e, Inv, { hp: 5 })
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(5)
+    ;(getComponent(w, e, Inv) as { hp?: number }).hp = 3
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(3)
+  })
+
   it('delta reset clears prior state', () => {
     const { w } = setupWorld()
     const tx = createDeltaSerializer(w)
