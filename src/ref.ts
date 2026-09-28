@@ -38,7 +38,10 @@ export interface EntityRef<T = unknown> {
 
 /**
  * Thrown by `refOf` when the entity is not alive.
- * `deref` and `aliveRef` never throw — they return null/false.
+ * `deref` and `aliveRef` never throw for a live (registered, non-disposed)
+ * world — they return null/false. Both still throw `EcsError` if `world`
+ * itself has already been disposed (`disposeWorld`), same as any other call
+ * that resolves world state.
  */
 export class EntityNotAliveError extends Error {
   readonly eid: number
@@ -78,7 +81,9 @@ export function refOf<T = unknown>(world: World, entity: EntityId): EntityRef<T>
  * 4. entity is not in any archetype's entityRow (slot released)
  * 5. generation mismatch → ABA: old ref points at recycled slot
  *
- * Never throws.
+ * Never throws for a live world. Throws `EcsError` if `world` has already
+ * been disposed via `disposeWorld` — call this before disposal, or catch it
+ * during teardown, if you need this check to run past a world's lifetime.
  */
 export function deref<T = unknown>(world: World, ref: EntityRef<T>): EntityId | null {
   const state = getWorldState(world)
@@ -111,7 +116,7 @@ export function deref<T = unknown>(world: World, ref: EntityRef<T>): EntityId | 
  * Boolean guard form of `deref`. Equivalent to `deref(world, ref) !== null`.
  * Use in guard clauses when you do not need the resolved EntityId.
  *
- * Never throws.
+ * Never throws for a live world; see `deref` for the disposed-world case.
  */
 export function aliveRef<T = unknown>(world: World, ref: EntityRef<T>): boolean {
   return deref(world, ref) !== null

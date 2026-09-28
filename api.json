@@ -1374,7 +1374,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function deref<T = unknown>(world: World, ref: EntityRef<T>): EntityId | null",
-      "summary": "Resolve a ref to its live EntityId, or null if stale / cross-world / OOB. Never throws.",
+      "summary": "Resolve a ref to its live EntityId, or null if stale / cross-world / OOB. Never throws for a live world; throws EcsError if world was already disposed.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         {
@@ -1401,7 +1401,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function aliveRef<T = unknown>(world: World, ref: EntityRef<T>): boolean",
-      "summary": "Boolean guard form of deref. Returns true if ref is alive, false otherwise. Never throws.",
+      "summary": "Boolean guard form of deref. Returns true if ref is alive, false otherwise. Never throws for a live world; see deref for the disposed-world case.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "ref", "type": "EntityRef<T>", "optional": false, "description": "Ref to check." }
@@ -1442,7 +1442,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "class EntityNotAliveError extends Error { readonly eid: number }",
-      "summary": "Thrown by refOf when the entity is not alive. deref and aliveRef never throw.",
+      "summary": "Thrown by refOf when the entity is not alive. deref and aliveRef never throw for a live world (they throw EcsError only if world was already disposed).",
       "params": [],
       "returns": {
         "type": "EntityNotAliveError",
