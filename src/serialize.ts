@@ -339,7 +339,8 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
       // removed on the replica. apply() is additive/updating.
       const targetState = getWorldState(targetWorld)
       for (const e of snapshot.entities) {
-        if (e.eid <= 0 || e.eid >= targetState.options.maxEntities) continue
+        if (!Number.isInteger(e.eid) || e.eid <= 0 || e.eid >= targetState.options.maxEntities)
+          continue
         const eid = ensureEntityAtSlot(targetState, e.eid)
         for (const comp of e.components) {
           if (state.allow && !state.allow.has(comp.id)) continue

@@ -380,6 +380,27 @@ describe('serialize', () => {
     expect(eids).toEqual([1, 3])
   })
 
+  it('apply(): a non-integer eid is rejected instead of corrupting slot allocation', () => {
+    const w = createWorld()
+    const bytes = serializeBinaryFromSnapshot({
+      version: pkg.version,
+      capacity: 8,
+      entities: [
+        { eid: 2.5, components: [{ kind: 'soa', id: Position.__id, data: { x: 7, y: 8 } }] },
+      ],
+    })
+    const ds = createDeltaSerializer(w)
+    expect(() => ds.apply(w, bytes)).not.toThrow()
+    // The fractional eid must be skipped entirely — no entity materialised,
+    // and normal entity creation afterwards must still hand out sane,
+    // distinct, non-colliding ids.
+    expect(toJSON(w).entities.length).toBe(0)
+    const a = createEntity(w)
+    const b = createEntity(w)
+    const c = createEntity(w)
+    expect(new Set([a, b, c]).size).toBe(3)
+  })
+
   // ECS-S-01 (P1/security): a hostile JSON snapshot can inflate the `capacity`
   // field independently of how many entities it actually carries. fromJSON fed
   // that field straight to createWorld({ initialCapacity }), and world.ts clamps
