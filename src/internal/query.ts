@@ -305,9 +305,18 @@ export function* iterQuery(world: World, query: Query): IterableIterator<EntityI
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // Detach the buffer up front (swap in a fresh array) instead of clearing
+    // it after the loop completes, so an early `break` still drains exactly
+    // once instead of re-delivering the same entities on the next read.
+    let src: number[]
+    if (q.reactiveKind === 'enter') {
+      src = buf.entered
+      buf.entered = []
+    } else {
+      src = buf.exited
+      buf.exited = []
+    }
     for (const e of src) yield e as EntityId
-    src.length = 0
     return
   }
   const archIds = getQueryArchetypes(state, q)
@@ -344,14 +353,23 @@ export function forEachEntity(
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // Detach the buffer before calling back, so a callback that throws
+    // partway through still leaves the buffer drained — the already-processed
+    // prefix is not re-delivered on the next read.
+    let src: number[]
+    if (q.reactiveKind === 'enter') {
+      src = buf.entered
+      buf.entered = []
+    } else {
+      src = buf.exited
+      buf.exited = []
+    }
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
       const e = src[i] as EntityId
       callWithCols(fn, e, cols)
     }
-    src.length = 0
     return
   }
 
@@ -467,14 +485,21 @@ export function forEachEntityIndexed(
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // Detach the buffer before calling back — see forEachEntity.
+    let src: number[]
+    if (q.reactiveKind === 'enter') {
+      src = buf.entered
+      buf.entered = []
+    } else {
+      src = buf.exited
+      buf.exited = []
+    }
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
       const e = src[i] as EntityId
       callWithColsIndexed(fn, e, e & indexMask, cols)
     }
-    src.length = 0
     return
   }
 

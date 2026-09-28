@@ -275,6 +275,77 @@ describe('forEachEntityIndexed', () => {
     expect(seen2.length).toBe(0)
   })
 
+  it('iterQuery: an early break still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+
+    // Break out after the first entity without exhausting the generator.
+    for (const _e of iterQuery(w, entering)) {
+      break
+    }
+
+    // The buffer must already be detached/drained — a second read sees
+    // nothing, not a re-delivery of e1 (and e2).
+    expect(runQuery(w, entering)).toEqual([])
+  })
+
+  it('forEachEntity: a throwing callback still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+
+    let calls = 0
+    expect(() => {
+      forEachEntity(w, entering, () => {
+        calls++
+        if (calls === 1) throw new Error('boom')
+      })
+    }).toThrow('boom')
+    expect(calls).toBe(1)
+
+    // The already-processed prefix (e1) must not be re-delivered on retry.
+    const seen: number[] = []
+    forEachEntity(w, entering, (eid) => seen.push(eid as number))
+    expect(seen).toEqual([])
+  })
+
+  it('forEachEntityIndexed: a throwing callback still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const leaving = exitQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+    removeComponent(w, e1, Position)
+    removeComponent(w, e2, Position)
+
+    let calls = 0
+    expect(() => {
+      forEachEntityIndexed(w, leaving, () => {
+        calls++
+        if (calls === 1) throw new Error('boom')
+      })
+    }).toThrow('boom')
+    expect(calls).toBe(1)
+
+    const seen: number[] = []
+    forEachEntityIndexed(w, leaving, (eid) => seen.push(eid as number))
+    expect(seen).toEqual([])
+  })
+
   it('reactive: returns early with no buffer / empty buffer', () => {
     const w = createWorld()
     const q = defineQuery([Position])
