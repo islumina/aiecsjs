@@ -12,7 +12,9 @@ import {
   destroyEntity,
   getComponent,
   getWorldCapacity,
+  getWorldSize,
   hasComponent,
+  removeComponent,
   runQuery,
   setComponent,
 } from '../src/index.js'
@@ -100,6 +102,33 @@ describe('serialize', () => {
     ;(getComponent(w, e, Inv) as { hp?: number }).hp = 3
     ds.apply(replica, ds.capture())
     expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(3)
+  })
+
+  it('component-less live entities survive a round trip', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    createEntity(w)
+    createEntity(w)
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    expect(getWorldSize(w)).toBe(3)
+    expect(toJSON(w).entities.length).toBe(3)
+    expect(getWorldSize(fromJSON(toJSON(w)))).toBe(3)
+    expect(getWorldSize(deserializeWorld(serializeWorld(w)))).toBe(3)
+  })
+
+  it('entity whose last component was removed stays in snapshots and deltas', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    const ds = createDeltaSerializer(w)
+    ds.capture()
+    removeComponent(w, e, P)
+    expect(toJSON(w).entities).toEqual([{ eid: e, components: [] }])
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect(getWorldSize(replica)).toBe(1)
   })
 
   it('delta reset clears prior state', () => {

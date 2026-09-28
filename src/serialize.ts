@@ -59,9 +59,9 @@ export function toJSON(world: World): WorldSnapshot {
   // Iterate by raw slot index; snapshot stores raw idx in the `eid` field
   // (wire format unchanged — idx is used for load-side entity re-creation).
   for (let idx = 1; idx < state.capacity; idx++) {
+    // Archetype 0 is the empty mask, which also holds live component-less
+    // entities, so liveness is decided by the row lookup below, not the id.
     const archId = state.entityArchetype[idx] ?? 0
-    if (archId === 0) continue // slot unused
-
     const arch = state.archetypes[archId]
     if (!arch) continue
 
