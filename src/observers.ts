@@ -179,14 +179,23 @@ function fireRemove(state: WorldState, eid: EntityId, bit: number): void {
 }
 
 function fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void {
+  const w = state.options.maskWordCount
+  const base = ((eid as number) & state.options.indexMask) * w
+  const componentId = state.componentInfoByBit[bit]?.id ?? -1
   const snapshot = Array.from(state.observers)
   for (const obs of snapshot) {
     if (obs.event !== 'set') continue
     if (!state.observers.includes(obs)) continue
     if (obs.componentBit === bit) obs.handler(eid, value)
     else if (obs.queryId !== -1) {
+      // Query 'set' fires when the written component is one of the query's
+      // `all` / `any` terms AND the entity currently matches the query.
       const q = state.queries[obs.queryId]
-      if (q?.all.includes(state.componentInfoByBit[bit]?.id ?? -1)) {
+      const bundle = state.queryMasks.get(obs.queryId)
+      if (!q || !bundle) continue
+      if (!q.all.includes(componentId) && !q.any.includes(componentId)) continue
+      const { withMask, anyMask, noneMask, anyHasBits } = bundle
+      if (matchesEntityMask(state.entityMask, base, w, withMask, anyMask, noneMask, anyHasBits)) {
         obs.handler(eid, value)
       }
     }

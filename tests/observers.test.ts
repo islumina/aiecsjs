@@ -155,6 +155,32 @@ describe('component observers', () => {
     expect(seen).toEqual([])
   })
 
+  it("query 'set' observer does not fire for an entity that does not match", () => {
+    const w = createWorld()
+    const P = defineComponent({ x: Types.f32 })
+    const B = defineTag()
+    const seen: number[] = []
+    observe(w, defineQuery([P, B]), 'set', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    setComponent(w, e, P, { x: 2 })
+    expect(seen).toEqual([])
+    addComponent(w, e, B)
+    setComponent(w, e, P, { x: 3 })
+    expect(seen).toEqual([e])
+  })
+
+  it("query 'set' observer fires for a component listed only in any", () => {
+    const w = createWorld()
+    const P = defineComponent({ x: Types.f32 })
+    const seen: number[] = []
+    observe(w, defineQuery({ any: [P] }), 'set', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    setComponent(w, e, P, { x: 3 })
+    expect(seen).toEqual([e])
+  })
+
   it('onAdd { signal } unsubscribes when the signal aborts', () => {
     const w = createWorld()
     const ac = new AbortController()
