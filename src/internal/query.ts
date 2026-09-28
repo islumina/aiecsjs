@@ -28,6 +28,8 @@ import {
 
 // Shared across every loaded copy of the package (see registry.ts).
 const moduleQueryCache = shared.queryCache
+const reactiveBySource = shared.reactiveBySource
+const reactiveSourcesByComponent = shared.reactiveSourcesByComponent
 
 function descKey(d: QueryDescriptor): string {
   const all = (d.all ?? [])
@@ -104,6 +106,7 @@ export function enterQuery(query: Query): Query {
     sourceQuery: q,
   }
   moduleQueryCache.set(key, reactive)
+  indexReactive(q, reactive)
   return reactive
 }
 
@@ -134,7 +137,26 @@ export function exitQuery(query: Query): Query {
     sourceQuery: q,
   }
   moduleQueryCache.set(key, reactive)
+  indexReactive(q, reactive)
   return reactive
+}
+
+// Index a new enter/exit variant so structural changes find it without
+// scanning the module query cache: by its source query (pushReactive) and, on
+// the source's first variant, by every component the source references
+// (recordEntityMaskChange).
+function indexReactive(source: QueryInternal, reactive: QueryInternal): void {
+  const variants = reactiveBySource.get(source.id)
+  if (variants) {
+    variants.push(reactive)
+    return
+  }
+  reactiveBySource.set(source.id, [reactive])
+  for (const id of new Set([...source.all, ...source.any, ...source.none])) {
+    const list = reactiveSourcesByComponent.get(id)
+    if (list) list.push(source)
+    else reactiveSourcesByComponent.set(id, [source])
+  }
 }
 
 // Normalise the query argument of the read/iterate entry points. A raw
@@ -543,12 +565,19 @@ export function recordEntityMaskChange(
   prevMask: Uint32Array,
   nextMask: Uint32Array,
 ): void {
-  // Lazy-register any reactive queries (and their sources) so we can correctly
-  // determine match transitions even if the user only ever called enterQuery/exitQuery.
-  for (const q of moduleQueryCache.values()) {
-    if (q.reactiveKind === 'normal') continue
-    if (q.sourceQuery && state.queries[q.sourceQuery.id] !== q.sourceQuery) {
-      ensureQueryRegistered(state, q.sourceQuery)
+  // Lazy-register the sources of reactive queries that reference the changed
+  // component, so match transitions are tracked even if the user only ever
+  // called enterQuery/exitQuery. Only sources that can match in this world
+  // are registered: one whose `all` (or entire `any`) components this world
+  // has never registered cannot match any of its entities, and registering it
+  // would allocate storage (and burn component bits) for foreign components.
+  // It is picked up by a later change once those components exist here.
+  const changedId = state.componentInfoByBit[changedBit]?.id
+  const sources = changedId === undefined ? undefined : reactiveSourcesByComponent.get(changedId)
+  if (sources) {
+    for (const src of sources) {
+      if (state.queries[src.id] === src) continue
+      if (canMatchIn(state, src)) ensureQueryRegistered(state, src)
     }
   }
 
@@ -591,10 +620,11 @@ function pushReactive(
   kind: 'enter' | 'exit',
   eid: EntityId,
 ): void {
-  // Walk the module cache (not just state.queries) so reactive variants that
-  // haven't been registered with this world yet still receive events.
-  for (const r of moduleQueryCache.values()) {
-    if (r.sourceQueryId !== queryId) continue
+  // Use the module-wide variant index (not just state.queries) so reactive
+  // variants that haven't been registered with this world yet still receive events.
+  const variants = reactiveBySource.get(queryId)
+  if (!variants) return
+  for (const r of variants) {
     if (r.reactiveKind !== kind) continue
     // Lazily register the reactive query in this world so subsequent reads can find it
     ensureQueryRegistered(state, r)
@@ -602,6 +632,16 @@ function pushReactive(
     if (kind === 'enter') buf.entered.push(eid as number)
     else buf.exited.push(eid as number)
   }
+}
+
+// Whether any entity of this world could match `q` given the components the
+// world has registered: every `all` component, and at least one `any`
+// component when `any` is non-empty. (`none` components need not exist.)
+function canMatchIn(state: WorldState, q: QueryInternal): boolean {
+  for (const id of q.all) if (!state.componentBitFor.has(id)) return false
+  if (q.any.length === 0) return true
+  for (const id of q.any) if (state.componentBitFor.has(id)) return true
+  return false
 }
 
 function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
@@ -630,5 +670,7 @@ registerMaskChangeDispatch(recordEntityMaskChange)
 
 export function _resetQueryRegistry_FOR_TESTS_ONLY(): void {
   moduleQueryCache.clear()
+  reactiveBySource.clear()
+  reactiveSourcesByComponent.clear()
   ids.query = 1
 }

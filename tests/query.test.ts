@@ -23,6 +23,7 @@ import {
   runQuery,
   setComponent,
 } from '../src/index.js'
+import { getWorldState } from '../src/internal/world.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -879,5 +880,40 @@ describe('in-loop archetype moves visit each matching entity once per pass', () 
       })
     })
     expect(pairs).toBe(9)
+  })
+})
+
+describe('reactive queries do not register foreign components in unrelated worlds', () => {
+  it('a reactive query over components a world never uses registers nothing there', () => {
+    const Big = defineComponent({ a: Types.f64, b: Types.f64 })
+    enterQuery(defineQuery([Big]))
+    const T = defineTag()
+    const wb = createWorld({ initialCapacity: 100_000 })
+    addComponent(wb, createEntity(wb), T)
+    expect(getWorldState(wb).componentBitFor.has(Big.__id)).toBe(false)
+  })
+
+  it('enter/exit are still captured before the first read once the components exist', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const D = defineTag()
+    const q = defineQuery({ all: [A, B], none: [D] })
+    const en = enterQuery(q)
+    const ex = exitQuery(q)
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, A) // B not registered in w yet: q cannot match
+    addComponent(w, e, B) // enters
+    addComponent(w, e, D) // exits via a none term
+    expect(runQuery(w, en)).toEqual([e])
+    expect(runQuery(w, ex)).toEqual([e])
+  })
+
+  it('many foreign reactive queries cannot exhaust an unrelated world maxComponents', () => {
+    for (let i = 0; i < 256; i++) enterQuery(defineQuery([defineTag()]))
+    const T = defineTag()
+    const wb = createWorld()
+    const e = createEntity(wb)
+    expect(() => addComponent(wb, e, T)).not.toThrow()
   })
 })

@@ -28,6 +28,10 @@ interface IdCounters {
 interface SharedRegistry {
   componentInfoById: Map<number, ComponentInfo>
   queryCache: Map<string, QueryInternal>
+  // source query id → its enter/exit variants
+  reactiveBySource: Map<number, QueryInternal[]>
+  // component id → source queries (with a reactive variant) that reference it
+  reactiveSourcesByComponent: Map<number, QueryInternal[]>
   worlds: Map<number, WorldState>
   childOf: Relation | null
   hooks: {
@@ -48,6 +52,8 @@ const SHARED_KEY = Symbol.for(`aiecsjs.registry@${VERSION}`)
 g[SHARED_KEY] ??= {
   componentInfoById: new Map(),
   queryCache: new Map(),
+  reactiveBySource: new Map(),
+  reactiveSourcesByComponent: new Map(),
   worlds: new Map(),
   childOf: null,
   hooks: {
