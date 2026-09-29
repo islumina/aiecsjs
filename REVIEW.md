@@ -1,6 +1,6 @@
 # aiecsjs Review
 
-Current review state after the 2026-09-29 ai*js 0.6.0 pass. Historical fixed findings were summarized to keep AI context focused on still-relevant work.
+Current review state after the 2026-09-29 ai*js 0.6.0 pass. Historical fixed findings were summarised to keep AI context focused on still-relevant work.
 
 ## Current Known Issues / Backlog
 
