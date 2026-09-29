@@ -89,6 +89,34 @@ describe('component keys', () => {
     )
     expect(ids.component).toBe(before)
   })
+
+  it('returns the existing component when a key is redefined with the same layout', () => {
+    newProcess()
+    const Pos = defineComponent({ x: Types.f32, v: [Types.f32, 2] }, { key: 'pos' })
+    const Tag = defineTag({ key: 't' })
+    const Bag = defineObjectComponent(() => ({ n: 1 }), { key: 'bag' })
+    const before = ids.component
+    // A module re-run (HMR, editor script reload) defines the same keys again.
+    const Pos2 = defineComponent({ x: Types.f32, v: [Types.f32, 2] }, { key: 'pos' })
+    const Tag2 = defineTag({ key: 't' })
+    const Bag2 = defineObjectComponent(() => ({ n: 2 }), { key: 'bag' })
+    expect(ids.component).toBe(before)
+    expect(Pos2.__id).toBe(Pos.__id)
+    expect(Tag2.__id).toBe(Tag.__id)
+    expect(Bag2.__id).toBe(Bag.__id)
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Bag)
+    expect(getComponent(w, e, Bag)).toEqual({ n: 2 })
+    expect(() => defineComponent({ x: Types.f64, v: [Types.f32, 2] }, { key: 'pos' })).toThrow(
+      /component key "pos" is already defined with a different layout/,
+    )
+    expect(() => defineComponent({ x: Types.f32, v: [Types.f32, 3] }, { key: 'pos' })).toThrow(
+      EcsError,
+    )
+    expect(() => defineComponent({ x: Types.f32 }, { key: 't' })).toThrow(EcsError)
+    expect(ids.component).toBe(before)
+  })
 })
 
 describe('snapshot format 2', () => {

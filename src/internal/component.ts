@@ -66,8 +66,27 @@ function registerComponent(
     if (typeof key !== 'string' || key === '') {
       throw new EcsError('aiecsjs: component key must be a non-empty string')
     }
-    if (componentInfoByKey.has(key)) {
-      throw new EcsError(`aiecsjs: component key "${key}" is already defined`)
+    // Re-running a definition (HMR, editor script reload) with the same kind
+    // and field layout returns the existing component; the newest AoS factory
+    // wins. A different layout under the same key is a real collision.
+    const prev = componentInfoByKey.get(key)
+    if (prev) {
+      if (
+        prev.kind !== kind ||
+        prev.fields.length !== fields.length ||
+        prev.fields.some(
+          (f, i) =>
+            f.name !== fields[i]!.name ||
+            f.type !== fields[i]!.type ||
+            f.vectorLen !== fields[i]!.vectorLen,
+        )
+      ) {
+        throw new EcsError(
+          `aiecsjs: component key "${key}" is already defined with a different layout`,
+        )
+      }
+      if (factory) prev.factory = factory
+      return prev.id
     }
   }
   const id = ids.component++
@@ -83,8 +102,9 @@ function registerComponent(
  * `options.key` gives the component a stable identity for snapshots: loaders
  * match snapshot data to components by key (by creation-order id when keyless),
  * so a keyed component survives a different definition order in the loading
- * process. The key must be a non-empty string that no other component in this
- * process uses (`EcsError` otherwise).
+ * process. The key must be a non-empty string. Defining the same key again with
+ * the same kind and field layout (a module re-run by HMR or an editor reload)
+ * returns the existing component; a different layout throws `EcsError`.
  */
 export function defineComponent<S extends SoASchema>(
   schema: S,

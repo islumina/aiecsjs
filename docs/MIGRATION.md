@@ -259,7 +259,7 @@ tick(world, 1/60)
 
 0.6.0 writes snapshot format 2. A format 2 snapshot carries a table of the components it uses, and loaders match data to components through that table instead of trusting creation-order ids. In 0.5.x, defining components in a different order in the loading session silently put data into the wrong components.
 
-1. **Give every saved component a stable key.** The key must be a non-empty string, unique in the process:
+1. **Give every saved component a stable key.** The key must be a non-empty string, used by one component layout in the process (re-running the same definition, as HMR does, returns the existing component):
 
    ```ts
    const Position = defineComponent({ x: Types.f32, y: Types.f32 }, { key: "position" })

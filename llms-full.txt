@@ -145,7 +145,7 @@ All notable changes to aiecsjs are summarized here. Detailed historical review n
 
 ### Changes
 
-- Added: stable component keys: `defineComponent(schema, { key })`, `defineTag({ key })` and `defineObjectComponent(factory, { key })`; a key must be a non-empty string that is unique in the process (`EcsError` otherwise).
+- Added: stable component keys: `defineComponent(schema, { key })`, `defineTag({ key })` and `defineObjectComponent(factory, { key })`; a key must be a non-empty string (`EcsError` otherwise); defining a key again with the same kind and field layout (HMR, editor script reload) returns the existing component, and a different layout throws `EcsError`.
 - Added: `DeserializeOptions.onUnknownComponent` (`'throw'` by default, or `'skip'`); `fromJSON(snapshot, options?)` takes `DeserializeOptions` (including the `components` allowlist), and `adoptSnapshot(snap, options?)` and `attachWorld(buffer, { readOnly?, ...DeserializeOptions })` pass them through.
 - Added: the `EcsError` constructor accepts an optional `{ cause }`.
 - Changed: every plain `Error` misuse throw (read-only guards, the dead-entity guards of `addComponent` / `setComponent`, unregistered components, the missing empty archetype guard, binary snapshot header and body errors, worker meta errors, command-buffer errors) is now `EcsError` with the same message, so callers can branch on the class; `instanceof Error` checks and message matches keep working.
