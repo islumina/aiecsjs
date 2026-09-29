@@ -1,8 +1,8 @@
 {
   "$schema": "https://islumina.github.io/aiecsjs/api-schema.json",
   "name": "aiecsjs",
-  "version": "0.5.0",
-  "generated": "2026-05-29",
+  "version": "0.6.0",
+  "generated": "2026-09-29",
   "stability": "experimental",
   "license": "MIT",
   "repository": "https://github.com/islumina/aiecsjs",
@@ -119,6 +119,12 @@
         "type": "World",
         "description": "Opaque world handle passed to all other API calls."
       },
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "initialCapacity, maxEntities, indexBits or generationBits is not an integer (checked first), indexBits is outside [1, 24], generationBits is outside [0, 16], or their sum exceeds 32."
+        }
+      ],
       "examples": [
         { "title": "Minimal world", "code": "const world = createWorld()" },
         {
@@ -179,11 +185,12 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function resetWorld(world: World): void",
-      "summary": "Wipe entities and components but keep the world allocated. Useful for hot module reload.",
+      "summary": "Wipe entities, components and relation edges but keep the world allocated (capacity and registered components). Useful for hot module reload.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "World to reset." }
       ],
       "returns": { "type": "void", "description": "" },
+      "throws": [{ "type": "EcsError", "when": "world is read-only (worker-attached, since 0.6.0)." }],
       "examples": [
         {
           "title": "Reset for HMR",
@@ -242,7 +249,9 @@
         "type": "EntityId",
         "description": "Branded number containing index + generation."
       },
-      "throws": [{ "type": "Error", "when": "world has reached maxEntities cap." }],
+      "throws": [
+        { "type": "EcsError", "when": "world has reached its maxEntities cap, or is read-only." }
+      ],
       "examples": [{ "title": "Spawn one entity", "code": "const e = createEntity(world)" }],
       "seeAlso": ["destroyEntity", "entityExists", "packEntity"]
     },
@@ -254,7 +263,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function destroyEntity(world: World, eid: EntityId): void",
-      "summary": "Remove all components, bump generation, free slot.",
+      "summary": "Remove all components and relation edges, bump generation, free slot. No-op for a dead entity.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         {
@@ -265,6 +274,7 @@
         }
       ],
       "returns": { "type": "void", "description": "" },
+      "throws": [{ "type": "EcsError", "when": "world is read-only." }],
       "examples": [
         {
           "title": "Cleanup dead entity",
@@ -364,20 +374,30 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>",
-      "summary": "Declare a Structure-of-Arrays component. Each field becomes a TypedArray column indexed by entity ID.",
+      "signature": "function defineComponent<S extends SoASchema>(schema: S, options?: { key?: string }): SoAComponent<S>",
+      "summary": "Declare a Structure-of-Arrays component. Each field becomes a TypedArray column indexed by entity slot index. `options.key` (since 0.6.0) is the stable identity snapshots use to match data to this component.",
       "params": [
         {
           "name": "schema",
           "type": "SoASchema",
           "optional": false,
           "description": "Map of field name → field type. Field type is a member of Types, or [type, vectorLength] for fixed-size vectors."
+        },
+        {
+          "name": "options",
+          "type": "{ key?: string }",
+          "optional": true,
+          "description": "Stable serialization key: a non-empty string, unique in the process. Snapshot loaders resolve keyed components by key, keyless ones by creation-order id."
         }
       ],
       "returns": {
         "type": "SoAComponent<S>",
         "description": "Component handle used in addComponent/getComponent/etc."
       },
+      "throws": [
+        { "type": "TypeError", "when": "a field declaration or field type is invalid." },
+        { "type": "EcsError", "when": "options.key is empty, not a string, or already defined." }
+      ],
       "examples": [
         {
           "title": "Position with two scalars",
@@ -386,6 +406,10 @@
         {
           "title": "Transform with vector field",
           "code": "const Transform = defineComponent({ pos: [Types.f32, 3], scale: Types.f32 })"
+        },
+        {
+          "title": "Keyed for snapshots",
+          "code": "const Position = defineComponent({ x: Types.f32, y: Types.f32 }, { key: 'position' })"
         }
       ],
       "seeAlso": ["defineTag", "defineObjectComponent", "Types", "addComponent"]
@@ -397,9 +421,16 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function defineTag(): TagComponent",
-      "summary": "Declare a zero-byte tag component. No fields.",
-      "params": [],
+      "signature": "function defineTag(options?: { key?: string }): TagComponent",
+      "summary": "Declare a zero-byte tag component. No fields. `options.key` (since 0.6.0): see defineComponent.",
+      "params": [
+        {
+          "name": "options",
+          "type": "{ key?: string }",
+          "optional": true,
+          "description": "Stable serialization key; see defineComponent."
+        }
+      ],
       "returns": { "type": "TagComponent", "description": "Tag component handle." },
       "examples": [{ "title": "Player tag", "code": "const Player = defineTag()" }],
       "seeAlso": ["defineComponent"]
@@ -411,17 +442,29 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function defineObjectComponent<T>(factory?: () => T): AoSComponent<T>",
+      "signature": "function defineObjectComponent<T>(factory?: () => T, options?: { key?: string }): AoSComponent<T>",
       "summary": "Declare an Array-of-Structures component. Each entity stores a separate JS object. Main-thread only.",
       "params": [
         {
           "name": "factory",
           "type": "() => T",
           "optional": true,
-          "description": "Default value factory invoked ONCE at definition time. Mutate per-entity instances via setComponent/getComponent."
+          "description": "Called once per entity, when the component is first added, to create that entity's instance (default `() => ({})`). Must return a value other than null or undefined. Initial data is copied onto the instance."
+        },
+        {
+          "name": "options",
+          "type": "{ key?: string }",
+          "optional": true,
+          "description": "Stable serialization key; see defineComponent."
         }
       ],
       "returns": { "type": "AoSComponent<T>", "description": "AoS component handle." },
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "factory is given but not a function, or options.key is invalid or already defined."
+        }
+      ],
       "examples": [
         {
           "title": "Reference to a Three.js mesh",
@@ -462,8 +505,10 @@
       ],
       "returns": { "type": "void", "description": "" },
       "throws": [
-        { "type": "TypeError", "when": "component is not a ComponentLike." },
-        { "type": "Error", "when": "eid does not exist (dev mode only)." }
+        {
+          "type": "EcsError",
+          "when": "eid is not alive, the component is not registered, the world is read-only, or an AoS factory returns null/undefined (before the entity changes)."
+        }
       ],
       "examples": [
         {
@@ -577,6 +622,12 @@
         { "name": "value", "type": "V", "optional": false, "description": "New values." }
       ],
       "returns": { "type": "void", "description": "" },
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "eid is not alive, the component is not registered, or the world is read-only."
+        }
+      ],
       "examples": [
         { "title": "Set SoA", "code": "setComponent(world, e, Position, { x: 5, y: 10 })" }
       ],
@@ -623,7 +674,8 @@
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "query", "type": "Query", "optional": false, "description": "Query handle." }
       ],
-      "returns": { "type": "readonly EntityId[]", "description": "Frozen array of entity IDs." },
+      "returns": { "type": "Query", "description": "Cached query handle." },
+      "throws": [{ "type": "TypeError", "when": "a member is not a component handle." }],
       "examples": [],
       "seeAlso": ["forEachEntity", "iterQuery"]
     },
@@ -653,6 +705,10 @@
           "code": "forEachEntity(world, movers, (e, pos, vel) => { const i = getEntityIndex(e); pos.x[i] += vel.x[i]; pos.y[i] += vel.y[i] })"
         }
       ],
+      "throws": [
+        { "type": "TypeError", "when": "query is neither a Query nor a component array." },
+        { "type": "EcsError", "when": "fn is not a function (checked before a reactive buffer is drained)." }
+      ],
       "seeAlso": ["defineQuery", "runQuery", "forEachEntityIndexed", "iterQuery"]
     },
     {
@@ -680,6 +736,10 @@
           "title": "Update positions (safe column indexing)",
           "code": "forEachEntityIndexed(world, movers, (e, i, pos, vel) => { pos.x[i] += vel.x[i]; pos.y[i] += vel.y[i] })"
         }
+      ],
+      "throws": [
+        { "type": "TypeError", "when": "query is neither a Query nor a component array." },
+        { "type": "EcsError", "when": "fn is not a function (checked before a reactive buffer is drained)." }
       ],
       "seeAlso": ["forEachEntity", "defineQuery", "runQuery", "iterQuery"]
     },
@@ -710,11 +770,17 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function enterQuery(query: Query): Query",
-      "summary": "Reactive query that yields only entities newly matching this frame.",
+      "summary": "Reactive query that yields only entities newly matching since the last read. The buffer is unbounded until drained.",
       "params": [
-        { "name": "query", "type": "Query", "optional": false, "description": "Source query." }
+        {
+          "name": "query",
+          "type": "Query",
+          "optional": false,
+          "description": "Source query (a raw component array is accepted, as for runQuery)."
+        }
       ],
       "returns": { "type": "Query", "description": "Reactive query handle." },
+      "throws": [{ "type": "TypeError", "when": "query is neither a Query nor a component array." }],
       "examples": [
         { "title": "Mount-on-enter", "code": "const becameVisible = enterQuery(visibleQ)" }
       ],
@@ -728,11 +794,17 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function exitQuery(query: Query): Query",
-      "summary": "Reactive query that yields only entities that left the match this frame.",
+      "summary": "Reactive query that yields only entities that left the match since the last read. The buffer is unbounded until drained.",
       "params": [
-        { "name": "query", "type": "Query", "optional": false, "description": "Source query." }
+        {
+          "name": "query",
+          "type": "Query",
+          "optional": false,
+          "description": "Source query (a raw component array is accepted, as for runQuery)."
+        }
       ],
       "returns": { "type": "Query", "description": "Reactive query handle." },
+      "throws": [{ "type": "TypeError", "when": "query is neither a Query nor a component array." }],
       "examples": [],
       "seeAlso": ["enterQuery", "defineQuery"]
     },
@@ -776,6 +848,7 @@
         }
       ],
       "returns": { "type": "System<W, Ctx>", "description": "Composed system." },
+      "throws": [{ "type": "EcsError", "when": "a system is not a function (checked at composition)." }],
       "examples": [
         {
           "title": "Frame tick",
@@ -802,6 +875,16 @@
         }
       ],
       "returns": { "type": "{ start(), stop() }", "description": "Loop control handle." },
+      "throws": [
+        {
+          "type": "TypeError",
+          "when": "options is not an object, onUpdate is not a function, or onRender is set but not a function."
+        },
+        {
+          "type": "RangeError",
+          "when": "fixed is not a finite number > 0, or maxSubSteps is not a finite number >= 1."
+        }
+      ],
       "examples": [
         {
           "title": "60Hz loop",
@@ -869,6 +952,7 @@
         }
       ],
       "returns": { "type": "R", "description": "Whatever the callback returned." },
+      "throws": [{ "type": "EcsError", "when": "fn is not a function." }],
       "examples": [
         {
           "title": "Safe destroy in iter",
@@ -885,7 +969,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function observe(world: World, query: Query, event: 'add' | 'remove' | 'set', handler: (eid: EntityId) => void, opts?: ObserverOptions): () => void",
-      "summary": "General-purpose query observer. Returns a disposer. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
+      "summary": "General-purpose query observer: 'add' when an entity starts matching, 'remove' when it stops (including destroy), 'set' after setComponent writes an all/any component of a matching entity. Accepts a raw component array. Returns a disposer. `opts.signal` (since 0.2.0) auto-unsubscribes when aborted.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "query", "type": "Query", "optional": false, "description": "Query handle." },
@@ -909,6 +993,7 @@
         }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
+      "throws": [{ "type": "EcsError", "when": "handler is not a function." }],
       "examples": [],
       "seeAlso": ["onAdd", "onRemove", "onSet"]
     },
@@ -943,6 +1028,7 @@
         }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
+      "throws": [{ "type": "EcsError", "when": "handler is not a function." }],
       "examples": [],
       "seeAlso": ["onRemove", "onSet", "observe"]
     },
@@ -977,6 +1063,7 @@
         }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
+      "throws": [{ "type": "EcsError", "when": "handler is not a function." }],
       "examples": [],
       "seeAlso": ["onAdd", "onSet"]
     },
@@ -1006,6 +1093,7 @@
         }
       ],
       "returns": { "type": "() => void", "description": "Disposer." },
+      "throws": [{ "type": "EcsError", "when": "handler is not a function." }],
       "examples": [],
       "seeAlso": ["onAdd", "onRemove"]
     },
@@ -1017,7 +1105,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function serializeWorld(world: World, options?: SerializeOptions): Uint8Array",
-      "summary": "Produce a versioned binary snapshot of the world.",
+      "summary": "Produce a versioned binary snapshot of the world (format 2: magic, format version, VERSION, JSON body with the component table).",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         {
@@ -1051,11 +1139,16 @@
           "name": "options",
           "type": "DeserializeOptions",
           "optional": true,
-          "description": "Migration behaviour for unknown versions."
+          "description": "Same as fromJSON: components allowlist, onUnknownVersion (also checked against the binary header), onUnknownComponent."
         }
       ],
       "returns": { "type": "World", "description": "Restored world." },
-      "throws": [{ "type": "Error", "when": "version mismatch and onUnknownVersion is 'throw'." }],
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "the bytes are malformed, the format version is not 2 and onUnknownVersion is not 'best-effort', a component is undefined here and onUnknownComponent is not 'skip', or a component kind/SoA fields mismatch."
+        }
+      ],
       "examples": [],
       "seeAlso": ["serializeWorld"]
     },
@@ -1067,7 +1160,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function toJSON(world: World): WorldSnapshot",
-      "summary": "Produce a human-readable JSON snapshot. Slower than serializeWorld; inspectable in DevTools.",
+      "summary": "Produce a human-readable JSON snapshot (format 2: `formatVersion: 2`, a `components` table with id/key/kind/fields, and per-entity data). AoS data is deep-copied. Slower than serializeWorld; inspectable in DevTools.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." }
       ],
@@ -1082,17 +1175,29 @@
       "since": "0.1.0",
       "stability": "stable",
       "deprecated": false,
-      "signature": "function fromJSON(snapshot: WorldSnapshot): World",
-      "summary": "Restore from a JSON snapshot.",
+      "signature": "function fromJSON(snapshot: WorldSnapshot, options?: DeserializeOptions): World",
+      "summary": "Restore from a JSON snapshot. Every component is resolved (by key, by creation-order id when keyless) and checked for kind/SoA fields before the world is created. Entities get fresh ids in snapshot order.",
       "params": [
         {
           "name": "snapshot",
           "type": "WorldSnapshot",
           "optional": false,
           "description": "Snapshot from toJSON."
+        },
+        {
+          "name": "options",
+          "type": "DeserializeOptions",
+          "optional": true,
+          "description": "components allowlist, onUnknownVersion ('throw' | 'best-effort'), onUnknownComponent ('throw' | 'skip'). Since 0.6.0."
         }
       ],
       "returns": { "type": "World", "description": "Restored world." },
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "snapshot is not an object with an entities array, formatVersion is not 2 and onUnknownVersion is not 'best-effort', a component is undefined here and onUnknownComponent is not 'skip', or a component kind/SoA fields mismatch."
+        }
+      ],
       "examples": [],
       "seeAlso": ["toJSON"]
     },
@@ -1104,7 +1209,7 @@
       "stability": "experimental",
       "deprecated": false,
       "signature": "function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer",
-      "summary": "Capture only changes since the previous capture. For network replication. Wire format may change before 1.0.",
+      "summary": "Capture only changes since the previous capture. For network replication. Each capture carries formatVersion 2 and the component table; apply() resolves it like fromJSON (unknown components throw) before touching the target, and keeps slot indices. Wire format may change before 1.0.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         {
@@ -1151,14 +1256,20 @@
       "since": "0.1.0",
       "stability": "experimental",
       "deprecated": false,
-      "signature": "function adoptSnapshot(snap: { buffer: SharedArrayBuffer; meta: WorldMeta }): World",
-      "summary": "On the Worker side, materialise a world from a snapshot sent over postMessage.",
+      "signature": "function adoptSnapshot(snap: TransferableSnapshot, options?: DeserializeOptions): World",
+      "summary": "On the Worker side, materialise a world from a snapshot sent over postMessage. Validates the meta (magic, format version 2 unless onUnknownVersion is 'best-effort') and resolves components like deserializeWorld.",
       "params": [
         {
           "name": "snap",
           "type": "TransferableSnapshot",
           "optional": false,
           "description": "Snapshot received via onmessage."
+        },
+        {
+          "name": "options",
+          "type": "DeserializeOptions",
+          "optional": true,
+          "description": "Same as deserializeWorld. Since 0.6.0."
         }
       ],
       "returns": {
@@ -1175,8 +1286,8 @@
       "since": "0.1.0",
       "stability": "experimental",
       "deprecated": false,
-      "signature": "function attachWorld(buffer: SharedArrayBuffer, options?: { readOnly?: boolean }): World",
-      "summary": "Attach to a SAB that was set up by another thread. Use readOnly when this thread should only read.",
+      "signature": "function attachWorld(buffer: SharedArrayBuffer | ArrayBuffer, options?: DeserializeOptions & { readOnly?: boolean }): World",
+      "summary": "Attach to a SAB that was set up by another thread. Use readOnly when this thread should only read: every mutator, resetWorld included, then throws EcsError.",
       "params": [
         {
           "name": "buffer",
@@ -1186,9 +1297,9 @@
         },
         {
           "name": "options",
-          "type": "{ readOnly?: boolean }",
+          "type": "DeserializeOptions & { readOnly?: boolean }",
           "optional": true,
-          "description": "Attach flags."
+          "description": "readOnly flag plus the deserializeWorld options (onUnknownVersion, onUnknownComponent, components)."
         }
       ],
       "returns": { "type": "World", "description": "Attached world view." },
@@ -1245,9 +1356,21 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function addRelation<T>(world: World, source: EntityId, rel: Relation<T>, target: EntityId, data?: T): void",
-      "summary": "Add a relation edge from source to target.",
-      "params": [],
+      "summary": "Add a relation edge from source to target (replacing the current target of an exclusive relation), optionally with a data payload.",
+      "params": [
+        { "name": "world", "type": "World", "optional": false, "description": "Target world." },
+        { "name": "source", "type": "EntityId", "optional": false, "description": "Live source entity." },
+        { "name": "rel", "type": "Relation<T>", "optional": false, "description": "Relation handle." },
+        { "name": "target", "type": "EntityId", "optional": false, "description": "Live target entity." },
+        { "name": "data", "type": "T", "optional": true, "description": "Edge payload for getRelationData." }
+      ],
       "returns": { "type": "void", "description": "" },
+      "throws": [
+        {
+          "type": "EcsError",
+          "when": "source or target is not alive (since 0.6.0), rel is not a relation handle, or the world is read-only."
+        }
+      ],
       "examples": [
         {
           "title": "Mark Alice as child of Parent",
@@ -1292,7 +1415,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function getRelationData<T>(world: World, source: EntityId, rel: Relation<T>, target: EntityId): T | undefined",
-      "summary": "Read the data payload attached to a relation edge. Returns the value passed as `data` to `addRelation`, or `undefined` if no such edge exists or no data was stored. Subject to raw slot-keying: edges are keyed by slot index, not generation; validate liveness with `entityExists` if slot recycling is a concern.",
+      "summary": "Read the data payload attached to a relation edge. Returns the value passed as `data` to `addRelation`, or `undefined` if no such edge exists or no data was stored. Edges are keyed by slot index; storage never holds an edge for a dead entity, but a stale EntityId addresses its slot's current occupant, so validate cached ids with `entityExists`.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         { "name": "source", "type": "EntityId", "optional": false, "description": "Source entity." },
@@ -1419,8 +1542,8 @@
       "since": "0.5.6",
       "stability": "stable",
       "deprecated": false,
-      "signature": "class EcsError extends Error {}",
-      "summary": "Thrown by core world/entity/component operations for invariant violations and misuse (bad world options, a destroyed or unknown world, exhausted component slots, capacity overflow). Carries the aiecsjs:-prefixed message.",
+      "signature": "class EcsError extends Error { constructor(message: string, options?: { cause?: unknown }) }",
+      "summary": "Thrown by aiecsjs for invariant violations and misuse, before any change is made: bad or non-integer world options, a destroyed/unknown world, dead entities, unregistered components, invalid component keys, non-function callbacks or factories, dead relation endpoints, read-only world mutations, command-buffer errors and snapshot errors (malformed bytes, unsupported format version, unknown or mismatched components). Carries the aiecsjs:-prefixed message.",
       "params": [],
       "returns": {
         "type": "EcsError",
@@ -1472,7 +1595,7 @@
       "module": "aiecsjs",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "type WorldOptions = { initialCapacity?: number; maxEntities?: number; indexBits?: 20 | 24; generationBits?: 8 | 12 | 16; buffer?: SharedArrayBuffer; bufferByteOffset?: number }"
+      "definition": "type WorldOptions = { initialCapacity?: number; maxEntities?: number; indexBits?: number; generationBits?: number; buffer?: SharedArrayBuffer; bufferByteOffset?: number } // numeric options must be integers; indexBits 1-24, generationBits 0-16, sum <= 32; buffer/bufferByteOffset reserved (no effect)"
     },
     {
       "name": "World",
@@ -1504,7 +1627,7 @@
       "module": "aiecsjs",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "interface SoAComponent<S extends SoASchema> { readonly __schema: S; readonly __soa: true }"
+      "definition": "interface SoAComponent<S extends SoASchema = SoASchema> { readonly __kind: 'soa'; readonly __id: number; readonly __schema: S }"
     },
     {
       "name": "AoSComponent",
@@ -1512,7 +1635,7 @@
       "module": "aiecsjs",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "interface AoSComponent<T> { readonly __aos: true }"
+      "definition": "interface AoSComponent<T = unknown> { readonly __kind: 'aos'; readonly __id: number; readonly __factory: () => T }"
     },
     {
       "name": "TagComponent",
@@ -1520,7 +1643,7 @@
       "module": "aiecsjs",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "interface TagComponent { readonly __tag: true }"
+      "definition": "interface TagComponent { readonly __kind: 'tag'; readonly __id: number }"
     },
     {
       "name": "ComponentLike",
@@ -1584,7 +1707,7 @@
       "module": "aiecsjs/serialize",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "type DeserializeOptions = { onUnknownVersion?: 'throw' | 'best-effort' }"
+      "definition": "type DeserializeOptions = { components?: ComponentLike[]; onUnknownVersion?: 'throw' | 'best-effort'; onUnknownComponent?: 'throw' | 'skip' }"
     },
     {
       "name": "WorldSnapshot",
@@ -1592,7 +1715,7 @@
       "module": "aiecsjs/serialize",
       "since": "0.1.0",
       "stability": "stable",
-      "definition": "interface WorldSnapshot { /* opaque, JSON-serializable */ }"
+      "definition": "interface WorldSnapshot { formatVersion: 2; version: string; capacity: number; maxEntities?: number; indexBits?: number; generationBits?: number; components: Array<{ id: number; key: string | null; kind: 'soa' | 'aos' | 'tag'; fields: Array<{ name: string; type: SoAFieldType; vectorLen: number }> | null }>; entities: Array<{ eid: number; components: Array<{ kind: 'soa' | 'aos' | 'tag'; id: number; data: unknown }> }> }"
     },
     {
       "name": "DeltaSerializer",
@@ -1616,7 +1739,7 @@
       "module": "aiecsjs/relations",
       "since": "0.2.0",
       "stability": "experimental",
-      "definition": "interface Relation<T = void> { readonly __relation: true }"
+      "definition": "interface Relation<T = void> { readonly __kind: 'relation'; readonly __id: number; readonly __exclusive: boolean; readonly __hasData: boolean }"
     }
   ],
   "constants": [

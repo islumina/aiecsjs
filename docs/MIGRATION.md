@@ -2,7 +2,7 @@
 
 [English](MIGRATION.md) | [繁體中文](MIGRATION_ZHTW.md)
 
-Concrete name-mapping tables and mental-model notes for switching to `aiecsjs` from other JavaScript ECS libraries.
+Concrete name-mapping tables and mental-model notes for switching to `aiecsjs` from other JavaScript ECS libraries, plus [upgrade notes between aiecsjs versions](#upgrading-aiecsjs).
 
 ## From bitECS 0.4
 
@@ -252,3 +252,38 @@ tick(world, 1/60)
 4. **Iterating with `for...of` on `runQuery` result** — `runQuery` allocates an array each call. Use `forEachEntityIndexed` in hot paths (or `forEachEntity` when you only need the `EntityId`).
    - **Indexing columns with the packed `EntityId`** — `pos.x[e]` corrupts after a slot is recycled. `forEachEntityIndexed`'s `(e, i, ...cols)` callback hands you the safe subscript `i`; with `forEachEntity`, use `getEntityIndex(e)`.
 5. **Trying to share AoS components across Workers** — only SoA components live in SharedArrayBuffer. Replace AoS with SoA before going multi-thread.
+
+## Upgrading aiecsjs
+
+### 0.5.x -> 0.6.0 snapshots
+
+0.6.0 writes snapshot format 2. A format 2 snapshot carries a table of the components it uses, and loaders match data to components through that table instead of trusting creation-order ids. In 0.5.x, defining components in a different order in the loading session silently put data into the wrong components.
+
+1. **Give every saved component a stable key.** The key must be a non-empty string, unique in the process:
+
+   ```ts
+   const Position = defineComponent({ x: Types.f32, y: Types.f32 }, { key: "position" })
+   const Player = defineTag({ key: "player" })
+   const Inventory = defineObjectComponent(() => ({ items: [] }), { key: "inventory" })
+   ```
+
+   Keyed components resolve by key, so definition order no longer matters. Keyless components still resolve by creation-order id, now with a kind and SoA-field check.
+
+2. **Handle the new load errors.** `fromJSON`, `deserializeWorld`, delta `apply()`, `adoptSnapshot` and `attachWorld` check every component before they create or write anything, and throw `EcsError` when:
+   - a component is not defined in the loading process. Pass `{ onUnknownComponent: "skip" }` to drop its data and load the rest;
+   - a component's kind or SoA fields (names, types, vector lengths, declaration order) differ from the snapshot. This always throws;
+   - the snapshot is not format 2 (see step 3).
+
+3. **Convert 0.5.x snapshots once.** A 0.5.x JSON snapshot has no `formatVersion`, and a 0.5.x binary snapshot or worker meta has format version 1. Both are rejected with `EcsError: aiecsjs: format version 1 not supported`. To convert one, load it in best-effort mode (resolved by id with a kind check, as in 0.5.x) and save it again:
+
+   ```ts
+   const world = deserializeWorld(oldBytes, { onUnknownVersion: "best-effort" })
+   const newBytes = serializeWorld(world) // format 2
+   ```
+
+   Best-effort mode has the old id-order risk, so run it in a session that defines components in the same order as the one that wrote the snapshot.
+
+4. **Update hand-written snapshots.** Code that builds `WorldSnapshot` objects by hand must add `formatVersion: 2` and a `components` table entry (`id`, `key`, `kind`, `fields`) for every component id the entities use.
+
+For every other 0.6.0 breaking change (relation liveness, integer world options, read-only `resetWorld`, callback validation), see the "Breaking" list in the [CHANGELOG](../CHANGELOG.md).
+

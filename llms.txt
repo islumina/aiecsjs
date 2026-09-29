@@ -7,4 +7,5 @@ Archetype ECS with TypedArray SoA components, command buffers, relations, snapsh
 - Current backlog: REVIEW.md
 - Machine-readable API: api.json
 - Changelog: CHANGELOG.md
+- Migration and upgrade notes: docs/MIGRATION.md
 - Full generated context: llms-full.txt

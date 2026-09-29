@@ -1,20 +1,30 @@
 # aiecsjs Review
 
-Current review state after the 2026-09-28 ai*js pass. Historical fixed findings were summarized to keep AI context focused on still-relevant work.
+Current review state after the 2026-09-29 ai*js 0.6.0 pass. Historical fixed findings were summarized to keep AI context focused on still-relevant work.
 
 ## Current Known Issues / Backlog
 
 | Priority | Area | Status | Notes |
 | --- | --- | --- | --- |
-| P2 | Relations: dead-entity edges | Open | `addRelation` does no liveness check on source/target; an edge to/from an already-destroyed entity is stored by raw slot and inherited by whatever entity is later recycled into that slot. Fix: check `isAliveInternal` on both endpoints and throw, mirroring `addComponent`'s dead-entity guard. |
-| P2 | Serialization: component identity | Open | Snapshots identify components by process-global creation-order id with no schema/kind check; a different `defineComponent` call order in the loading session silently misroutes data to the wrong component. Fix: a stable component key and/or a schema table, verified (and rejected on mismatch) on load. |
-| P2 | World options validation | Open | `resolveOptions` doesn't reject non-integer/non-finite `initialCapacity`/`maxEntities`; a fractional or `NaN` value silently truncates typed arrays and drops entities. Fix: validate every numeric option with `Number.isInteger` before clamping. |
-| P3 | `resetWorld` on read-only worlds | Open | `resetWorld` ignores `state.readOnly`, so a worker-attached read-only world can be wiped even though every other mutating op rejects it. Fix: throw when `state.readOnly`. Deferred: a new thrown condition on a stable API is an API change, out of scope for a small P3 fix this pass. |
 | P3 | Reactive buffers | Documented | Enter/exit buffers are unbounded until drained; callers must poll/clear them. |
-| P3 | Lint noise | Open | Biome reports 133 `noExplicitAny` warnings, concentrated in `src/internal/query.ts` column-view typing and `types.ts`'s `SoAComponent<any>`. Deferred: needs generic per-arity typing across the query API, not a small/local change. |
+| P3 | Snapshot entity ids | Documented | `fromJSON` / `deserializeWorld` re-create entities in snapshot order with fresh ids (holes in the slot range close up), so EntityIds stored inside component data are not remapped. Deferred: keeping slot indices on restore would let one hostile `eid` force the full-capacity allocation that the ECS-S-01 clamp prevents; it needs a design (an id remap table or a bounded slot-preserving restore). Delta `apply()` already keeps slots within the target's `maxEntities`. |
+| P3 | Query argument typing | Open | The query functions accept a raw component array at runtime, but their TypeScript signatures take `Query` only, so TypeScript users must call `defineQuery` (the README does). Deferred: widening the signatures is an API addition that belongs with the per-arity query typing design below. |
+| P3 | Lint noise | Open | Biome reports 84 `noExplicitAny` warnings (was 133): 80 are casts in tests, and the 4 in `src` are the public `forEachEntity` / `forEachEntityIndexed` callback types and `ComponentLike`. Deferred: removing those needs per-arity query typing across the public API, a separate design; the 0.6.0 pass only made local, behaviour-free reductions with identical public `.d.ts` signatures. |
 
 ## Fixed Summary
 
+- `addRelation` throws `EcsError` for a dead source or target, so a recycled slot no longer inherits an edge added to its dead predecessor.
+- Snapshots are format 2 with a component table; components have optional stable keys, and every loader (`fromJSON`, `deserializeWorld`, delta `apply()`, `adoptSnapshot`, `attachWorld`) resolves them by key (by id when keyless) and rejects unknown components (unless `onUnknownComponent: 'skip'`) and kind/SoA-field mismatches before creating or writing anything; 0.5.x snapshots load only with `onUnknownVersion: 'best-effort'`.
+- `createWorld` rejects non-integer `initialCapacity` / `maxEntities` / `indexBits` / `generationBits` before its range checks, instead of truncating typed arrays.
+- `resetWorld` rejects read-only (worker-attached) worlds like every other mutator.
+- Every plain `Error` misuse throw is `EcsError` with the same message.
+- Non-function observer handlers, `forEachEntity` / `forEachEntityIndexed` / `withCommandBuffer` callbacks, `pipe` systems and AoS factories, nullish AoS factory results, non-relation handles and a bad `createLoop` configuration are rejected at the call instead of failing later.
+- `enterQuery` / `exitQuery` / `observe` accept raw component arrays and reject other non-Query input without caching a broken reactive query.
+- A failing AoS factory leaves the entity unchanged instead of half-added.
+- The `components` allowlist of `deserializeWorld` applies to local components, not the snapshot's source ids.
+- package.json `exports` resolve `.d.cts` types under `require`.
+- The README Quick Start no longer replaces a SoA column with a string.
+- `noExplicitAny` warnings reduced from 133 to 84 with unchanged public types.
 - `destroyEntity` no longer recurses or corrupts state when an onRemove/observe handler destroys (or resets) the same entity during teardown.
 - `sideEffects: false` no longer lets bundlers drop the component/mask-change registration wiring, which broke queries in bundled consumers.
 - Query observers (`observe(..., 'add'|'remove')`) fire on real match transitions instead of missing `none`-term enter/exit and firing spurious removes.
@@ -27,7 +37,6 @@ Current review state after the 2026-09-28 ai*js pass. Historical fixed findings 
 - In-loop `addComponent`/`removeComponent` that moves the visited entity no longer causes double-visits or skipped entities within one `forEachEntity` pass.
 - `observe(..., 'set')` fires only for entities that actually match the query, and for `any`-only components too.
 - `fromJSON`/`toJSON` deep-copy AoS component data instead of sharing live object references.
-- The delta serializer and `deserializeWorld` honour the `components` allowlist option instead of ignoring it.
 - Dual ESM+CJS package copies share one component/query/world registry via a `globalThis` key, instead of colliding ids across copies.
 - Restored worlds (`fromJSON`/`deserializeWorld`) carry `maxEntities`/`indexBits`/`generationBits` from the snapshot instead of falling back to defaults.
 - The fixed-timestep loop ends a stale tick chain on stop/restart instead of stacking concurrent chains or yielding a wrong dt/alpha.
@@ -54,4 +63,4 @@ Current review state after the 2026-09-28 ai*js pass. Historical fixed findings 
 - `pnpm verify:dist`
 - `pnpm verify:llms`
 - `pnpm check:size`
-- `pnpm lint` exits successfully but emits known warnings.
+- `pnpm lint` exits successfully but emits 84 known `noExplicitAny` warnings.
