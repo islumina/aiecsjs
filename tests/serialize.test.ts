@@ -12,11 +12,14 @@ import {
   destroyEntity,
   getComponent,
   getWorldCapacity,
+  getWorldSize,
   hasComponent,
+  removeComponent,
   runQuery,
   setComponent,
 } from '../src/index.js'
 import type { WorldSnapshot } from '../src/internal/types.js'
+import { getWorldState } from '../src/internal/world.js'
 import {
   createDeltaSerializer,
   deserializeWorld,
@@ -83,6 +86,131 @@ describe('serialize', () => {
     const first = tx.capture()
     const second = tx.capture()
     expect(second.byteLength).toBeLessThan(first.byteLength)
+  })
+
+  it('delta serializer replicates in-place AoS changes', () => {
+    const Inv = defineObjectComponent<{ items: string[]; hp?: number }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: [], hp: 10 })
+    const ds = createDeltaSerializer(w)
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(10)
+    setComponent(w, e, Inv, { hp: 5 })
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(5)
+    ;(getComponent(w, e, Inv) as { hp?: number }).hp = 3
+    ds.apply(replica, ds.capture())
+    expect((getComponent(replica, e, Inv) as { hp?: number }).hp).toBe(3)
+  })
+
+  it('component-less live entities survive a round trip', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    createEntity(w)
+    createEntity(w)
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    expect(getWorldSize(w)).toBe(3)
+    expect(toJSON(w).entities.length).toBe(3)
+    expect(getWorldSize(fromJSON(toJSON(w)))).toBe(3)
+    expect(getWorldSize(deserializeWorld(serializeWorld(w)))).toBe(3)
+  })
+
+  it('entity whose last component was removed stays in snapshots and deltas', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    const ds = createDeltaSerializer(w)
+    ds.capture()
+    removeComponent(w, e, P)
+    expect(toJSON(w).entities).toEqual([{ eid: e, components: [] }])
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect(getWorldSize(replica)).toBe(1)
+  })
+
+  it('fromJSON(toJSON(w)) does not share nested AoS objects with the source', () => {
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: ['sword'] })
+    const w2 = fromJSON(toJSON(w))
+    ;(getComponent(w2, e, Inv) as { items: string[] }).items.push('shield')
+    expect((getComponent(w, e, Inv) as { items: string[] }).items).toEqual(['sword'])
+  })
+
+  it('mutating a toJSON result does not mutate the world', () => {
+    const Inv = defineObjectComponent<{ items: string[]; hp?: number }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, Inv, { items: [], hp: 1 })
+    const snap = toJSON(w)
+    ;(snap.entities[0]!.components[0]!.data as { hp: number }).hp = 99
+    expect((getComponent(w, e, Inv) as { hp?: number }).hp).toBe(1)
+  })
+
+  it('delta serializer honours the components allowlist on capture and apply', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    addComponent(w, e, Inv, { items: ['a'] })
+    const ds = createDeltaSerializer(w, { components: [P] })
+    const replica = createWorld()
+    ds.apply(replica, ds.capture())
+    expect(hasComponent(replica, e, P)).toBe(true)
+    expect(hasComponent(replica, e, Inv)).toBe(false)
+    // apply() also filters a full (unfiltered) payload.
+    const replica2 = createWorld()
+    ds.apply(replica2, serializeWorld(w))
+    expect(hasComponent(replica2, e, Inv)).toBe(false)
+  })
+
+  it('delta capture skips a non-JSON component outside the allowlist', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Cyclic = defineObjectComponent<{ self: unknown }>(() => ({ self: null }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    const obj: { self: unknown } = { self: null }
+    obj.self = obj
+    addComponent(w, e, Cyclic, obj)
+    expect(() => createDeltaSerializer(w, { components: [P] }).capture()).not.toThrow()
+  })
+
+  it('deserializeWorld honours the components allowlist', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const Inv = defineObjectComponent<{ items: string[] }>(() => ({ items: [] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    addComponent(w, e, Inv, { items: ['a'] })
+    const restored = deserializeWorld(serializeWorld(w), { components: [P] })
+    expect(hasComponent(restored, e, P)).toBe(true)
+    expect(hasComponent(restored, e, Inv)).toBe(false)
+  })
+
+  it('restored world keeps the source maxEntities / indexBits / generationBits', () => {
+    const w = createWorld({ maxEntities: 5_000_000, indexBits: 23, generationBits: 9 })
+    createEntity(w)
+    for (const restored of [fromJSON(toJSON(w)), deserializeWorld(serializeWorld(w))]) {
+      const opts = getWorldState(restored).options
+      expect(opts.maxEntities).toBe(5_000_000)
+      expect(opts.indexBits).toBe(23)
+      expect(opts.generationBits).toBe(9)
+    }
+  })
+
+  it('restored world keeps a user-supplied maxEntities limit', () => {
+    const T = defineTag()
+    const w = createWorld({ initialCapacity: 4, maxEntities: 4 })
+    for (let i = 0; i < 3; i++) addComponent(w, createEntity(w), T)
+    expect(() => createEntity(w)).toThrow(/maxEntities/)
+    expect(() => createEntity(fromJSON(toJSON(w)))).toThrow(/maxEntities/)
   })
 
   it('delta reset clears prior state', () => {
@@ -250,6 +378,27 @@ describe('serialize', () => {
       .entities.map((e) => e.eid)
       .sort((a, b) => a - b)
     expect(eids).toEqual([1, 3])
+  })
+
+  it('apply(): a non-integer eid is rejected instead of corrupting slot allocation', () => {
+    const w = createWorld()
+    const bytes = serializeBinaryFromSnapshot({
+      version: pkg.version,
+      capacity: 8,
+      entities: [
+        { eid: 2.5, components: [{ kind: 'soa', id: Position.__id, data: { x: 7, y: 8 } }] },
+      ],
+    })
+    const ds = createDeltaSerializer(w)
+    expect(() => ds.apply(w, bytes)).not.toThrow()
+    // The fractional eid must be skipped entirely — no entity materialised,
+    // and normal entity creation afterwards must still hand out sane,
+    // distinct, non-colliding ids.
+    expect(toJSON(w).entities.length).toBe(0)
+    const a = createEntity(w)
+    const b = createEntity(w)
+    const c = createEntity(w)
+    expect(new Set([a, b, c]).size).toBe(3)
   })
 
   // ECS-S-01 (P1/security): a hostile JSON snapshot can inflate the `capacity`

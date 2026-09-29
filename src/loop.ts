@@ -37,31 +37,43 @@ export function createLoop(options: LoopOptions): Loop {
   let handle = 0
   let lastT = 0
   let accumulator = 0
-
-  function tick(t: number): void {
-    if (!running) return
-    const dtMs = t - lastT
-    lastT = t
-    accumulator += Math.min(dtMs / 1000, fixed * maxSubSteps)
-    let steps = 0
-    while (accumulator >= fixed && steps < maxSubSteps) {
-      onUpdate(fixed)
-      accumulator -= fixed
-      steps++
-    }
-    if (onRender) {
-      const alpha = accumulator / fixed
-      onRender(alpha)
-    }
-    handle = raf(tick)
-  }
+  // Bumped by every start(). A tick chain belongs to the start() that created
+  // it; it stops as soon as the loop is stopped or restarted — even from
+  // inside onUpdate / onRender — so it never keeps stepping, renders after
+  // stop(), or runs alongside a newer chain.
+  let epoch = 0
 
   return {
     start() {
       if (running) return
       running = true
+      const token = ++epoch
       lastT = now()
       accumulator = 0
+      const live = (): boolean => running && token === epoch
+      const tick = (t: number): void => {
+        if (!live()) return
+        const dtMs = t - lastT
+        lastT = t
+        // Clamp to non-negative: the first rAF callback can receive a
+        // frame-begin timestamp earlier than the `performance.now()` sampled
+        // by `start()`, which would otherwise drive the accumulator (and thus
+        // `onRender`'s alpha) negative.
+        accumulator += Math.min(Math.max(0, dtMs) / 1000, fixed * maxSubSteps)
+        let steps = 0
+        while (accumulator >= fixed && steps < maxSubSteps) {
+          onUpdate(fixed)
+          if (!live()) return
+          accumulator -= fixed
+          steps++
+        }
+        if (onRender) {
+          const alpha = accumulator / fixed
+          onRender(alpha)
+          if (!live()) return
+        }
+        handle = raf(tick)
+      }
       handle = raf(tick)
     },
     stop() {

@@ -1,6 +1,7 @@
 import { VERSION } from '../version.js'
 import { cloneMask, copyMask, createMask, maskHash } from './bitmask.js'
 import { EcsError } from './errors.js'
+import { ids, shared } from './registry.js'
 import type {
   ArchetypeState,
   ComponentInfo,
@@ -24,8 +25,8 @@ const DEFAULT_OPTIONS: Required<Omit<WorldOptions, 'buffer' | 'bufferByteOffset'
 
 const DEFAULT_MAX_COMPONENTS = 256
 
-let nextWorldId = 1
-const worldRegistry = new Map<number, WorldState>()
+// Shared across every loaded copy of the package (see registry.ts).
+const worldRegistry = shared.worlds
 
 export function getWorldState(world: World): WorldState {
   const state = worldRegistry.get(world.id)
@@ -101,7 +102,7 @@ export function createEmptyArchetype(maskWordCount: number, maxComponents: numbe
 
 export function createWorld(options?: WorldOptions): World {
   const resolved = resolveOptions(options)
-  const id = nextWorldId++
+  const id = ids.world++
 
   const generationCtor = resolved.generationBits > 8 ? Uint16Array : Uint8Array
   const generations = new generationCtor(resolved.initialCapacity)
@@ -116,6 +117,10 @@ export function createWorld(options?: WorldOptions): World {
     freeList: [],
     generations,
     destroyed: false,
+    destroying: new Set<number>(),
+    removing: new Set<number>(),
+    visitStamp: new Uint32Array(0),
+    visitEpoch: 0,
     componentBitFor: new Map<number, number>(),
     componentInfoByBit: new Array(resolved.maxComponents).fill(null),
     componentStorageByBit: new Array(resolved.maxComponents).fill(null),
@@ -181,8 +186,10 @@ export function destroyWorld(world: World): void {
   // worlds). Swap to length-0 instances rather than mutating in place.
   state.entityMask = new Uint32Array(0)
   state.entityArchetype = new Uint32Array(0)
+  state.visitStamp = new Uint32Array(0)
   state.generations = new Uint8Array(0)
   state.freeList = []
+  state.destroying.clear()
   state.componentBitFor.clear()
   state.bitToQueries.clear()
   state.queryArchetypeStamp = []
@@ -196,6 +203,9 @@ export function resetWorld(world: World): void {
   state.size = 0
   state.nextFreshIndex = 1
   state.freeList = []
+  // Abort any destroyEntity in flight (a teardown handler called resetWorld):
+  // the outer call sees its eid gone from this set and skips its own teardown.
+  state.destroying.clear()
   state.generations.fill(0)
   state.entityArchetype.fill(0)
   state.entityMask.fill(0)
@@ -266,6 +276,14 @@ function growEntityArrays(state: WorldState, newCap: number): void {
   const newMask = new Uint32Array(newCap * wordCount)
   newMask.set(state.entityMask)
   state.entityMask = newMask
+
+  // visit stamps (allocated lazily by the first forEachEntity pass); copied so
+  // a pass that grows the world mid-loop keeps its stamps
+  if (state.visitStamp.length > 0) {
+    const newStamp = new Uint32Array(newCap)
+    newStamp.set(state.visitStamp)
+    state.visitStamp = newStamp
+  }
 
   // Component storages (SoA columns + AoS arrays)
   for (const storage of state.componentStorageByBit) {

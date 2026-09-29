@@ -3,7 +3,7 @@
 import { forEachSetBit, matchesEntityMask } from './internal/bitmask.js'
 import { getComponentInfo, registerObserverDispatch } from './internal/component.js'
 import { registerObserversAPI } from './internal/entity.js'
-import { runQuery } from './internal/query.js'
+import { ensureQueryRegistered } from './internal/query.js'
 import type {
   ComponentLike,
   EntityId,
@@ -11,6 +11,7 @@ import type {
   ObserverEvent,
   Query,
   QueryInternal,
+  QueryMaskBundle,
   World,
   WorldState,
 } from './internal/types.js'
@@ -104,20 +105,12 @@ export function observe(
   opts?: ObserverOptions,
 ): () => void {
   const state = getWorldState(world)
-  // Force registration of the query into this world so dispatch can find it.
-  runQuery(world, query)
-  const entry: ObserverEntry = {
-    event,
-    componentBit: -1,
-    queryId: (query as QueryInternal).id,
-    handler: handler as (eid: EntityId, value?: unknown) => void,
-  }
-  state.observers.push(entry)
-  const unsubscribe = (): void => {
-    const idx = state.observers.indexOf(entry)
-    if (idx >= 0) state.observers.splice(idx, 1)
-  }
-  return bindAbortSignal(unsubscribe, opts?.signal)
+  // Register the query (and, for enter/exit queries, its source query and
+  // reactive buffer) into this world so dispatch can find it. Unlike
+  // `runQuery`, this never drains a reactive buffer as a side effect.
+  ensureQueryRegistered(state, query as QueryInternal)
+  const queryId = (query as QueryInternal).id
+  return bindAbortSignal(addObserver(state, event, -1, queryId, handler), opts?.signal)
 }
 
 function registerComponentObserver(
@@ -127,12 +120,19 @@ function registerComponentObserver(
   handler: (eid: EntityId, value?: unknown) => void,
 ): () => void {
   const state = getWorldState(world)
-  const info = getComponentInfo(component)
-  let bit = state.componentBitFor.get(info.id)
-  if (bit === undefined) {
-    bit = getOrRegisterComponentBit(state, info)
-  }
-  const entry: ObserverEntry = { event, componentBit: bit, queryId: -1, handler }
+  const bit = getOrRegisterComponentBit(state, getComponentInfo(component))
+  return addObserver(state, event, bit, -1, handler)
+}
+
+// Push an observer entry; returns its unsubscribe.
+function addObserver(
+  state: WorldState,
+  event: ObserverEvent,
+  componentBit: number,
+  queryId: number,
+  handler: (eid: EntityId, value?: unknown) => void,
+): () => void {
+  const entry: ObserverEntry = { event, componentBit, queryId, handler }
   state.observers.push(entry)
   return () => {
     const idx = state.observers.indexOf(entry)
@@ -149,129 +149,131 @@ function registerComponentObserver(
 // list; already-removed entries are filtered via `state.observers.includes`
 // so an in-flight unsubscribe also skips subsequent fires of the same dispatch.
 
-function fireAdd(state: WorldState, eid: EntityId, bit: number): void {
-  const snapshot = Array.from(state.observers)
-  for (const obs of snapshot) {
-    if (obs.event !== 'add') continue
-    if (obs.componentBit !== bit) continue
-    if (!state.observers.includes(obs)) continue
-    obs.handler(eid)
-  }
-  // Query-targeted observers: check if the entity's mask now matches the query
-  // (uses the post-mutation mask, which the caller already wrote)
-  dispatchQueryObservers(state, eid, 'add', /*prev*/ null, /*current*/ true)
-}
-
-function fireRemove(state: WorldState, eid: EntityId, bit: number): void {
-  const snapshot = Array.from(state.observers)
-  for (const obs of snapshot) {
-    if (obs.event !== 'remove') continue
-    if (obs.componentBit !== bit) continue
-    if (!state.observers.includes(obs)) continue
-    obs.handler(eid)
-  }
-  dispatchQueryObservers(state, eid, 'remove', /*prev*/ true, /*current*/ null)
-}
-
-function fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void {
-  const snapshot = Array.from(state.observers)
-  for (const obs of snapshot) {
-    if (obs.event !== 'set') continue
-    if (!state.observers.includes(obs)) continue
-    if (obs.componentBit === bit) obs.handler(eid, value)
-    else if (obs.queryId !== -1) {
-      const q = state.queries[obs.queryId]
-      if (q?.all.includes(state.componentInfoByBit[bit]?.id ?? -1)) {
-        obs.handler(eid, value)
-      }
-    }
-  }
-}
-
-// Helper: when a component changes, walk query observers to see if their query
-// match status changed. Reads state.entityMask in place; no per-call allocation.
-function dispatchQueryObservers(
+// Component-level observers of `event` registered on `bit`.
+function fireComponent(
   state: WorldState,
   eid: EntityId,
-  event: 'add' | 'remove',
-  _prev: unknown,
-  _current: unknown,
+  bit: number,
+  event: ObserverEvent,
+  value?: unknown,
 ): void {
-  const w = state.options.maskWordCount
-  const base = ((eid as number) & state.options.indexMask) * w
   const snapshot = Array.from(state.observers)
   for (const obs of snapshot) {
     if (obs.event !== event) continue
-    if (obs.queryId === -1) continue
+    if (obs.componentBit !== bit) continue
+    if (!state.observers.includes(obs)) continue
+    obs.handler(eid, value)
+  }
+}
+
+// Whether the entity mask stored in `mask` at word offset `base` matches.
+function bundleMatches(bundle: QueryMaskBundle, mask: Uint32Array, base: number, w: number) {
+  const { withMask, anyMask, noneMask, anyHasBits } = bundle
+  return matchesEntityMask(mask, base, w, withMask, anyMask, noneMask, anyHasBits)
+}
+
+function fireAdd(
+  state: WorldState,
+  eid: EntityId,
+  bit: number,
+  prev: Uint32Array,
+  next: Uint32Array,
+): void {
+  fireComponent(state, eid, bit, 'add')
+  dispatchQueryObservers(state, eid, prev, next)
+}
+
+// Component-level remove. removeComponent calls this BEFORE writing the new
+// mask, so handlers can still read the outgoing value via getComponent.
+function fireRemove(state: WorldState, eid: EntityId, bit: number): void {
+  fireComponent(state, eid, bit, 'remove')
+}
+
+function fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void {
+  const w = state.options.maskWordCount
+  const base = ((eid as number) & state.options.indexMask) * w
+  const componentId = state.componentInfoByBit[bit]?.id ?? -1
+  fireComponent(state, eid, bit, 'set', value)
+  const snapshot = Array.from(state.observers)
+  for (const obs of snapshot) {
+    if (obs.event !== 'set' || obs.queryId === -1) continue
+    if (!state.observers.includes(obs)) continue
+    // Query 'set' fires when the written component is one of the query's
+    // `all` / `any` terms AND the entity currently matches the query.
+    const q = state.queries[obs.queryId]
+    const bundle = state.queryMasks.get(obs.queryId)
+    if (!q || !bundle) continue
+    if (!q.all.includes(componentId) && !q.any.includes(componentId)) continue
+    if (bundleMatches(bundle, state.entityMask, base, w)) obs.handler(eid, value)
+  }
+}
+
+// Helper: when a component changes, walk query observers and fire on match
+// transitions — 'add' when the entity starts matching, 'remove' when it stops —
+// whichever structural op (add or remove) caused it. Mirrors the reactive
+// enter/exit path (recordEntityMaskChange). `prev` / `next` are the caller's
+// private mask snapshots, so reentrant handlers cannot skew the comparison.
+function dispatchQueryObservers(
+  state: WorldState,
+  eid: EntityId,
+  prev: Uint32Array,
+  next: Uint32Array,
+): void {
+  const w = state.options.maskWordCount
+  const snapshot = Array.from(state.observers)
+  for (const obs of snapshot) {
+    if (obs.event === 'set' || obs.queryId === -1) continue
     if (!state.observers.includes(obs)) continue
     const bundle = state.queryMasks.get(obs.queryId)
     if (!bundle) continue
-    const isMatch = matchesEntityMask(
-      state.entityMask,
-      base,
-      w,
-      bundle.withMask,
-      bundle.anyMask,
-      bundle.noneMask,
-      bundle.anyHasBits,
-    )
-    // For 'add' event, fire if newly matched. For 'remove', fire if newly unmatched.
-    // We approximate "newly" by always firing on event when match status agrees;
-    // duplicates are acceptable for 0.1 query observers.
-    if (event === 'add' && isMatch) obs.handler(eid)
-    if (event === 'remove' && !isMatch) obs.handler(eid)
+    const wasMatch = bundleMatches(bundle, prev, 0, w)
+    const isMatch = bundleMatches(bundle, next, 0, w)
+    if (obs.event === 'add' ? !wasMatch && isMatch : wasMatch && !isMatch) obs.handler(eid)
   }
 }
 
 // Wire the dispatch into component.ts
-registerObserverDispatch({ fireAdd, fireRemove, fireSet })
+registerObserverDispatch({
+  fireAdd,
+  fireRemove,
+  fireRemoveQuery: dispatchQueryObservers,
+  fireSet,
+})
 
 // Register destroy hook so onRemove fires for every component on destroy
 // AND so query-targeted observers see the entity exit any matched query.
 registerObserversAPI({
   dispatchDestroyObservers(state: WorldState, eid: EntityId): void {
     const w = state.options.maskWordCount
-    const base = ((eid as number) & state.options.indexMask) * w
+    const idx = (eid as number) & state.options.indexMask
+    const base = idx * w
 
-    // Snapshot the pre-destroy mask so Phase 2's `wasMatch` is computed
-    // against the state at destroy entry — Phase 1 handlers might reentrant-
-    // mutate `state.entityMask` (e.g. by calling removeComponent on a
-    // sibling), and we still want query observers to fire for queries the
-    // entity was matching *before* the destroy began.
-    const preMask = new Uint32Array(w)
-    for (let i = 0; i < w; i++) preMask[i] = state.entityMask[base + i] ?? 0
+    // Snapshot the pre-destroy mask so Phase 1 visits a stable bit list even
+    // if a handler reentrant-mutates `state.entityMask`.
+    const preMask = state.entityMask.slice(base, base + w)
 
-    // Phase 1: component-level remove for every bit set at destroy entry.
+    // Phase 1: component-level remove for every bit set at destroy entry that
+    // is still set now. A handler that removed a sibling component via
+    // removeComponent already fired that component's onRemove; firing it here
+    // again would double-report it. An in-flight removeComponent of a bit
+    // (whose onRemove handler destroyed the entity) is already firing its
+    // onRemove too.
     forEachSetBit(preMask, 0, w, (bit) => {
-      const snapshot = Array.from(state.observers)
-      for (const obs of snapshot) {
-        if (obs.event !== 'remove') continue
-        if (obs.componentBit !== bit) continue
-        if (!state.observers.includes(obs)) continue
-        obs.handler(eid)
-      }
+      if (!((state.entityMask[base + (bit >>> 5)] ?? 0) & (1 << (bit & 31)))) return
+      if (state.removing.has(idx * state.options.maxComponents + bit)) return
+      fireComponent(state, eid, bit, 'remove')
     })
 
-    // Phase 2: query-level remove for any query that was matching this entity.
-    // Read the pre-destroy mask snapshot (not live state.entityMask) so this
-    // phase is decoupled from Phase 1 reentrant mutations.
+    // Phase 2: query-level remove for any query this entity matches after
+    // Phase 1. Reentrant component changes made by Phase 1 handlers went
+    // through add/removeComponent, which already dispatched their own query
+    // transitions, so the live mask is the state the entity is leaving from.
     const querySnapshot = Array.from(state.observers)
     for (const obs of querySnapshot) {
-      if (obs.event !== 'remove') continue
-      if (obs.queryId === -1) continue
+      if (obs.event !== 'remove' || obs.queryId === -1) continue
       if (!state.observers.includes(obs)) continue
       const bundle = state.queryMasks.get(obs.queryId)
-      if (!bundle) continue
-      const wasMatch = matchesEntityMask(
-        preMask,
-        0,
-        w,
-        bundle.withMask,
-        bundle.anyMask,
-        bundle.noneMask,
-        bundle.anyHasBits,
-      )
-      if (wasMatch) obs.handler(eid)
+      if (bundle && bundleMatches(bundle, state.entityMask, base, w)) obs.handler(eid)
     }
   },
 })

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   createEntity,
   createWorld,
   destroyEntity,
+  disposeWorld,
   entityExists,
   getEntityGeneration,
   getEntityIndex,
@@ -316,6 +318,24 @@ describe('generationBits = 0 degenerate mode', () => {
     // This is the documented degenerate: no ABA protection
     expect(e2).toBe(oldRef.id)
     expect(deref(w, oldRef)).toBe(e2)
+  })
+})
+
+describe('deref / aliveRef: "never throws" is scoped to a live world', () => {
+  it('deref throws EcsError once the world has been disposed', () => {
+    const w = createWorld()
+    const e = createEntity(w)
+    const ref = refOf(w, e)
+    disposeWorld(w)
+    expect(() => deref(w, ref)).toThrow(EcsError)
+  })
+
+  it('aliveRef throws EcsError once the world has been disposed', () => {
+    const w = createWorld()
+    const e = createEntity(w)
+    const ref = refOf(w, e)
+    disposeWorld(w)
+    expect(() => aliveRef(w, ref)).toThrow(EcsError)
   })
 })
 

@@ -1,5 +1,11 @@
 import { createMask, isMaskZero, listBits, matches, setBit } from './bitmask.js'
-import { getComponentInfo } from './component.js'
+import {
+  getComponentByInternalId,
+  getComponentInfo,
+  registerMaskChangeDispatch,
+} from './component.js'
+import { isAliveInternal } from './entity.js'
+import { ids, shared } from './registry.js'
 import type {
   Archetype,
   ComponentInfo,
@@ -20,8 +26,10 @@ import {
   tryGetComponentBit,
 } from './world.js'
 
-let nextQueryId = 1
-const moduleQueryCache = new Map<string, QueryInternal>()
+// Shared across every loaded copy of the package (see registry.ts).
+const moduleQueryCache = shared.queryCache
+const reactiveBySource = shared.reactiveBySource
+const reactiveSourcesByComponent = shared.reactiveSourcesByComponent
 
 function descKey(d: QueryDescriptor): string {
   const all = (d.all ?? [])
@@ -54,7 +62,7 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
   if (cached) return cached
 
   const q: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: (desc.all ?? []).map((c) => c.__id),
     any: (desc.any ?? []).map((c) => c.__id),
@@ -87,7 +95,7 @@ export function enterQuery(query: Query): Query {
   const cached = moduleQueryCache.get(key)
   if (cached) return cached
   const reactive: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: q.all,
     any: q.any,
@@ -98,6 +106,7 @@ export function enterQuery(query: Query): Query {
     sourceQuery: q,
   }
   moduleQueryCache.set(key, reactive)
+  indexReactive(q, reactive)
   return reactive
 }
 
@@ -117,7 +126,7 @@ export function exitQuery(query: Query): Query {
   const cached = moduleQueryCache.get(key)
   if (cached) return cached
   const reactive: QueryInternal = {
-    id: nextQueryId++,
+    id: ids.query++,
     mask: [],
     all: q.all,
     any: q.any,
@@ -128,12 +137,45 @@ export function exitQuery(query: Query): Query {
     sourceQuery: q,
   }
   moduleQueryCache.set(key, reactive)
+  indexReactive(q, reactive)
   return reactive
+}
+
+// Index a new enter/exit variant so structural changes find it without
+// scanning the module query cache: by its source query (pushReactive) and, on
+// the source's first variant, by every component the source references
+// (recordEntityMaskChange).
+function indexReactive(source: QueryInternal, reactive: QueryInternal): void {
+  const variants = reactiveBySource.get(source.id)
+  if (variants) {
+    variants.push(reactive)
+    return
+  }
+  reactiveBySource.set(source.id, [reactive])
+  for (const id of new Set([...source.all, ...source.any, ...source.none])) {
+    const list = reactiveSourcesByComponent.get(id)
+    if (list) list.push(source)
+    else reactiveSourcesByComponent.set(id, [source])
+  }
+}
+
+// Normalise the query argument of the read/iterate entry points. A raw
+// component array (`forEachEntity(world, [A, B], fn)`) is routed through
+// defineQuery; anything else that is not a Query throws instead of silently
+// iterating nothing (the reactive branch would look up an undefined buffer).
+function asQueryInternal(query: Query): QueryInternal {
+  if (Array.isArray(query)) return defineQuery(query as ComponentLike[]) as QueryInternal
+  const q = query as QueryInternal
+  const kind = q?.reactiveKind
+  if (kind !== 'normal' && kind !== 'enter' && kind !== 'exit') {
+    throw new TypeError('aiecsjs: expected a Query')
+  }
+  return q
 }
 
 // --- Per-world query setup ---
 
-function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
+export function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
   if (state.queries[q.id] === q && state.queryMasks.has(q.id)) return
 
   // Build per-world bitmasks (this may register new bits)
@@ -217,7 +259,7 @@ function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
 
 export function queryArchetypes(world: World, query: Query): readonly Archetype[] {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const ids = getQueryArchetypes(state, q)
   const out: Archetype[] = []
   for (const id of ids) {
@@ -229,7 +271,7 @@ export function queryArchetypes(world: World, query: Query): readonly Archetype[
 
 export function runQuery(world: World, query: Query): readonly EntityId[] {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const out: EntityId[] = []
   if (q.reactiveKind === 'enter') {
     const buf = state.reactiveBuffers.get(q.id)
@@ -259,13 +301,15 @@ export function runQuery(world: World, query: Query): readonly EntityId[] {
 
 export function* iterQuery(world: World, query: Query): IterableIterator<EntityId> {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // splice(0) empties the live buffer immediately (in place) and returns
+    // the removed entries, so it drains exactly once even if the caller
+    // breaks out of this generator early — unlike clearing after the loop.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     for (const e of src) yield e as EntityId
-    src.length = 0
     return
   }
   const archIds = getQueryArchetypes(state, q)
@@ -297,25 +341,28 @@ export function forEachEntity(
   fn: (eid: EntityId, ...cols: any[]) => void,
 ): void {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
 
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // splice(0) drains the buffer up front — see iterQuery — so a callback
+    // that throws partway through the loop below still leaves it drained.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
       const e = src[i] as EntityId
       callWithCols(fn, e, cols)
     }
-    src.length = 0
     return
   }
 
   ensureQueryRegistered(state, q)
   const archIds = getQueryArchetypes(state, q)
   const cols = buildColumnViews(state, q)
+  const indexMask = state.options.indexMask
+  const stamp = beginVisitPass(state)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     // Re-read `arch.size` AND `arch.entities` each iteration (do NOT cache either):
@@ -330,10 +377,40 @@ export function forEachEntity(
     //     sentinel leaking across the public callback boundary again.
     // Both are scalar property reads — no per-iteration allocation, so the
     // zero-allocation hot-path contract holds. Mirrors runQuery (:230) / iterQuery.
+    // In-loop add/removeComponent moves (see revisitRow) are handled so every
+    // matching live entity is visited exactly once per pass.
     for (let r = 0; r < arch.size; r++) {
-      callWithCols(fn, arch.entities[r] as EntityId, cols)
+      const e = arch.entities[r] as EntityId
+      const idx = e & indexMask
+      if (state.visitStamp[idx] === stamp) continue
+      state.visitStamp[idx] = stamp
+      callWithCols(fn, e, cols)
+      if (revisitRow(state, arch.entities[r], e)) r--
     }
   }
+}
+
+// Stamp one forEachEntity pass. visitStamp[idx] === stamp marks an entity the
+// pass already visited, so one that an in-loop add/removeComponent moves into
+// an archetype later in the pass is not visited twice. A nested pass takes a
+// fresh stamp; the outer pass then merely loses that dedup for the entities
+// the inner pass touched. No per-pass allocation after the first.
+function beginVisitPass(state: WorldState): number {
+  // First pass in this world, or the stamp counter is about to wrap: start
+  // from a zeroed array.
+  if (state.visitStamp.length < state.capacity || state.visitEpoch === 0xffffffff) {
+    state.visitStamp = new Uint32Array(state.capacity)
+    state.visitEpoch = 0
+  }
+  return ++state.visitEpoch
+}
+
+// After the callback for `e` at row r: if an in-loop add/removeComponent moved
+// the still-live `e` out of this archetype, the swap-pop put an unvisited
+// entity into row r — revisit it. After an in-loop destroyEntity the
+// swapped-in survivor is still deferred to the next pass (ECS-B-01).
+function revisitRow(state: WorldState, current: number | undefined, e: EntityId): boolean {
+  return current !== e && isAliveInternal(state, e)
 }
 
 function callWithCols(
@@ -387,26 +464,27 @@ export function forEachEntityIndexed(
   fn: (e: EntityId, i: number, ...cols: any[]) => void,
 ): void {
   const state = getWorldState(world)
-  const q = query as QueryInternal
+  const q = asQueryInternal(query)
   const indexMask = state.options.indexMask
 
   if (q.reactiveKind !== 'normal') {
     const buf = state.reactiveBuffers.get(q.id)
     if (!buf) return
-    const src = q.reactiveKind === 'enter' ? buf.entered : buf.exited
+    // splice(0) drains the buffer up front — see forEachEntity.
+    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
     if (src.length === 0) return
     const cols = buildColumnViews(state, q)
     for (let i = 0; i < src.length; i++) {
       const e = src[i] as EntityId
       callWithColsIndexed(fn, e, e & indexMask, cols)
     }
-    src.length = 0
     return
   }
 
   ensureQueryRegistered(state, q)
   const archIds = getQueryArchetypes(state, q)
   const cols = buildColumnViews(state, q)
+  const stamp = beginVisitPass(state)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
     // Re-read `arch.size` AND `arch.entities` each iteration — see forEachEntity
@@ -415,9 +493,14 @@ export function forEachEntityIndexed(
     // bound replays the sentinel eid 0, and a cached array reads `undefined` off
     // its stale tail — there `undefined & indexMask === 0`, so a bogus i=0 payload
     // leaks too (C4 / ECS-B-01). Scalar reads only; zero-allocation contract holds.
+    // Visit stamps / revisitRow: see forEachEntity.
     for (let r = 0; r < arch.size; r++) {
       const e = arch.entities[r] as EntityId
-      callWithColsIndexed(fn, e, e & indexMask, cols)
+      const idx = e & indexMask
+      if (state.visitStamp[idx] === stamp) continue
+      state.visitStamp[idx] = stamp
+      callWithColsIndexed(fn, e, idx, cols)
+      if (revisitRow(state, arch.entities[r], e)) r--
     }
   }
 }
@@ -483,12 +566,19 @@ export function recordEntityMaskChange(
   prevMask: Uint32Array,
   nextMask: Uint32Array,
 ): void {
-  // Lazy-register any reactive queries (and their sources) so we can correctly
-  // determine match transitions even if the user only ever called enterQuery/exitQuery.
-  for (const q of moduleQueryCache.values()) {
-    if (q.reactiveKind === 'normal') continue
-    if (q.sourceQuery && state.queries[q.sourceQuery.id] !== q.sourceQuery) {
-      ensureQueryRegistered(state, q.sourceQuery)
+  // Lazy-register the sources of reactive queries that reference the changed
+  // component, so match transitions are tracked even if the user only ever
+  // called enterQuery/exitQuery. Only sources that can match in this world
+  // are registered: one whose `all` (or entire `any`) components this world
+  // has never registered cannot match any of its entities, and registering it
+  // would allocate storage (and burn component bits) for foreign components.
+  // It is picked up by a later change once those components exist here.
+  const changedId = state.componentInfoByBit[changedBit]?.id
+  const sources = changedId === undefined ? undefined : reactiveSourcesByComponent.get(changedId)
+  if (sources) {
+    for (const src of sources) {
+      if (state.queries[src.id] === src) continue
+      if (canMatchIn(state, src)) ensureQueryRegistered(state, src)
     }
   }
 
@@ -531,10 +621,11 @@ function pushReactive(
   kind: 'enter' | 'exit',
   eid: EntityId,
 ): void {
-  // Walk the module cache (not just state.queries) so reactive variants that
-  // haven't been registered with this world yet still receive events.
-  for (const r of moduleQueryCache.values()) {
-    if (r.sourceQueryId !== queryId) continue
+  // Use the module-wide variant index (not just state.queries) so reactive
+  // variants that haven't been registered with this world yet still receive events.
+  const variants = reactiveBySource.get(queryId)
+  if (!variants) return
+  for (const r of variants) {
     if (r.reactiveKind !== kind) continue
     // Lazily register the reactive query in this world so subsequent reads can find it
     ensureQueryRegistered(state, r)
@@ -542,6 +633,16 @@ function pushReactive(
     if (kind === 'enter') buf.entered.push(eid as number)
     else buf.exited.push(eid as number)
   }
+}
+
+// Whether any entity of this world could match `q` given the components the
+// world has registered: every `all` component, and at least one `any`
+// component when `any` is non-empty. (`none` components need not exist.)
+function canMatchIn(state: WorldState, q: QueryInternal): boolean {
+  for (const id of q.all) if (!state.componentBitFor.has(id)) return false
+  if (q.any.length === 0) return true
+  for (const id of q.any) if (state.componentBitFor.has(id)) return true
+  return false
 }
 
 function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
@@ -556,21 +657,21 @@ function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
 // --- Helpers ---
 
 function getComponentInfoById(componentId: number): ComponentInfo {
-  // We need access to the component registry's lookup by id. Re-import dynamically to avoid cycles.
-  const info = lazyGetComponentInfo(componentId)
+  const info = getComponentByInternalId(componentId)
   if (!info) throw new Error(`aiecsjs: component id ${componentId} not registered`)
   return info
 }
 
-let _getComponentInfoFn: ((id: number) => ComponentInfo | undefined) | null = null
-export function registerComponentLookup(fn: (id: number) => ComponentInfo | undefined): void {
-  _getComponentInfoFn = fn
-}
-function lazyGetComponentInfo(id: number): ComponentInfo | undefined {
-  return _getComponentInfoFn ? _getComponentInfoFn(id) : undefined
-}
+// Wire component mask-change → query reactive update. This lives here rather
+// than in index.ts: the package declares `sideEffects: false`, so a bundler may
+// drop index.js when a consumer imports only re-exported names. Every reactive
+// query is created through this module, so registering here guarantees the
+// hook is live whenever a reactive buffer can exist.
+registerMaskChangeDispatch(recordEntityMaskChange)
 
 export function _resetQueryRegistry_FOR_TESTS_ONLY(): void {
   moduleQueryCache.clear()
-  nextQueryId = 1
+  reactiveBySource.clear()
+  reactiveSourcesByComponent.clear()
+  ids.query = 1
 }

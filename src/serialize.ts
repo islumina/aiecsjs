@@ -8,7 +8,6 @@ import {
   defineTag,
   getComponentByInternalId,
   getComponentInfo,
-  listAllComponents,
 } from './internal/component.js'
 import { createEntity, destroyEntity, ensureEntityAtSlot, packEid } from './internal/entity.js'
 import type {
@@ -20,6 +19,7 @@ import type {
   EntityId,
   SerializeOptions,
   World,
+  WorldOptions,
   WorldSnapshot,
 } from './internal/types.js'
 import { createWorld, getWorldState } from './internal/world.js'
@@ -29,39 +29,51 @@ const MAGIC = 'AIEC'
 const FORMAT_VERSION = 1
 
 export function serializeWorld(world: World, options?: SerializeOptions): Uint8Array {
-  const snapshot = toJSON(world)
-  if (options?.components) {
-    snapshot.entities = snapshot.entities.map((e) => ({
-      eid: e.eid,
-      components: e.components.filter((c) =>
-        options.components!.some((comp) => comp.__id === c.id),
-      ),
-    }))
-  }
-  return packBinary(snapshot)
+  return packBinary(snapshotWorld(world, allowlistOf(options?.components)))
 }
 
 export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions): World {
   const snapshot = unpackBinary(bytes, options)
+  const allow = allowlistOf(options?.components)
+  if (allow) {
+    snapshot.entities = snapshot.entities.map((e) => ({
+      eid: e.eid,
+      components: e.components.filter((c) => allow.has(c.id)),
+    }))
+  }
   return fromJSON(snapshot)
+}
+
+// `options.components` allowlist as a set of component ids; null = everything.
+function allowlistOf(components: ComponentLike[] | undefined): Set<number> | null {
+  return components ? new Set(components.map((c) => c.__id)) : null
 }
 
 /**
  * Serialize a world snapshot to a plain JSON-compatible object.
+ *
+ * AoS component data is deep-copied (`structuredClone`), so the snapshot never
+ * aliases live component instances; AoS values must therefore be cloneable.
  *
  * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
  * Generation counters reset on world load. Stale refs from before serialization
  * will deref to null after loading the snapshot into a new world.
  */
 export function toJSON(world: World): WorldSnapshot {
+  return snapshotWorld(world, null)
+}
+
+// toJSON restricted to the `allow` component ids (null = all). Components
+// outside the allowlist are skipped before their data is read or cloned.
+function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
   const state = getWorldState(world)
   const entities: WorldSnapshot['entities'] = []
   // Iterate by raw slot index; snapshot stores raw idx in the `eid` field
   // (wire format unchanged — idx is used for load-side entity re-creation).
   for (let idx = 1; idx < state.capacity; idx++) {
+    // Archetype 0 is the empty mask, which also holds live component-less
+    // entities, so liveness is decided by the row lookup below, not the id.
     const archId = state.entityArchetype[idx] ?? 0
-    if (archId === 0) continue // slot unused
-
     const arch = state.archetypes[archId]
     if (!arch) continue
 
@@ -79,7 +91,7 @@ export function toJSON(world: World): WorldSnapshot {
         const lsb = word & -word
         const bit = (wi << 5) + (31 - Math.clz32(lsb))
         const info = state.componentInfoByBit[bit]
-        if (info) {
+        if (info && (!allow || allow.has(info.id))) {
           const storage = state.componentStorageByBit[bit]
           let data: unknown = null
           if (info.kind === 'soa' && storage?.soa) {
@@ -98,7 +110,11 @@ export function toJSON(world: World): WorldSnapshot {
             }
             data = obj
           } else if (info.kind === 'aos' && storage?.aos) {
-            data = storage.aos[idx] ?? null
+            // Deep copy: handing out the live instance would let a snapshot
+            // (or a world restored from it) share nested objects with the
+            // source world, and mutating the snapshot would mutate the world.
+            const inst = storage.aos[idx]
+            data = inst == null ? null : structuredClone(inst)
           } else {
             data = true
           }
@@ -113,6 +129,9 @@ export function toJSON(world: World): WorldSnapshot {
   return {
     version: state.version,
     capacity: state.capacity,
+    maxEntities: state.options.maxEntities,
+    indexBits: state.options.indexBits,
+    generationBits: state.options.generationBits,
     entities,
   }
 }
@@ -138,9 +157,21 @@ function clampRestoreCapacity(rawCapacity: unknown, entityCount: number): number
   return Math.min(Math.floor(rawCapacity), needed)
 }
 
+// The source world's maxEntities / indexBits / generationBits, so a restored
+// world keeps its limits and bit layout (only the starting capacity is
+// clamped). Non-integer values are ignored; out-of-range bit widths are
+// rejected by createWorld like any other options.
+function restoredWorldOptions(snapshot: WorldSnapshot): WorldOptions {
+  const opts: WorldOptions = {}
+  if (Number.isInteger(snapshot.maxEntities)) opts.maxEntities = snapshot.maxEntities!
+  if (Number.isInteger(snapshot.indexBits)) opts.indexBits = snapshot.indexBits!
+  if (Number.isInteger(snapshot.generationBits)) opts.generationBits = snapshot.generationBits!
+  return opts
+}
+
 export function fromJSON(snapshot: WorldSnapshot): World {
   const initialCapacity = clampRestoreCapacity(snapshot.capacity, snapshot.entities.length)
-  const world = createWorld({ initialCapacity })
+  const world = createWorld({ ...restoredWorldOptions(snapshot), initialCapacity })
   const eidMap = new Map<number, EntityId>()
   for (const e of snapshot.entities) {
     const eid = createEntity(world)
@@ -263,31 +294,34 @@ function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSna
 
 interface DeltaState {
   world: World
-  components: ComponentLike[]
-  lastSnapshot: WorldSnapshot | null
+  // `options.components` allowlist (component ids); null = every component.
+  allow: Set<number> | null
+  // Per-entity JSON signature of the last captured components. Stored as
+  // strings (not the snapshot objects) because toJSON hands out AoS data by
+  // reference: a retained snapshot would alias the live instances and every
+  // in-place AoS change would compare equal to itself.
+  lastSigs: Map<number, string> | null
 }
 
 export function createDeltaSerializer(world: World, options?: SerializeOptions): DeltaSerializer {
   const state: DeltaState = {
     world,
-    components:
-      options?.components ??
-      listAllComponents()
-        .map((i) => getComponentHandle(i)!)
-        .filter(Boolean),
-    lastSnapshot: null,
+    allow: allowlistOf(options?.components),
+    lastSigs: null,
   }
   return {
     capture(): Uint8Array {
-      const current = toJSON(state.world)
+      const current = snapshotWorld(state.world, state.allow)
+      const sigs = new Map<number, string>()
+      for (const e of current.entities) sigs.set(e.eid, JSON.stringify(e.components))
       let delta: WorldSnapshot
-      if (!state.lastSnapshot) {
+      if (!state.lastSigs) {
         delta = current
       } else {
         // Compute simple delta: entities with changed components
-        delta = computeDelta(state.lastSnapshot, current)
+        delta = computeDelta(state.lastSigs, current, sigs)
       }
-      state.lastSnapshot = current
+      state.lastSigs = sigs
       return packBinary(delta)
     },
     apply(targetWorld: World, deltaBytes: Uint8Array): void {
@@ -305,9 +339,11 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
       // removed on the replica. apply() is additive/updating.
       const targetState = getWorldState(targetWorld)
       for (const e of snapshot.entities) {
-        if (e.eid <= 0 || e.eid >= targetState.options.maxEntities) continue
+        if (!Number.isInteger(e.eid) || e.eid <= 0 || e.eid >= targetState.options.maxEntities)
+          continue
         const eid = ensureEntityAtSlot(targetState, e.eid)
         for (const comp of e.components) {
+          if (state.allow && !state.allow.has(comp.id)) continue
           const info = getComponentByInternalId(comp.id)
           if (!info) continue
           const handle = getComponentHandle(info)
@@ -317,23 +353,19 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
       }
     },
     reset(): void {
-      state.lastSnapshot = null
+      state.lastSigs = null
     },
   }
 }
 
-function computeDelta(prev: WorldSnapshot, curr: WorldSnapshot): WorldSnapshot {
-  const prevByEid = new Map(prev.entities.map((e) => [e.eid, e]))
+function computeDelta(
+  prevSigs: Map<number, string>,
+  curr: WorldSnapshot,
+  currSigs: Map<number, string>,
+): WorldSnapshot {
   const changed: WorldSnapshot['entities'] = []
   for (const e of curr.entities) {
-    const prevE = prevByEid.get(e.eid)
-    if (!prevE) {
-      changed.push(e)
-      continue
-    }
-    const prevSig = JSON.stringify(prevE.components)
-    const currSig = JSON.stringify(e.components)
-    if (prevSig !== currSig) changed.push(e)
+    if (prevSigs.get(e.eid) !== currSigs.get(e.eid)) changed.push(e)
   }
   return { version: curr.version, capacity: curr.capacity, entities: changed }
 }

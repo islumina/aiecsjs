@@ -1,5 +1,6 @@
 import { clearBit, cloneMask, forEachSetBit, setBit, testBit } from './bitmask.js'
 import { isAliveInternal } from './entity.js'
+import { ids, shared } from './registry.js'
 import type {
   AoSComponent,
   ComponentInfo,
@@ -30,8 +31,6 @@ import {
 
 // --- Component factories ---
 
-let nextComponentId = 1
-
 const TYPE_CTOR: Record<string, TypedArrayConstructor> = {
   i8: Int8Array,
   u8: Uint8Array,
@@ -45,7 +44,8 @@ const TYPE_CTOR: Record<string, TypedArrayConstructor> = {
   bool: Uint8Array,
 }
 
-const componentInfoById = new Map<number, ComponentInfo>()
+// Shared across every loaded copy of the package (see registry.ts).
+const componentInfoById = shared.componentInfoById
 
 export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S> {
   const fields: FieldInfo[] = []
@@ -71,7 +71,7 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
       bytesPerElement: ctor.BYTES_PER_ELEMENT,
     })
   }
-  const id = nextComponentId++
+  const id = ids.component++
   const info: ComponentInfo = { id, kind: 'soa', schema, fields, factory: null }
   componentInfoById.set(id, info)
   const handle: SoAComponent<S> = {
@@ -83,14 +83,14 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
 }
 
 export function defineTag(): TagComponent {
-  const id = nextComponentId++
+  const id = ids.component++
   const info: ComponentInfo = { id, kind: 'tag', schema: null, fields: [], factory: null }
   componentInfoById.set(id, info)
   return { __kind: 'tag', __id: id }
 }
 
 export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
-  const id = nextComponentId++
+  const id = ids.component++
   const fac = factory ?? (() => ({}) as T)
   const info: ComponentInfo = {
     id,
@@ -139,7 +139,7 @@ export function addComponent<C extends ComponentLike>(
 
   writeInitial(state, eid as number, component, initial)
 
-  fireAddObservers(state, eid, bit)
+  shared.hooks.observerDispatch?.fireAdd(state, eid, bit, prevMask, newMask)
   notifyMaskChange(state, eid, bit, prevMask, newMask)
 }
 
@@ -154,21 +154,34 @@ export function removeComponent<C extends ComponentLike>(
   const info = getComponentInfo(component)
   const bit = tryGetComponentBit(state, info)
   if (bit === undefined) return
+  if (!testBit(readEntityMask(state, eid), bit)) return
+
+  // Component-level onRemove fires BEFORE the mask write, while the component
+  // is still attached, so handlers can read the outgoing value with
+  // getComponent — the same guarantee destroyEntity gives. The `removing` key
+  // makes a nested removeComponent of this same component a no-op (the outer
+  // call finishes the removal) instead of re-firing onRemove forever.
+  const key = ((eid as number) & state.options.indexMask) * state.options.maxComponents + bit
+  if (state.removing.has(key)) return
+  state.removing.add(key)
+  try {
+    shared.hooks.observerDispatch?.fireRemove(state, eid, bit)
+  } finally {
+    state.removing.delete(key)
+  }
+  // A handler may have destroyed the entity (destroy already tore the
+  // component down) or otherwise dropped the component.
+  if (!isAliveInternal(state, eid)) return
   const prevMask = readEntityMask(state, eid)
   if (!testBit(prevMask, bit)) return
 
-  // Write the new mask BEFORE firing observers so query-targeted observers
-  // reading `state.entityMask` see the post-removal state (and thus correctly
-  // detect "entity left this query"). Without this reorder, a query that
-  // requires the removed component would still match during dispatch and the
-  // remove observer would never fire. Component-targeted observers receive the
-  // bit directly and don't depend on mask timing. addComponent already follows
-  // this "mutate then fire" order; keeping removeComponent consistent.
+  // Write the new mask BEFORE firing query observers so they see the
+  // post-removal state (and thus correctly detect "entity left this query").
   const newMask = cloneMask(prevMask)
   clearBit(newMask, bit)
   migrateEntity(state, eid as number, newMask)
 
-  fireRemoveObservers(state, eid, bit)
+  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid, prevMask, newMask)
 
   const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
@@ -239,7 +252,7 @@ export function setComponent<C extends ComponentLike, V>(
     return
   }
   writeInitial(state, eid as number, component, value)
-  fireSetObservers(state, eid, bit, value)
+  shared.hooks.observerDispatch?.fireSet(state, eid, bit, value)
 }
 
 // --- Internals ---
@@ -373,27 +386,21 @@ function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Arra
 
 // --- Observer dispatch (lazy-bound) ---
 
-interface ObserversDispatchAPI {
-  fireAdd(state: WorldState, eid: EntityId, bit: number): void
+export interface ObserversDispatchAPI {
+  fireAdd(state: WorldState, eid: EntityId, bit: number, prev: Uint32Array, next: Uint32Array): void
   fireRemove(state: WorldState, eid: EntityId, bit: number): void
+  fireRemoveQuery(state: WorldState, eid: EntityId, prev: Uint32Array, next: Uint32Array): void
   fireSet(state: WorldState, eid: EntityId, bit: number, value: unknown): void
 }
-let _dispatch: ObserversDispatchAPI = {
-  fireAdd: () => {},
-  fireRemove: () => {},
-  fireSet: () => {},
-}
-
-type MaskChangeFn = (
+export type MaskChangeFn = (
   state: WorldState,
   eid: EntityId,
   bit: number,
   prev: Uint32Array,
   next: Uint32Array,
 ) => void
-let _maskChange: MaskChangeFn = () => {}
 export function registerMaskChangeDispatch(fn: MaskChangeFn): void {
-  _maskChange = fn
+  shared.hooks.maskChange = fn
 }
 function notifyMaskChange(
   state: WorldState,
@@ -402,7 +409,7 @@ function notifyMaskChange(
   prev: Uint32Array,
   next: Uint32Array,
 ): void {
-  _maskChange(state, eid as EntityId, bit, prev, next)
+  shared.hooks.maskChange?.(state, eid as EntityId, bit, prev, next)
 }
 
 // Fire the reactive enter/exit mask-change notification for an entity being
@@ -420,10 +427,9 @@ function notifyMaskChange(
 // the first component that breaks each query's match, so every query records
 // exactly one exit.
 //
-// SNAPSHOT DISCIPLINE: `prevMask` is captured at destroy entry (a private copy,
-// same discipline as dispatchDestroyObservers' preMask) so reentrant handlers
-// run earlier in destroy cannot mutate live state and suppress the exit. We
-// iterate that snapshot and mutate only our own clones.
+// SNAPSHOT DISCIPLINE: `prevMask` is a private copy captured after destroy's
+// teardown handlers ran (their own add/removeComponent calls already recorded
+// those transitions). We iterate that snapshot and mutate only our own clones.
 export function dispatchDestroyMaskChange(
   state: WorldState,
   eid: EntityId,
@@ -439,16 +445,7 @@ export function dispatchDestroyMaskChange(
   })
 }
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
-  _dispatch = api
-}
-function fireAddObservers(state: WorldState, eid: number, bit: number): void {
-  _dispatch.fireAdd(state, eid as EntityId, bit)
-}
-function fireRemoveObservers(state: WorldState, eid: number, bit: number): void {
-  _dispatch.fireRemove(state, eid as EntityId, bit)
-}
-function fireSetObservers(state: WorldState, eid: number, bit: number, value: unknown): void {
-  _dispatch.fireSet(state, eid as EntityId, bit, value)
+  shared.hooks.observerDispatch = api
 }
 
 // --- Helper for serialize/worker ---
@@ -457,11 +454,7 @@ export function getComponentByInternalId(id: number): ComponentInfo | undefined 
   return componentInfoById.get(id)
 }
 
-export function listAllComponents(): ComponentInfo[] {
-  return Array.from(componentInfoById.values())
-}
-
 export function _resetComponentRegistry_FOR_TESTS_ONLY(): void {
   componentInfoById.clear()
-  nextComponentId = 1
+  ids.component = 1
 }

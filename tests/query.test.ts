@@ -23,6 +23,7 @@ import {
   runQuery,
   setComponent,
 } from '../src/index.js'
+import { getWorldState } from '../src/internal/world.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })
 const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
@@ -272,6 +273,77 @@ describe('forEachEntityIndexed', () => {
     const seen2: number[] = []
     forEachEntityIndexed(w, leaving, (eid) => seen2.push(eid as number))
     expect(seen2.length).toBe(0)
+  })
+
+  it('iterQuery: an early break still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+
+    // Break out after the first entity without exhausting the generator.
+    for (const _e of iterQuery(w, entering)) {
+      break
+    }
+
+    // The buffer must already be detached/drained — a second read sees
+    // nothing, not a re-delivery of e1 (and e2).
+    expect(runQuery(w, entering)).toEqual([])
+  })
+
+  it('forEachEntity: a throwing callback still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const entering = enterQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+
+    let calls = 0
+    expect(() => {
+      forEachEntity(w, entering, () => {
+        calls++
+        if (calls === 1) throw new Error('boom')
+      })
+    }).toThrow('boom')
+    expect(calls).toBe(1)
+
+    // The already-processed prefix (e1) must not be re-delivered on retry.
+    const seen: number[] = []
+    forEachEntity(w, entering, (eid) => seen.push(eid as number))
+    expect(seen).toEqual([])
+  })
+
+  it('forEachEntityIndexed: a throwing callback still drains the buffer exactly once', () => {
+    const w = createWorld()
+    const q = defineQuery([Position])
+    const leaving = exitQuery(q)
+    runQuery(w, q)
+    const e1 = createEntity(w)
+    addComponent(w, e1, Position, { x: 0, y: 0 })
+    const e2 = createEntity(w)
+    addComponent(w, e2, Position, { x: 0, y: 0 })
+    removeComponent(w, e1, Position)
+    removeComponent(w, e2, Position)
+
+    let calls = 0
+    expect(() => {
+      forEachEntityIndexed(w, leaving, () => {
+        calls++
+        if (calls === 1) throw new Error('boom')
+      })
+    }).toThrow('boom')
+    expect(calls).toBe(1)
+
+    const seen: number[] = []
+    forEachEntityIndexed(w, leaving, (eid) => seen.push(eid as number))
+    expect(seen).toEqual([])
   })
 
   it('reactive: returns early with no buffer / empty buffer', () => {
@@ -781,5 +853,201 @@ describe('ECS-B-01: in-loop destroy never leaks eid 0 (forEachEntity / forEachEn
     expect(seenE.every((e) => (e as number) !== 0)).toBe(true)
     // Every delivered slot index must be a genuine masked index of its eid.
     expect(seenI.every((idx, n) => idx === getEntityIndex(seenE[n] as EntityId))).toBe(true)
+  })
+})
+
+describe('query argument validation', () => {
+  const Position = defineComponent({ x: Types.f32, y: Types.f32 })
+  const Velocity = defineComponent({ x: Types.f32, y: Types.f32 })
+
+  it('a raw component array is treated as defineQuery(array)', () => {
+    const world = createWorld()
+    const e = createEntity(world)
+    addComponent(world, e, Position, { x: 0, y: 0 })
+    addComponent(world, e, Velocity, { x: 1, y: 0 })
+    const raw = [Position, Velocity] as unknown as Parameters<typeof runQuery>[1]
+    let calls = 0
+    forEachEntity(world, raw, () => {
+      calls++
+    })
+    let indexedCalls = 0
+    forEachEntityIndexed(world, raw, () => {
+      indexedCalls++
+    })
+    expect(calls).toBe(1)
+    expect(indexedCalls).toBe(1)
+    expect(runQuery(world, raw)).toEqual([e])
+    expect([...iterQuery(world, raw)]).toEqual([e])
+    expect(queryArchetypes(world, raw).length).toBe(1)
+  })
+
+  it('a non-query value throws a TypeError instead of iterating nothing', () => {
+    const world = createWorld()
+    const bogus = { all: [] } as unknown as Parameters<typeof runQuery>[1]
+    expect(() => forEachEntity(world, bogus, () => {})).toThrow(TypeError)
+    expect(() => forEachEntityIndexed(world, bogus, () => {})).toThrow(TypeError)
+    expect(() => runQuery(world, bogus)).toThrow(TypeError)
+  })
+})
+
+describe('in-loop archetype moves visit each matching entity once per pass', () => {
+  function setup() {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld()
+    // Make archetype {A,B} exist first so it is later in the query's archetype list.
+    const pre = createEntity(w)
+    addComponent(w, pre, A)
+    addComponent(w, pre, B)
+    destroyEntity(w, pre)
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    return { A, B, w, ents }
+  }
+
+  it('forEachEntity: moving into an already-matching archetype neither skips nor repeats', () => {
+    const { A, B, w, ents } = setup()
+    const visited: number[] = []
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('forEachEntityIndexed: moving into an already-matching archetype neither skips nor repeats', () => {
+    const { A, B, w, ents } = setup()
+    const visited: number[] = []
+    forEachEntityIndexed(w, defineQuery([A]), (e, i) => {
+      expect(i).toBe(getEntityIndex(e))
+      visited.push(e as number)
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('forEachEntity: removing a component the query does not need still visits the swapped-in entity', () => {
+    const { A, B, w, ents } = setup()
+    for (const e of ents) addComponent(w, e, B)
+    const visited: number[] = []
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      removeComponent(w, e, B)
+    })
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('nested passes over the same query still visit every pair', () => {
+    const { A, w } = setup()
+    const q = defineQuery([A])
+    let pairs = 0
+    forEachEntity(w, q, () => {
+      forEachEntity(w, q, () => {
+        pairs++
+      })
+    })
+    expect(pairs).toBe(9)
+  })
+})
+
+describe('reactive queries do not register foreign components in unrelated worlds', () => {
+  it('a reactive query over components a world never uses registers nothing there', () => {
+    const Big = defineComponent({ a: Types.f64, b: Types.f64 })
+    enterQuery(defineQuery([Big]))
+    const T = defineTag()
+    const wb = createWorld({ initialCapacity: 100_000 })
+    addComponent(wb, createEntity(wb), T)
+    expect(getWorldState(wb).componentBitFor.has(Big.__id)).toBe(false)
+  })
+
+  it('enter/exit are still captured before the first read once the components exist', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const D = defineTag()
+    const q = defineQuery({ all: [A, B], none: [D] })
+    const en = enterQuery(q)
+    const ex = exitQuery(q)
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, A) // B not registered in w yet: q cannot match
+    addComponent(w, e, B) // enters
+    addComponent(w, e, D) // exits via a none term
+    expect(runQuery(w, en)).toEqual([e])
+    expect(runQuery(w, ex)).toEqual([e])
+  })
+
+  it('many foreign reactive queries cannot exhaust an unrelated world maxComponents', () => {
+    for (let i = 0; i < 256; i++) enterQuery(defineQuery([defineTag()]))
+    const T = defineTag()
+    const wb = createWorld()
+    const e = createEntity(wb)
+    expect(() => addComponent(wb, e, T)).not.toThrow()
+  })
+})
+
+describe('forEachEntity visit stamps: growth and epoch wrap', () => {
+  it('stamps survive a mid-pass capacity growth', () => {
+    const A = defineTag()
+    const B = defineTag()
+    const w = createWorld({ initialCapacity: 4 })
+    const pre = createEntity(w)
+    addComponent(w, pre, A)
+    addComponent(w, pre, B)
+    destroyEntity(w, pre)
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    const visited: number[] = []
+    let grown = false
+    forEachEntity(w, defineQuery([A]), (e) => {
+      visited.push(e as number)
+      if (!grown) {
+        grown = true
+        for (let i = 0; i < 8; i++) createEntity(w) // grows capacity past 4
+      }
+      if (!hasComponent(w, e, B)) addComponent(w, e, B)
+    })
+    expect(getWorldState(w).visitStamp.length).toBe(getWorldState(w).capacity)
+    expect([...visited].sort((a, b) => a - b)).toEqual([...ents].sort((a, b) => a - b))
+  })
+
+  it('the pass stamp wraps without skipping entities', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const ents: EntityId[] = []
+    for (let i = 0; i < 3; i++) {
+      const e = createEntity(w)
+      addComponent(w, e, A)
+      ents.push(e)
+    }
+    const q = defineQuery([A])
+    forEachEntity(w, q, () => {})
+    getWorldState(w).visitEpoch = 0xffffffff
+    const visited: number[] = []
+    forEachEntity(w, q, (e) => visited.push(e as number))
+    expect(visited).toEqual(ents)
+    expect(getWorldState(w).visitEpoch).toBe(1)
+  })
+})
+
+describe('reactive queries with any terms register once an any component exists', () => {
+  it('enter fires when the first any component is added', () => {
+    const A = defineTag()
+    const X = defineTag()
+    const Y = defineTag()
+    const en = enterQuery(defineQuery({ all: [A], any: [X, Y] }))
+    const w = createWorld()
+    const e = createEntity(w)
+    addComponent(w, e, A) // no any component registered in w yet: cannot match
+    expect(getWorldState(w).componentBitFor.has(X.__id)).toBe(false)
+    addComponent(w, e, X)
+    expect(runQuery(w, en)).toEqual([e])
   })
 })

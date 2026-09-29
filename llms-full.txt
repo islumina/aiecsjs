@@ -72,7 +72,7 @@ Use `defineTag()` for marker components and `defineObjectComponent()` when you n
 - Structural mutation during a query loop is allowed by the library, but app systems should prefer `withCommandBuffer()` when adding/removing/destroying entities from inside iteration.
 - Reactive query buffers are unbounded until drained. Poll and clear them every frame or event tick.
 - Query registration currently uses a global module cache; many worlds/components can make structural changes scan more query metadata than expected.
-- Exclusive relation cleanup is `O(incoming)` on destroy — a reverse index touches only the edges pointing at the destroyed entity, not the whole relation capacity.
+- Exclusive relation cleanup is `O(incoming)` on destroy for the exclusive-slot reverse index, but every destroy also walks all relation `data` payload sources and all `outgoing` (non-exclusive) edge lists — cost is `O(incoming + data sources + outgoing sources)` across all relations, even for entities with no relations at all.
 - Serialization restores capacity with safety clamps, but snapshots from untrusted sources should still be treated as hostile input.
 - Worker/SAB helpers depend on the runtime environment. Feature-detect `SharedArrayBuffer` and cross-origin isolation in browsers.
 - `pnpm lint` currently reports many `noExplicitAny` warnings. They are not release-blocking, but they add AI-review noise.
@@ -99,6 +99,31 @@ MIT
 All notable changes to aiecsjs are summarized here. Detailed historical review notes live in Git history; this file keeps current release context compact.
 
 ## [Unreleased]
+
+- Fixed: `destroyEntity` no longer recurses (or corrupts world size/freeList/exit-query state) when an onRemove/observe handler destroys, resets, or otherwise re-enters teardown for the same entity.
+- Fixed: the package's `sideEffects: false` no longer lets bundlers drop `dist/index.js`'s component-lookup and mask-change registration, which broke queries (and left reactive enter/exit queries empty) for consumers who imported only chunk-owned bindings.
+- Fixed: query observers (`observe(world, query, 'add'|'remove')`) now track match transitions, so queries with `none` terms fire enter/exit correctly and `'remove'` no longer fires for entities that never matched.
+- Fixed: the delta serializer now replicates AoS (`defineObjectComponent`) changes; `capture()` previously aliased the live component instance and always diffed it against itself, silently dropping AoS updates.
+- Fixed: `toJSON`/delta capture no longer drop component-less live entities (archetype 0) from snapshots.
+- Fixed: `flush()` detaches the command-buffer queue before applying it, so a flush that throws partway through no longer replays Phase 1 and duplicates entities on retry.
+- Fixed: command-buffer ops enqueued during `flush()` (e.g. from an onAdd/onRemove handler) are now processed in further rounds instead of throwing an unresolved-placeholder error or being silently dropped.
+- Fixed: component-level `onRemove` handlers can now read the outgoing component's value via `getComponent` on the `removeComponent` path, matching the existing `destroyEntity` path.
+- Fixed: `forEachEntity`/`forEachEntityIndexed`/`iterQuery`/`runQuery` accept a raw component array (routed through `defineQuery`) and throw a `TypeError` for other non-Query input, instead of silently iterating zero entities.
+- Fixed: an in-loop `addComponent`/`removeComponent` that moves the currently visited entity into an archetype already covered by the same `forEachEntity`/`forEachEntityIndexed` pass no longer visits it twice or skips another entity.
+- Fixed: `observe(world, query, 'set')` now fires only for entities that actually match the query (not merely any entity carrying a component in `query.all`), and fires for `any`-only components too.
+- Fixed: `toJSON` deep-copies AoS component data instead of handing out the live instance, so `fromJSON(toJSON(w))` and a mutated snapshot no longer alias/mutate the source world.
+- Fixed: the delta serializer's `capture()`/`apply()` and `deserializeWorld` now honour the documented `components` allowlist option instead of silently ignoring it.
+- Fixed: component/query/world registries are now shared across duplicate ESM+CJS copies of the package (via a `globalThis` key) instead of colliding on the same auto-incrementing ids.
+- Fixed: `fromJSON`/`deserializeWorld` restore `maxEntities`, `indexBits`, and `generationBits` from the snapshot instead of falling back to defaults, so a large or non-default-layout world round-trips without hitting a bogus `maxEntities` cap.
+- Fixed: the fixed-timestep loop now ends a tick chain as soon as it is stopped or restarted — even from inside `onUpdate`/`onRender` — so it no longer keeps stepping, renders after `stop()`, or runs two chains concurrently.
+- Fixed: reactive (enter/exit) queries are now indexed per world instead of scanning a module-level cache on every structural change, which previously registered foreign components (and could exhaust `maxComponents`) in unrelated worlds.
+- Fixed: `observe()` on an `enterQuery`/`exitQuery` now registers the query directly instead of forcing registration via `runQuery`, which drained the (not-yet-registered) reactive buffer as a no-op and left the observer permanently inert.
+- Fixed: `iterQuery`/`forEachEntity`/`forEachEntityIndexed` now drain their reactive buffer up front, so breaking out of the loop early or a callback throwing partway through no longer re-delivers already-seen entities on the next read.
+- Fixed: the delta serializer's `apply()` rejects a non-integer `eid` instead of corrupting entity-slot allocation (a live slot pushed onto the freeList, a non-integer allocation frontier).
+- Fixed: the fixed-timestep loop clamps `dtMs` to non-negative, so a first tick timestamp earlier than `start()`'s sample can no longer drive the accumulator (and `onRender`'s alpha) negative.
+- Fixed: `createEntity`'s `maxEntities` guard now throws `EcsError` (matching the documented behaviour) instead of a plain `Error`.
+- Docs: relation-destroy cost is documented as `O(incoming + data sources + outgoing sources)` (was understated as `O(incoming)` alone).
+- Docs: `deref`/`aliveRef` are documented as "never throws for a live world" (was an unqualified "never throws") — both throw `EcsError` once the world has been disposed.
 
 ## [0.5.9] - 2026-06-29
 
@@ -161,7 +186,7 @@ aiecsjs keeps the root ECS surface stable and treats subpaths as explicit public
 ## Current Caveats
 
 - Reactive query registration scans a module-level query cache on structural changes.
-- Exclusive relation cleanup touches only the incoming edges (`O(incoming)`) when an entity is destroyed, via a reverse index — no full relation-capacity scan.
+- Exclusive relation cleanup avoids a full relation-capacity scan (via a reverse index it touches only `O(incoming)` exclusive edges), but it still walks every relation's `data` payload sources and `outgoing` (non-exclusive) edge lists on every destroy: `O(incoming + data sources + outgoing sources)` across all relations, even for entities with no relations.
 - Lint has many `noExplicitAny` warnings pending cleanup.
 
 ---

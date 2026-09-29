@@ -5,11 +5,18 @@ import {
   createEntity,
   createWorld,
   defineComponent,
+  defineObjectComponent,
   defineQuery,
   defineTag,
   destroyEntity,
+  enterQuery,
+  exitQuery,
   getComponent,
+  getWorldSize,
+  hasComponent,
   removeComponent,
+  resetWorld,
+  runQuery,
   setComponent,
 } from '../src/index.js'
 import { deref, refOf } from '../src/index.js'
@@ -117,6 +124,62 @@ describe('component observers', () => {
     const e = createEntity(w)
     addComponent(w, e, Unrelated) // not Position
     expect(seen.length).toBe(0)
+  })
+
+  it('query observers fire on match transitions for queries with none terms', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const q = defineQuery({ all: [A], none: [B] })
+    const adds: number[] = []
+    const removes: number[] = []
+    observe(w, q, 'add', (eid) => adds.push(eid as number))
+    observe(w, q, 'remove', (eid) => removes.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, A) // enters
+    addComponent(w, e, B) // leaves via an add
+    removeComponent(w, e, B) // re-enters via a remove
+    expect(adds).toEqual([e, e])
+    expect(removes).toEqual([e])
+  })
+
+  it('query remove observer does not fire for an entity that never matched', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const C = defineTag()
+    const seen: number[] = []
+    observe(w, defineQuery([A, B]), 'remove', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, C)
+    removeComponent(w, e, C)
+    expect(seen).toEqual([])
+  })
+
+  it("query 'set' observer does not fire for an entity that does not match", () => {
+    const w = createWorld()
+    const P = defineComponent({ x: Types.f32 })
+    const B = defineTag()
+    const seen: number[] = []
+    observe(w, defineQuery([P, B]), 'set', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    setComponent(w, e, P, { x: 2 })
+    expect(seen).toEqual([])
+    addComponent(w, e, B)
+    setComponent(w, e, P, { x: 3 })
+    expect(seen).toEqual([e])
+  })
+
+  it("query 'set' observer fires for a component listed only in any", () => {
+    const w = createWorld()
+    const P = defineComponent({ x: Types.f32 })
+    const seen: number[] = []
+    observe(w, defineQuery({ any: [P] }), 'set', (eid) => seen.push(eid as number))
+    const e = createEntity(w)
+    addComponent(w, e, P, { x: 1 })
+    setComponent(w, e, P, { x: 3 })
+    expect(seen).toEqual([e])
   })
 
   it('onAdd { signal } unsubscribes when the signal aborts', () => {
@@ -366,5 +429,136 @@ describe('component observers', () => {
     // New entity works
     const ref2 = refOf(w, e2)
     expect(deref(w, ref2)).toBe(e2)
+  })
+})
+
+describe('destroyEntity reentrancy from teardown handlers', () => {
+  it('onRemove handler that destroys the same entity is a no-op (no recursion)', () => {
+    const w = createWorld()
+    const A = defineTag()
+    onRemove(w, A, (e) => destroyEntity(w, e))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    expect(() => destroyEntity(w, e)).not.toThrow()
+    expect(getWorldSize(w)).toBe(0)
+  })
+
+  it('nested destroy of the same entity does not corrupt size, freeList or exit buffer', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const ex = exitQuery(defineQuery([A]))
+    runQuery(w, ex)
+    let once = true
+    onRemove(w, A, (e) => {
+      if (once) {
+        once = false
+        destroyEntity(w, e)
+      }
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    destroyEntity(w, e)
+    expect(getWorldSize(w)).toBe(0)
+    expect(runQuery(w, ex)).toEqual([e])
+    expect(createEntity(w)).not.toBe(createEntity(w))
+  })
+
+  it('onRemove(A) removing B during destroy fires onRemove(B) and exit(B) once', () => {
+    const w = createWorld()
+    const A = defineTag()
+    const B = defineTag()
+    const exB = exitQuery(defineQuery([B]))
+    runQuery(w, exB)
+    const seenB: number[] = []
+    onRemove(w, A, (e) => removeComponent(w, e, B))
+    onRemove(w, B, (e) => seenB.push(e as number))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    addComponent(w, e, B)
+    destroyEntity(w, e)
+    expect(seenB).toEqual([e])
+    expect(runQuery(w, exB)).toEqual([e])
+  })
+
+  it('onRemove handler that calls resetWorld aborts the outer teardown', () => {
+    const w = createWorld()
+    const A = defineTag()
+    onRemove(w, A, () => resetWorld(w))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    destroyEntity(w, e)
+    expect(getWorldSize(w)).toBe(0)
+    const ids = [createEntity(w), createEntity(w), createEntity(w)]
+    expect(new Set(ids).size).toBe(3)
+  })
+})
+
+describe('onRemove sees the outgoing component', () => {
+  it('handler can read the component on both destroyEntity and removeComponent', () => {
+    const MeshRef = defineObjectComponent<{ mesh: { disposed: boolean } | null }>(() => ({
+      mesh: null,
+    }))
+    const w = createWorld()
+    const seen: unknown[] = []
+    onRemove(w, MeshRef, (e) => seen.push(getComponent(w, e, MeshRef)))
+    const a = createEntity(w)
+    addComponent(w, a, MeshRef, { mesh: { disposed: false } })
+    const b = createEntity(w)
+    addComponent(w, b, MeshRef, { mesh: { disposed: false } })
+    destroyEntity(w, a)
+    removeComponent(w, b, MeshRef)
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toEqual({ mesh: { disposed: false } })
+    expect(seen[1]).toEqual({ mesh: { disposed: false } })
+    expect(getComponent(w, b, MeshRef)).toBeUndefined()
+  })
+
+  it('removing the same component again from its onRemove handler fires once', () => {
+    const A = defineTag()
+    const w = createWorld()
+    let calls = 0
+    onRemove(w, A, (e) => {
+      calls++
+      removeComponent(w, e, A)
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    removeComponent(w, e, A)
+    expect(calls).toBe(1)
+    expect(hasComponent(w, e, A)).toBe(false)
+  })
+
+  it('destroying the entity from onRemove during removeComponent fires onRemove once', () => {
+    const A = defineTag()
+    const w = createWorld()
+    let calls = 0
+    onRemove(w, A, (e) => {
+      calls++
+      destroyEntity(w, e)
+    })
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    removeComponent(w, e, A)
+    expect(calls).toBe(1)
+    expect(getWorldSize(w)).toBe(0)
+  })
+})
+
+describe('observe() with a reactive (enter/exit) query', () => {
+  it('registers the source query instead of draining it, and the observer fires', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const en = enterQuery(defineQuery([A]))
+    const seen: number[] = []
+    observe(w, en, 'add', (e) => seen.push(e as number))
+    const e1 = createEntity(w)
+    addComponent(w, e1, A)
+    // Before the fix, observe() forced registration via runQuery, which for
+    // a reactive query drains the (not-yet-registered) buffer as a no-op and
+    // never wires up the source query, leaving the observer permanently inert.
+    expect(seen).toEqual([e1])
+    const e2 = createEntity(w)
+    addComponent(w, e2, A)
+    expect(seen).toEqual([e1, e2])
   })
 })

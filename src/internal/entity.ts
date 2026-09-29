@@ -1,4 +1,6 @@
 import { clearAllEntityStorages, dispatchDestroyMaskChange } from './component.js'
+import { EcsError } from './errors.js'
+import { shared } from './registry.js'
 import type { EntityId, ResolvedWorldOptions, World, WorldState } from './types.js'
 import { ensureArchetypeCapacity, ensureCapacity, getWorldState, readEntityMask } from './world.js'
 
@@ -40,7 +42,7 @@ export function createEntity(world: World): EntityId {
     idx = state.freeList.pop()!
   } else {
     if (state.nextFreshIndex >= state.options.maxEntities) {
-      throw new Error(`aiecsjs: reached maxEntities ${state.options.maxEntities}`)
+      throw new EcsError(`aiecsjs: reached maxEntities ${state.options.maxEntities}`)
     }
     if (state.nextFreshIndex >= state.capacity) {
       ensureCapacity(state, state.nextFreshIndex + 1)
@@ -89,7 +91,7 @@ export function ensureEntityAtSlot(state: WorldState, idx: number): EntityId {
   }
   if (idx <= 0 || idx >= state.options.maxEntities) {
     /* v8 ignore next — defensive: apply() pre-guards the eid range */
-    throw new Error(`aiecsjs: slot index ${idx} out of range`)
+    throw new EcsError(`aiecsjs: slot index ${idx} out of range`)
   }
   if (idx >= state.capacity) ensureCapacity(state, idx + 1)
 
@@ -136,22 +138,35 @@ export function destroyEntity(world: World, eid: EntityId): void {
     throw new Error('aiecsjs: cannot destroyEntity on a read-only world')
   }
   if (!isAliveInternal(state, eid)) return
+  // Reentrancy guard: a teardown handler (onRemove / observe / relation cleanup)
+  // that destroys this same entity again is a no-op. Without it the nested call
+  // runs a full teardown and the outer call then finishes anyway, pushing the
+  // slot onto the freeList twice and double-decrementing size.
+  if (state.destroying.has(eid)) return
 
   const idx = eid & state.options.indexMask
 
-  // Snapshot the pre-destroy mask BEFORE any teardown runs. dispatchDestroyObservers
-  // (and relation cleanup) may reentrantly mutate live state.entityMask; capturing
-  // here lets the reactive exit notification below fire against the state at destroy
-  // entry — same snapshot discipline dispatchDestroyObservers uses for its preMask.
-  const prevMask = readEntityMask(state, eid)
-
   // Fire onRemove for every component the entity has, plus reactive exit
   // (Late-bound to avoid circular imports — done via observers module.)
-  const { dispatchDestroyObservers } = lazyObservers()
-  dispatchDestroyObservers(state, eid)
+  state.destroying.add(eid)
+  let owned: boolean
+  try {
+    shared.hooks.destroyObservers?.dispatchDestroyObservers(state, eid)
 
-  // Clean up relations referring to this entity
-  cleanupRelationsOnDestroy(state, eid)
+    // Clean up relations referring to this entity
+    cleanupRelationsOnDestroy(state, eid)
+  } finally {
+    // resetWorld / destroyWorld clear the set, so a missing entry means a
+    // handler already wiped this entity's slot.
+    owned = state.destroying.delete(eid)
+  }
+  if (!owned || state.destroyed || !isAliveInternal(state, eid)) return
+
+  // Read the mask AFTER teardown handlers ran: component changes they made on
+  // this entity (removeComponent / addComponent) already recorded their own
+  // reactive enter/exit, so the exit notification below must start from the
+  // live mask or those components would be reported twice.
+  const prevMask = readEntityMask(state, eid)
 
   // Zero the SoA columns / undefine the AoS slots the entity owned, before
   // the mask is cleared. Without this, destroyed entities leave stale data
@@ -179,9 +194,9 @@ export function destroyEntity(world: World, eid: EntityId): void {
   // Notify the REACTIVE enter/exit surface that the entity is leaving every
   // query it was matching. destroyEntity clears the mask wholesale rather than
   // routing through removeComponent, so without this exitQuery buffers stay
-  // empty on destroy (asymmetric with observe(q,'remove')). We pass the entry
-  // snapshot so reentrant teardown handlers above cannot suppress the exit; the
-  // helper computes post-state = empty mask (component absent).
+  // empty on destroy (asymmetric with observe(q,'remove')). We pass the
+  // post-teardown snapshot; the helper computes post-state = empty mask
+  // (component absent).
   dispatchDestroyMaskChange(state, eid, prevMask)
 
   // Wipe state
@@ -257,24 +272,16 @@ export function isEntity(world: World, x: unknown): x is EntityId {
 
 // --- Lazy loaders to break import cycles ---
 
-interface ObserversAPI {
+export interface ObserversAPI {
   dispatchDestroyObservers(state: WorldState, eid: EntityId): void
 }
-let _observersAPI: ObserversAPI | null = null
 export function registerObserversAPI(api: ObserversAPI): void {
-  _observersAPI = api
-}
-function lazyObservers(): ObserversAPI {
-  if (!_observersAPI) {
-    return { dispatchDestroyObservers: () => {} }
-  }
-  return _observersAPI
+  shared.hooks.destroyObservers = api
 }
 
-let _relationsCleanup: ((state: WorldState, eid: EntityId) => void) | null = null
 export function registerRelationsCleanup(fn: (state: WorldState, eid: EntityId) => void): void {
-  _relationsCleanup = fn
+  shared.hooks.relationsCleanup = fn
 }
 function cleanupRelationsOnDestroy(state: WorldState, eid: EntityId): void {
-  if (_relationsCleanup) _relationsCleanup(state, eid)
+  shared.hooks.relationsCleanup?.(state, eid)
 }

@@ -1,13 +1,12 @@
 // aiecsjs/relations — entity-to-entity relations (experimental in 0.1).
 
 import { packEid, registerRelationsCleanup } from './internal/entity.js'
+import { ids, shared } from './internal/registry.js'
 import type { EntityId, Relation, RelationStorage, World, WorldState } from './internal/types.js'
 import { getWorldState } from './internal/world.js'
 
-let nextRelationId = 1
-
 export function defineRelation<T = void>(options?: { exclusive?: boolean }): Relation<T> {
-  const id = nextRelationId++
+  const id = ids.relation++
   return {
     __kind: 'relation',
     __id: id,
@@ -16,7 +15,10 @@ export function defineRelation<T = void>(options?: { exclusive?: boolean }): Rel
   } as Relation<T>
 }
 
-export const ChildOf: Relation = defineRelation({ exclusive: true })
+// One ChildOf for every loaded copy of the package (see registry.ts), so a
+// hierarchy built through one copy is visible through another.
+shared.childOf ??= defineRelation({ exclusive: true })
+export const ChildOf: Relation = shared.childOf
 
 function getOrCreateStorage(state: WorldState, rel: Relation<unknown>): RelationStorage {
   let storage = state.relationStorage.get(rel.__id)

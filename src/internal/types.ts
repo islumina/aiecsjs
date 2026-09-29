@@ -277,6 +277,11 @@ export interface DeserializeOptions {
 export interface WorldSnapshot {
   version: string
   capacity: number
+  // Source world layout / limits. Absent in snapshots from older versions, in
+  // which case the restored world uses the createWorld defaults.
+  maxEntities?: number
+  indexBits?: number
+  generationBits?: number
   entities: Array<{
     eid: number
     components: Array<{
@@ -327,6 +332,10 @@ export interface WorldState {
   freeList: number[] // recycled indices
   generations: Uint8Array | Uint16Array // [eid] → version
   destroyed: boolean
+  destroying: Set<number> // packed eids mid-destroyEntity (reentrancy guard)
+  removing: Set<number> // idx * maxComponents + bit mid-removeComponent dispatch
+  visitStamp: Uint32Array // [idx] → last forEachEntity pass that visited it (lazy)
+  visitEpoch: number // current forEachEntity pass stamp
 
   // --- component registry (per-world) ---
   componentBitFor: Map<number, number> // global component id → bit pos in this world
