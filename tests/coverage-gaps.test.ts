@@ -26,7 +26,7 @@ import {
   runQuery,
   setComponent,
 } from '../src/index.js'
-import { deref, refOf } from '../src/index.js'
+import { EcsError, deref, disposeWorld, refOf } from '../src/index.js'
 import { createLoop } from '../src/loop.js'
 import { observe, onAdd, onSet } from '../src/observers.js'
 import {
@@ -293,7 +293,8 @@ describe('serialize.ts: delta apply and computeDelta', () => {
   })
 
   it('deserializeWorld: truncated bytes throws', () => {
-    expect(() => deserializeWorld(new Uint8Array(3))).toThrow()
+    expect(() => deserializeWorld(new Uint8Array(3))).toThrow(EcsError)
+    expect(() => deserializeWorld(new Uint8Array(3))).toThrow(/too short/)
   })
 
   it('deserializeWorld: wrong magic throws', () => {
@@ -335,6 +336,7 @@ describe('worker.ts: error paths', () => {
         componentSchemas: [],
       },
     }
+    expect(() => adoptSnapshot(snap)).toThrow(EcsError)
     expect(() => adoptSnapshot(snap)).toThrow(/magic/)
   })
 
@@ -353,7 +355,8 @@ describe('worker.ts: error paths', () => {
         componentSchemas: [],
       },
     }
-    expect(() => adoptSnapshot(snap)).toThrow(/format version/)
+    expect(() => adoptSnapshot(snap)).toThrow(EcsError)
+    expect(() => adoptSnapshot(snap)).toThrow('aiecsjs: format version 99 not supported')
   })
 
   it('detachWorld on an unregistered world does not throw (false branch of isWorldRegistered)', async () => {
@@ -508,6 +511,7 @@ describe('commands.ts: error paths', () => {
   it('flush throws on unknown CommandBuffer', async () => {
     const { flush: flushCmd } = await import('../src/commands.js')
     const fake = {} as any
+    expect(() => flushCmd(fake)).toThrow(EcsError)
     expect(() => flushCmd(fake)).toThrow(/unknown CommandBuffer/)
   })
 
@@ -705,7 +709,10 @@ describe('component.ts: getComponentInfo with unregistered component id', () => 
     const staleHandle = { __kind: 'soa' as const, __id: 0xdeadbeef, __schema: {} }
     const w = createWorld()
     const e = createEntity(w)
+    expect(() => addComponent(w, e, staleHandle as any, {})).toThrow(EcsError)
     expect(() => addComponent(w, e, staleHandle as any, {})).toThrow(/not registered/)
+    // A missing handle takes the same EcsError path instead of a TypeError.
+    expect(() => addComponent(w, e, undefined as any)).toThrow(/not registered/)
   })
 })
 
@@ -752,12 +759,13 @@ describe('serialize.ts: edge cases', () => {
     buf[1] = 0x49
     buf[2] = 0x45
     buf[3] = 0x43
-    buf[4] = 1
+    buf[4] = 2 // format version 2
     buf[5] = 0
     buf[6] = 0
     buf[7] = 0
     const view = new DataView(buf.buffer)
     view.setUint32(8, 99999999, true) // verLen > MAX_FIELD_LEN
+    expect(() => deserializeWorld(buf)).toThrow(EcsError)
     expect(() => deserializeWorld(buf)).toThrow(/verLen/)
   })
 
@@ -768,13 +776,14 @@ describe('serialize.ts: edge cases', () => {
     buf[1] = 0x49
     buf[2] = 0x45
     buf[3] = 0x43
-    buf[4] = 1
+    buf[4] = 2 // format version 2
     buf[5] = 0
     buf[6] = 0
     buf[7] = 0
     const view = new DataView(buf.buffer)
     view.setUint32(8, 0, true) // verLen = 0 → skip 0 bytes; now off=12; jsonLen needs 4 more bytes
-    expect(() => deserializeWorld(buf)).toThrow()
+    expect(() => deserializeWorld(buf)).toThrow(EcsError)
+    expect(() => deserializeWorld(buf)).toThrow(/truncated before jsonLen/)
   })
 
   it('deserializeWorld jsonLen out of bounds throws', () => {
@@ -784,14 +793,15 @@ describe('serialize.ts: edge cases', () => {
     buf[1] = 0x49
     buf[2] = 0x45
     buf[3] = 0x43
-    buf[4] = 1
+    buf[4] = 2 // format version 2
     buf[5] = 0
     buf[6] = 0
     buf[7] = 0
     const view = new DataView(buf.buffer)
     view.setUint32(8, 0, true) // verLen = 0
     view.setUint32(12, 99999999, true) // jsonLen = 99999999 → exceeds MAX_FIELD_LEN → throws
-    expect(() => deserializeWorld(buf)).toThrow()
+    expect(() => deserializeWorld(buf)).toThrow(EcsError)
+    expect(() => deserializeWorld(buf)).toThrow(/jsonLen=99999999 out of bounds/)
   })
 
   it('computeDelta includes new entities not in previous snapshot', () => {
@@ -816,17 +826,16 @@ describe('serialize.ts: edge cases', () => {
     expect(hasComponent(w2, e as any, Vec3)).toBe(true)
   })
 
-  it('fromJSON skips component ids not in registry', () => {
-    // Covers the getComponentByInternalId returning undefined → continue (line 134)
+  it('fromJSON rejects a component id missing from the table unless onUnknownComponent is skip', () => {
+    // 0.6.0 contract: an entity component that the format 2 table does not
+    // list is unknown — rejected by default (0.5.x silently skipped it).
     const w = createWorld()
     createEntity(w) // entity 1
     const snap = toJSON(w)
-    // Inject a fake component with unknown id into the snapshot
-    if (snap.entities.length > 0) {
-      snap.entities[0]!.components.push({ kind: 'soa', id: 0xdeadbeef, data: {} })
-    }
-    // fromJSON should silently skip the unknown component
-    expect(() => fromJSON(snap)).not.toThrow()
+    snap.entities[0]!.components.push({ kind: 'soa', id: 0xdeadbeef, data: {} })
+    expect(() => fromJSON(snap)).toThrow(EcsError)
+    expect(() => fromJSON(snap)).toThrow(/"#3735928559" is not defined in this process/)
+    expect(() => fromJSON(snap, { onUnknownComponent: 'skip' })).not.toThrow()
   })
 })
 
@@ -843,7 +852,7 @@ describe('worker.ts: transferableSnapshot is callable', () => {
     addComponent(w, e, Position, { x: 1 })
     const snap = transferableSnapshot(w)
     expect(snap.meta.aiecsjsVersion).toBe(pkg.version)
-    expect(snap.meta.formatVersion).toBe(1)
+    expect(snap.meta.formatVersion).toBe(2)
     expect(snap.meta.capacity).toBeGreaterThan(0)
   })
 })
@@ -918,7 +927,10 @@ describe('component.ts: error paths', () => {
     const w = createWorld()
     const e = createEntity(w)
     destroyEntity(w, e)
+    expect(() => addComponent(w, e, Position, { x: 0 })).toThrow(EcsError)
     expect(() => addComponent(w, e, Position, { x: 0 })).toThrow(/dead entity/)
+    expect(() => setComponent(w, e, Position, { x: 0 })).toThrow(EcsError)
+    expect(() => setComponent(w, e, Position, { x: 0 })).toThrow(/setComponent on dead entity/)
   })
 
   it('getComponent on a tag returns true', () => {
@@ -1175,10 +1187,10 @@ describe('world.ts/entity.ts: createEntity reaches maxEntities', () => {
   })
 })
 
-// --- serialize.ts: fromJSON skips unknown component ID when entity has components ---
+// --- serialize.ts: fromJSON with an unknown component ID next to a known one ---
 
-describe('serialize.ts: fromJSON skips unknown component when entity has at least one component', () => {
-  it('fromJSON silently skips a component whose id is not in the registry (serialize.ts:132)', () => {
+describe('serialize.ts: fromJSON with an unknown component next to a known one', () => {
+  it('rejects by default; onUnknownComponent: skip loads the known component', () => {
     const Known = defineComponent({ val: Types.i32 })
     const w = createWorld()
     const e = createEntity(w)
@@ -1188,10 +1200,11 @@ describe('serialize.ts: fromJSON skips unknown component when entity has at leas
     // Inject an unknown component id alongside the known one.
     expect(snap.entities.length).toBeGreaterThan(0)
     snap.entities[0]!.components.push({ kind: 'soa' as const, id: 0xcafebabe, data: {} })
-    // fromJSON must not throw; it silently skips the unknown component
-    expect(() => fromJSON(snap)).not.toThrow()
-    // The known component should have loaded successfully (entity re-created at same slot)
-    const w2 = fromJSON(snap)
+    // 0.6.0: the unknown component is rejected before any world is created.
+    expect(() => fromJSON(snap)).toThrow(EcsError)
+    expect(() => fromJSON(snap)).toThrow(/is not defined in this process/)
+    // Opting into skip drops it and loads the known component.
+    const w2 = fromJSON(snap, { onUnknownComponent: 'skip' })
     const results = runQuery(w2, defineQuery([Known]))
     expect(results.length).toBeGreaterThan(0)
   })
@@ -1277,5 +1290,43 @@ describe('loop.ts: cancelRaf uses clearTimeout in Node env (RAF absent)', () => 
       loop.start()
       loop.stop()
     }).not.toThrow()
+  })
+})
+
+// --- EcsError at the remaining converted throw sites ---
+
+describe('EcsError at the converted throw sites', () => {
+  it('flush of a placeholder minted by another buffer throws EcsError', () => {
+    const A = defineTag()
+    const w = createWorld()
+    const other = createCommandBuffer(w)
+    const cb = createCommandBuffer(w)
+    cb.add(other.create(), A)
+    expect(() => flush(cb)).toThrow(EcsError)
+  })
+
+  it('a query over an unregistered component id throws EcsError', () => {
+    const w = createWorld()
+    const forged = defineQuery([{ __kind: 'tag', __id: 0x7ffffff0 } as any])
+    expect(() => runQuery(w, forged)).toThrow(EcsError)
+    expect(() => runQuery(w, forged)).toThrow(/component id 2147483632 not registered/)
+  })
+
+  it('apply() into a world disposed by one of its own handlers throws EcsError', () => {
+    const P = defineComponent({ x: Types.f32 })
+    const src = createWorld()
+    addComponent(src, createEntity(src), P, { x: 1 })
+    addComponent(src, createEntity(src), P, { x: 2 })
+    const bytes = serializeWorld(src)
+    const target = createWorld()
+    onAdd(target, P, () => disposeWorld(target))
+    // The second entity's slot placement finds the disposed world's archetype
+    // table empty.
+    expect(() => createDeltaSerializer(target).apply(target, bytes)).toThrow(EcsError)
+    const again = createWorld()
+    onAdd(again, P, () => disposeWorld(again))
+    expect(() => createDeltaSerializer(again).apply(again, bytes)).toThrow(
+      'aiecsjs: missing empty archetype',
+    )
   })
 })

@@ -1,10 +1,11 @@
-import { createMask, isMaskZero, listBits, matches, setBit } from './bitmask.js'
+import { createMask, matchesEntityMask, setBit } from './bitmask.js'
 import {
   getComponentByInternalId,
   getComponentInfo,
   registerMaskChangeDispatch,
 } from './component.js'
 import { isAliveInternal } from './entity.js'
+import { EcsError } from './errors.js'
 import { ids, shared } from './registry.js'
 import type {
   Archetype,
@@ -19,12 +20,7 @@ import type {
   World,
   WorldState,
 } from './types.js'
-import {
-  getOrRegisterComponentBit,
-  getWorldState,
-  readEntityMask,
-  tryGetComponentBit,
-} from './world.js'
+import { getOrRegisterComponentBit, getWorldState } from './world.js'
 
 // Shared across every loaded copy of the package (see registry.ts).
 const moduleQueryCache = shared.queryCache
@@ -32,19 +28,12 @@ const reactiveBySource = shared.reactiveBySource
 const reactiveSourcesByComponent = shared.reactiveSourcesByComponent
 
 function descKey(d: QueryDescriptor): string {
-  const all = (d.all ?? [])
-    .map((c) => c.__id)
-    .sort((a, b) => a - b)
-    .join('-')
-  const any = (d.any ?? [])
-    .map((c) => c.__id)
-    .sort((a, b) => a - b)
-    .join('-')
-  const none = (d.none ?? [])
-    .map((c) => c.__id)
-    .sort((a, b) => a - b)
-    .join('-')
-  return `A${all}|Y${any}|N${none}`
+  const idList = (cs: ComponentLike[] | undefined) =>
+    (cs ?? [])
+      .map((c) => c.__id)
+      .sort((a, b) => a - b)
+      .join('-')
+  return `A${idList(d.all)}|Y${idList(d.any)}|N${idList(d.none)}`
 }
 
 export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
@@ -52,7 +41,7 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
 
   // Validate all members are components
   for (const c of [...(desc.all ?? []), ...(desc.any ?? []), ...(desc.none ?? [])]) {
-    if (!c || typeof c !== 'object' || typeof (c as any).__id !== 'number') {
+    if (!c || typeof c !== 'object' || typeof (c as { __id?: unknown }).__id !== 'number') {
       throw new TypeError('aiecsjs: defineQuery received a non-component value')
     }
   }
@@ -90,24 +79,7 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
  * is intentionally not done — draining is the caller's responsibility.
  */
 export function enterQuery(query: Query): Query {
-  const q = query as QueryInternal
-  const key = `enter:${q.id}`
-  const cached = moduleQueryCache.get(key)
-  if (cached) return cached
-  const reactive: QueryInternal = {
-    id: ids.query++,
-    mask: [],
-    all: q.all,
-    any: q.any,
-    none: q.none,
-    columnViewCache: q.columnViewCache,
-    reactiveKind: 'enter',
-    sourceQueryId: q.id,
-    sourceQuery: q,
-  }
-  moduleQueryCache.set(key, reactive)
-  indexReactive(q, reactive)
-  return reactive
+  return reactiveVariant(query, 'enter')
 }
 
 /**
@@ -121,8 +93,15 @@ export function enterQuery(query: Query): Query {
  * is intentionally not done because dropping ids would break enter/exit symmetry.
  */
 export function exitQuery(query: Query): Query {
-  const q = query as QueryInternal
-  const key = `exit:${q.id}`
+  return reactiveVariant(query, 'exit')
+}
+
+// The cached enter/exit variant of `query`. The source goes through
+// asQueryInternal first, so a raw component array works and any other
+// non-Query throws before anything is cached.
+function reactiveVariant(query: Query, kind: 'enter' | 'exit'): QueryInternal {
+  const q = asQueryInternal(query)
+  const key = `${kind}:${q.id}`
   const cached = moduleQueryCache.get(key)
   if (cached) return cached
   const reactive: QueryInternal = {
@@ -132,7 +111,7 @@ export function exitQuery(query: Query): Query {
     any: q.any,
     none: q.none,
     columnViewCache: q.columnViewCache,
-    reactiveKind: 'exit',
+    reactiveKind: kind,
     sourceQueryId: q.id,
     sourceQuery: q,
   }
@@ -159,11 +138,11 @@ function indexReactive(source: QueryInternal, reactive: QueryInternal): void {
   }
 }
 
-// Normalise the query argument of the read/iterate entry points. A raw
+// Normalise the query argument of every query-taking entry point. A raw
 // component array (`forEachEntity(world, [A, B], fn)`) is routed through
 // defineQuery; anything else that is not a Query throws instead of silently
 // iterating nothing (the reactive branch would look up an undefined buffer).
-function asQueryInternal(query: Query): QueryInternal {
+export function asQueryInternal(query: Query): QueryInternal {
   if (Array.isArray(query)) return defineQuery(query as ComponentLike[]) as QueryInternal
   const q = query as QueryInternal
   const kind = q?.reactiveKind
@@ -179,31 +158,22 @@ export function ensureQueryRegistered(state: WorldState, q: QueryInternal): void
   if (state.queries[q.id] === q && state.queryMasks.has(q.id)) return
 
   // Build per-world bitmasks (this may register new bits)
-  const ww = state.options.maskWordCount
-  const withMask = createMask(ww)
-  const anyMask = createMask(ww)
-  const noneMask = createMask(ww)
-  for (const compId of q.all) {
-    const info = getComponentInfoById(compId)
-    const bit = getOrRegisterComponentBit(state, info)
-    setBit(withMask, bit)
-  }
-  for (const compId of q.any) {
-    const info = getComponentInfoById(compId)
-    const bit = getOrRegisterComponentBit(state, info)
-    setBit(anyMask, bit)
-  }
-  for (const compId of q.none) {
-    const info = getComponentInfoById(compId)
-    const bit = getOrRegisterComponentBit(state, info)
-    setBit(noneMask, bit)
+  const involvedBits: number[] = []
+  const maskOf = (compIds: number[]): Uint32Array => {
+    const mask = createMask(state.options.maskWordCount)
+    for (const id of compIds) {
+      const bit = getOrRegisterComponentBit(state, getComponentInfoById(id))
+      setBit(mask, bit)
+      involvedBits.push(bit)
+    }
+    return mask
   }
 
   const bundle: QueryMaskBundle = {
-    withMask,
-    anyMask,
-    noneMask,
-    anyHasBits: !isMaskZero(anyMask),
+    withMask: maskOf(q.all),
+    anyMask: maskOf(q.any),
+    noneMask: maskOf(q.none),
+    anyHasBits: q.any.length > 0,
   }
   state.queryMasks.set(q.id, bundle)
 
@@ -212,11 +182,6 @@ export function ensureQueryRegistered(state: WorldState, q: QueryInternal): void
   state.queryArchetypeStamp[q.id] = -1
 
   // Build bit → queries index for fast reactive lookup
-  const involvedBits: number[] = [
-    ...listBits(withMask),
-    ...listBits(anyMask),
-    ...listBits(noneMask),
-  ]
   for (const b of involvedBits) {
     let s = state.bitToQueries.get(b)
     if (!s) {
@@ -242,15 +207,9 @@ function getQueryArchetypes(state: WorldState, q: QueryInternal): number[] {
     return state.queryArchetypeCache[q.id]!
   }
   const bundle = state.queryMasks.get(q.id)!
-  const words = state.options.maskWordCount
   const list: number[] = []
   for (let i = 0; i < state.archetypes.length; i++) {
-    const arch = state.archetypes[i]!
-    if (
-      matches(arch.mask, bundle.withMask, bundle.anyMask, bundle.noneMask, bundle.anyHasBits, words)
-    ) {
-      list.push(i)
-    }
+    if (bundleMatches(state, bundle, state.archetypes[i]!.mask)) list.push(i)
   }
   state.queryArchetypeCache[q.id] = list
   state.queryArchetypeStamp[q.id] = state.queryVersion
@@ -269,26 +228,21 @@ export function queryArchetypes(world: World, query: Query): readonly Archetype[
   return out
 }
 
+// Drain a reactive (enter/exit) query's buffer. splice(0) empties the live
+// buffer in place and returns the removed entries, so the buffer is drained
+// exactly once up front — a caller that breaks out early, or a callback that
+// throws partway through, never sees those entities re-delivered.
+function drainReactive(state: WorldState, q: QueryInternal): EntityId[] {
+  const buf = state.reactiveBuffers.get(q.id)
+  if (!buf) return []
+  return (q.reactiveKind === 'enter' ? buf.entered : buf.exited).splice(0) as EntityId[]
+}
+
 export function runQuery(world: World, query: Query): readonly EntityId[] {
   const state = getWorldState(world)
   const q = asQueryInternal(query)
+  if (q.reactiveKind !== 'normal') return drainReactive(state, q)
   const out: EntityId[] = []
-  if (q.reactiveKind === 'enter') {
-    const buf = state.reactiveBuffers.get(q.id)
-    if (buf) {
-      for (const e of buf.entered) out.push(e as EntityId)
-      buf.entered.length = 0
-    }
-    return out
-  }
-  if (q.reactiveKind === 'exit') {
-    const buf = state.reactiveBuffers.get(q.id)
-    if (buf) {
-      for (const e of buf.exited) out.push(e as EntityId)
-      buf.exited.length = 0
-    }
-    return out
-  }
   const archIds = getQueryArchetypes(state, q)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
@@ -303,13 +257,7 @@ export function* iterQuery(world: World, query: Query): IterableIterator<EntityI
   const state = getWorldState(world)
   const q = asQueryInternal(query)
   if (q.reactiveKind !== 'normal') {
-    const buf = state.reactiveBuffers.get(q.id)
-    if (!buf) return
-    // splice(0) empties the live buffer immediately (in place) and returns
-    // the removed entries, so it drains exactly once even if the caller
-    // breaks out of this generator early — unlike clearing after the loop.
-    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
-    for (const e of src) yield e as EntityId
+    yield* drainReactive(state, q)
     return
   }
   const archIds = getQueryArchetypes(state, q)
@@ -340,28 +288,57 @@ export function forEachEntity(
   query: Query,
   fn: (eid: EntityId, ...cols: any[]) => void,
 ): void {
+  eachEntity(world, query, fn, false)
+}
+
+/**
+ * Like {@link forEachEntity}, but yields the masked column index `i` alongside
+ * the packed `EntityId`. The callback signature is `(e, i, ...cols)`:
+ *
+ *   - `e` — the packed EntityId (carries the generation in its high bits). Use
+ *     it for in-loop `destroyEntity` / `hasComponent` / `refOf`, exactly as with
+ *     `forEachEntity`.
+ *   - `i` — `e & indexMask`, the raw slot index. This is the **correct subscript**
+ *     for SoA column views (`pos.x[i]`), and stays correct after a slot is
+ *     recycled — where indexing with the packed `e` would read out of bounds.
+ *   - `...cols` — the same column views `forEachEntity` passes.
+ *
+ * This closes the packed-EntityId footgun (A1): callers no longer need to call
+ * `getEntityIndex(e)` (or hand-mask) themselves to index columns safely.
+ */
+export function forEachEntityIndexed(
+  world: World,
+  query: Query,
+  fn: (e: EntityId, i: number, ...cols: any[]) => void,
+): void {
+  eachEntity(world, query, fn as (eid: EntityId, ...args: unknown[]) => void, true)
+}
+
+// Shared body of forEachEntity / forEachEntityIndexed. The indexed form keeps
+// a slot for `i` at the front of the column-view argument list and rewrites it
+// per entity, so both forms share one loop and one zero-allocation call path.
+function eachEntity(
+  world: World,
+  query: Query,
+  fn: (eid: EntityId, ...args: unknown[]) => void,
+  indexed: boolean,
+): void {
   const state = getWorldState(world)
   const q = asQueryInternal(query)
+  // Checked before a reactive buffer is drained, so misuse loses no entities.
+  if (typeof fn !== 'function') throw new EcsError('aiecsjs: fn must be a function')
+  const indexMask = state.options.indexMask
 
   if (q.reactiveKind !== 'normal') {
-    const buf = state.reactiveBuffers.get(q.id)
-    if (!buf) return
-    // splice(0) drains the buffer up front — see iterQuery — so a callback
-    // that throws partway through the loop below still leaves it drained.
-    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
+    const src = drainReactive(state, q)
     if (src.length === 0) return
-    const cols = buildColumnViews(state, q)
-    for (let i = 0; i < src.length; i++) {
-      const e = src[i] as EntityId
-      callWithCols(fn, e, cols)
-    }
+    const args = columnArgs(state, q, indexed)
+    for (const e of src) callWithArgs(fn, e, e & indexMask, args, indexed)
     return
   }
 
-  ensureQueryRegistered(state, q)
   const archIds = getQueryArchetypes(state, q)
-  const cols = buildColumnViews(state, q)
-  const indexMask = state.options.indexMask
+  const args = columnArgs(state, q, indexed)
   const stamp = beginVisitPass(state)
   for (const id of archIds) {
     const arch = state.archetypes[id]!
@@ -371,12 +348,13 @@ export function forEachEntity(
     //     walking into those zeroed tail rows and hand back the sentinel eid 0
     //     (ECS-B-01). The swapped-in survivor is intentionally skipped this pass.
     //   - `arch.entities`: an in-loop create (createEntity / addComponent landing in
-    //     this archetype) can grow it past capacity, so ensureArchetypeCapacity
-    //     swaps in a NEW, larger Uint32Array. A cached reference would still point at
-    //     the OLD shorter array, so its tail rows read `undefined` (C4) — the
-    //     sentinel leaking across the public callback boundary again.
+    //     this archetype) can grow it past capacity, so addRow swaps in a NEW,
+    //     larger Uint32Array. A cached reference would still point at the OLD
+    //     shorter array, so its tail rows read `undefined` (C4) — the sentinel
+    //     leaking across the public callback boundary again (and, for the indexed
+    //     form, `undefined & indexMask === 0`, a bogus i=0 payload).
     // Both are scalar property reads — no per-iteration allocation, so the
-    // zero-allocation hot-path contract holds. Mirrors runQuery (:230) / iterQuery.
+    // zero-allocation hot-path contract holds. Mirrors runQuery / iterQuery.
     // In-loop add/removeComponent moves (see revisitRow) are handled so every
     // matching live entity is visited exactly once per pass.
     for (let r = 0; r < arch.size; r++) {
@@ -384,7 +362,7 @@ export function forEachEntity(
       const idx = e & indexMask
       if (state.visitStamp[idx] === stamp) continue
       state.visitStamp[idx] = stamp
-      callWithCols(fn, e, cols)
+      callWithArgs(fn, e, idx, args, indexed)
       if (revisitRow(state, arch.entities[r], e)) r--
     }
   }
@@ -413,131 +391,52 @@ function revisitRow(state: WorldState, current: number | undefined, e: EntityId)
   return current !== e && isAliveInternal(state, e)
 }
 
-function callWithCols(
-  fn: (eid: EntityId, ...cols: any[]) => void,
+// The per-call argument list after `eid`: the column views, preceded by a
+// slot for the column index `i` in the indexed form.
+function columnArgs(state: WorldState, q: QueryInternal, indexed: boolean): unknown[] {
+  const cols = buildColumnViews(state, q)
+  if (indexed) cols.unshift(0)
+  return cols
+}
+
+function callWithArgs(
+  fn: (eid: EntityId, ...args: unknown[]) => void,
   eid: EntityId,
-  cols: any[],
+  i: number,
+  args: unknown[],
+  indexed: boolean,
 ): void {
+  if (indexed) args[0] = i
   // Specialise for low arities to avoid spread allocation.
-  switch (cols.length) {
+  switch (args.length) {
     case 0:
       fn(eid)
       break
     case 1:
-      fn(eid, cols[0])
+      fn(eid, args[0])
       break
     case 2:
-      fn(eid, cols[0], cols[1])
+      fn(eid, args[0], args[1])
       break
     case 3:
-      fn(eid, cols[0], cols[1], cols[2])
+      fn(eid, args[0], args[1], args[2])
       break
     case 4:
-      fn(eid, cols[0], cols[1], cols[2], cols[3])
+      fn(eid, args[0], args[1], args[2], args[3])
       break
     case 5:
-      fn(eid, cols[0], cols[1], cols[2], cols[3], cols[4])
+      fn(eid, args[0], args[1], args[2], args[3], args[4])
+      break
+    case 6:
+      fn(eid, args[0], args[1], args[2], args[3], args[4], args[5])
       break
     default:
-      fn(eid, ...cols)
+      fn(eid, ...args)
   }
 }
 
-/**
- * Like {@link forEachEntity}, but yields the masked column index `i` alongside
- * the packed `EntityId`. The callback signature is `(e, i, ...cols)`:
- *
- *   - `e` — the packed EntityId (carries the generation in its high bits). Use
- *     it for in-loop `destroyEntity` / `hasComponent` / `refOf`, exactly as with
- *     `forEachEntity`.
- *   - `i` — `e & indexMask`, the raw slot index. This is the **correct subscript**
- *     for SoA column views (`pos.x[i]`), and stays correct after a slot is
- *     recycled — where indexing with the packed `e` would read out of bounds.
- *   - `...cols` — the same column views `forEachEntity` passes.
- *
- * This closes the packed-EntityId footgun (A1): callers no longer need to call
- * `getEntityIndex(e)` (or hand-mask) themselves to index columns safely.
- */
-export function forEachEntityIndexed(
-  world: World,
-  query: Query,
-  fn: (e: EntityId, i: number, ...cols: any[]) => void,
-): void {
-  const state = getWorldState(world)
-  const q = asQueryInternal(query)
-  const indexMask = state.options.indexMask
-
-  if (q.reactiveKind !== 'normal') {
-    const buf = state.reactiveBuffers.get(q.id)
-    if (!buf) return
-    // splice(0) drains the buffer up front — see forEachEntity.
-    const src = q.reactiveKind === 'enter' ? buf.entered.splice(0) : buf.exited.splice(0)
-    if (src.length === 0) return
-    const cols = buildColumnViews(state, q)
-    for (let i = 0; i < src.length; i++) {
-      const e = src[i] as EntityId
-      callWithColsIndexed(fn, e, e & indexMask, cols)
-    }
-    return
-  }
-
-  ensureQueryRegistered(state, q)
-  const archIds = getQueryArchetypes(state, q)
-  const cols = buildColumnViews(state, q)
-  const stamp = beginVisitPass(state)
-  for (const id of archIds) {
-    const arch = state.archetypes[id]!
-    // Re-read `arch.size` AND `arch.entities` each iteration — see forEachEntity
-    // for the rationale. An in-loop `destroyEntity` swap-pops the row and zeroes
-    // the freed tail; an in-loop create can reallocate `arch.entities`. A cached
-    // bound replays the sentinel eid 0, and a cached array reads `undefined` off
-    // its stale tail — there `undefined & indexMask === 0`, so a bogus i=0 payload
-    // leaks too (C4 / ECS-B-01). Scalar reads only; zero-allocation contract holds.
-    // Visit stamps / revisitRow: see forEachEntity.
-    for (let r = 0; r < arch.size; r++) {
-      const e = arch.entities[r] as EntityId
-      const idx = e & indexMask
-      if (state.visitStamp[idx] === stamp) continue
-      state.visitStamp[idx] = stamp
-      callWithColsIndexed(fn, e, idx, cols)
-      if (revisitRow(state, arch.entities[r], e)) r--
-    }
-  }
-}
-
-function callWithColsIndexed(
-  fn: (e: EntityId, i: number, ...cols: any[]) => void,
-  e: EntityId,
-  i: number,
-  cols: any[],
-): void {
-  // Specialise for low arities to avoid spread allocation.
-  switch (cols.length) {
-    case 0:
-      fn(e, i)
-      break
-    case 1:
-      fn(e, i, cols[0])
-      break
-    case 2:
-      fn(e, i, cols[0], cols[1])
-      break
-    case 3:
-      fn(e, i, cols[0], cols[1], cols[2])
-      break
-    case 4:
-      fn(e, i, cols[0], cols[1], cols[2], cols[3])
-      break
-    case 5:
-      fn(e, i, cols[0], cols[1], cols[2], cols[3], cols[4])
-      break
-    default:
-      fn(e, i, ...cols)
-  }
-}
-
-function buildColumnViews(state: WorldState, q: QueryInternal): any[] {
-  const out: any[] = []
+function buildColumnViews(state: WorldState, q: QueryInternal): unknown[] {
+  const out: unknown[] = []
   for (const comp of q.columnViewCache) {
     const info = getComponentInfo(comp)
     const bit = state.componentBitFor.get(info.id)
@@ -584,29 +483,14 @@ export function recordEntityMaskChange(
 
   const involved = state.bitToQueries.get(changedBit)
   if (!involved) return
-  const words = state.options.maskWordCount
   for (const qid of involved) {
     const q = state.queries[qid]
     if (!q) continue
     if (q.reactiveKind !== 'normal') continue
     const bundle = state.queryMasks.get(qid)
     if (!bundle) continue
-    const wasMatch = matches(
-      prevMask,
-      bundle.withMask,
-      bundle.anyMask,
-      bundle.noneMask,
-      bundle.anyHasBits,
-      words,
-    )
-    const isMatch = matches(
-      nextMask,
-      bundle.withMask,
-      bundle.anyMask,
-      bundle.noneMask,
-      bundle.anyHasBits,
-      words,
-    )
+    const wasMatch = bundleMatches(state, bundle, prevMask)
+    const isMatch = bundleMatches(state, bundle, nextMask)
     if (!wasMatch && isMatch) {
       pushReactive(state, qid, 'enter', eid)
     } else if (wasMatch && !isMatch) {
@@ -656,9 +540,15 @@ function ensureReactiveBuffer(state: WorldState, qid: number): ReactiveBuffer {
 
 // --- Helpers ---
 
+// Whether a whole-entity (or archetype) mask satisfies a query's masks.
+function bundleMatches(state: WorldState, b: QueryMaskBundle, mask: Uint32Array): boolean {
+  const words = state.options.maskWordCount
+  return matchesEntityMask(mask, 0, words, b.withMask, b.anyMask, b.noneMask, b.anyHasBits)
+}
+
 function getComponentInfoById(componentId: number): ComponentInfo {
   const info = getComponentByInternalId(componentId)
-  if (!info) throw new Error(`aiecsjs: component id ${componentId} not registered`)
+  if (!info) throw new EcsError(`aiecsjs: component id ${componentId} not registered`)
   return info
 }
 

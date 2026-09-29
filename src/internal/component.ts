@@ -1,5 +1,6 @@
 import { clearBit, cloneMask, forEachSetBit, setBit, testBit } from './bitmask.js'
 import { isAliveInternal } from './entity.js'
+import { EcsError } from './errors.js'
 import { ids, shared } from './registry.js'
 import type {
   AoSComponent,
@@ -20,11 +21,13 @@ import type {
   WorldState,
 } from './types.js'
 import {
-  ensureArchetypeCapacity,
+  addRow,
   findOrCreateArchetype,
   getOrRegisterComponentBit,
   getWorldState,
+  getWritableState,
   readEntityMask,
+  removeRow,
   tryGetComponentBit,
   writeEntityMask,
 } from './world.js'
@@ -46,8 +49,47 @@ const TYPE_CTOR: Record<string, TypedArrayConstructor> = {
 
 // Shared across every loaded copy of the package (see registry.ts).
 const componentInfoById = shared.componentInfoById
+const componentInfoByKey = shared.componentInfoByKey
 
-export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S> {
+// Register a component definition under a fresh id and, when `options.key` is
+// given, under that stable serialization key. The key is validated before the
+// id counter or either registry is touched.
+function registerComponent(
+  options: { key?: string } | undefined,
+  kind: ComponentInfo['kind'],
+  schema: SoASchema | null = null,
+  fields: FieldInfo[] = [],
+  factory: (() => unknown) | null = null,
+): number {
+  const key = options?.key
+  if (key !== undefined) {
+    if (typeof key !== 'string' || key === '') {
+      throw new EcsError('aiecsjs: component key must be a non-empty string')
+    }
+    if (componentInfoByKey.has(key)) {
+      throw new EcsError(`aiecsjs: component key "${key}" is already defined`)
+    }
+  }
+  const id = ids.component++
+  const info: ComponentInfo = { id, key: key ?? null, kind, schema, fields, factory }
+  componentInfoById.set(id, info)
+  if (key !== undefined) componentInfoByKey.set(key, info)
+  return id
+}
+
+/**
+ * Declare a Structure-of-Arrays component.
+ *
+ * `options.key` gives the component a stable identity for snapshots: loaders
+ * match snapshot data to components by key (by creation-order id when keyless),
+ * so a keyed component survives a different definition order in the loading
+ * process. The key must be a non-empty string that no other component in this
+ * process uses (`EcsError` otherwise).
+ */
+export function defineComponent<S extends SoASchema>(
+  schema: S,
+  options?: { key?: string },
+): SoAComponent<S> {
   const fields: FieldInfo[] = []
   for (const [name, decl] of Object.entries(schema) as [string, SoAFieldDecl][]) {
     let type: SoAFieldType
@@ -63,50 +105,43 @@ export function defineComponent<S extends SoASchema>(schema: S): SoAComponent<S>
     }
     const ctor = TYPE_CTOR[type]
     if (!ctor) throw new TypeError(`aiecsjs: unknown field type "${type}" for field "${name}"`)
-    fields.push({
-      name,
-      type,
-      vectorLen,
-      ctor,
-      bytesPerElement: ctor.BYTES_PER_ELEMENT,
-    })
+    fields.push({ name, type, vectorLen, ctor })
   }
-  const id = ids.component++
-  const info: ComponentInfo = { id, kind: 'soa', schema, fields, factory: null }
-  componentInfoById.set(id, info)
-  const handle: SoAComponent<S> = {
+  return {
     __kind: 'soa',
-    __id: id,
+    __id: registerComponent(options, 'soa', schema, fields),
     __schema: schema,
   }
-  return handle
 }
 
-export function defineTag(): TagComponent {
-  const id = ids.component++
-  const info: ComponentInfo = { id, kind: 'tag', schema: null, fields: [], factory: null }
-  componentInfoById.set(id, info)
-  return { __kind: 'tag', __id: id }
+/** Declare a zero-byte tag component. `options.key`: see {@link defineComponent}. */
+export function defineTag(options?: { key?: string }): TagComponent {
+  return { __kind: 'tag', __id: registerComponent(options, 'tag') }
 }
 
-export function defineObjectComponent<T>(factory?: () => T): AoSComponent<T> {
-  const id = ids.component++
-  const fac = factory ?? (() => ({}) as T)
-  const info: ComponentInfo = {
-    id,
-    kind: 'aos',
-    schema: null,
-    fields: [],
-    factory: fac as () => unknown,
+/**
+ * Declare an Array-of-Structures component (one JS object per entity).
+ * `options.key`: see {@link defineComponent}.
+ */
+export function defineObjectComponent<T>(
+  factory?: () => T,
+  options?: { key?: string },
+): AoSComponent<T> {
+  if (factory !== undefined && typeof factory !== 'function') {
+    throw new EcsError('aiecsjs: factory must be a function')
   }
-  componentInfoById.set(id, info)
-  return { __kind: 'aos', __id: id, __factory: fac }
+  const fac = factory ?? (() => ({}) as T)
+  return {
+    __kind: 'aos',
+    __id: registerComponent(options, 'aos', null, [], fac),
+    __factory: fac,
+  }
 }
 
 export function getComponentInfo(component: ComponentLike): ComponentInfo {
-  const info = componentInfoById.get(component.__id)
+  const info = componentInfoById.get(component?.__id)
   if (!info)
-    throw new Error(
+    throw new EcsError(
       'aiecsjs: component is not registered (call defineComponent/defineTag/defineObjectComponent)',
     )
   return info
@@ -120,24 +155,27 @@ export function addComponent<C extends ComponentLike>(
   component: C,
   initial?: ComponentInit<C>,
 ): void {
-  const state = getWorldState(world)
-  if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
+  const state = getWritableState(world)
   if (!isAliveInternal(state, eid)) {
-    throw new Error(`aiecsjs: addComponent on dead entity ${eid}`)
+    throw new EcsError(`aiecsjs: addComponent on dead entity ${eid}`)
   }
   const info = getComponentInfo(component)
   const bit = getOrRegisterComponentBit(state, info)
 
+  const idx = (eid as number) & state.options.indexMask
   const prevMask = readEntityMask(state, eid)
   if (testBit(prevMask, bit)) {
-    if (initial !== undefined) writeInitial(state, eid as number, component, initial)
+    if (initial !== undefined) writeInitial(state, idx, info, bit, initial)
     return
   }
   const newMask = cloneMask(prevMask)
   setBit(newMask, bit)
+  // Build the AoS instance before the structural change, so a factory that
+  // throws or returns nothing leaves the entity untouched.
+  if (info.kind === 'aos') aosInstance(state, idx, info, bit)
   migrateEntity(state, eid as number, newMask)
 
-  writeInitial(state, eid as number, component, initial)
+  writeInitial(state, idx, info, bit, initial)
 
   shared.hooks.observerDispatch?.fireAdd(state, eid, bit, prevMask, newMask)
   notifyMaskChange(state, eid, bit, prevMask, newMask)
@@ -148,8 +186,7 @@ export function removeComponent<C extends ComponentLike>(
   eid: EntityId,
   component: C,
 ): void {
-  const state = getWorldState(world)
-  if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
+  const state = getWritableState(world)
   if (!isAliveInternal(state, eid)) return
   const info = getComponentInfo(component)
   const bit = tryGetComponentBit(state, info)
@@ -236,41 +273,33 @@ export function setComponent<C extends ComponentLike, V>(
   component: C,
   value: V,
 ): void {
-  const state = getWorldState(world)
-  if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
-  if (!isAliveInternal(state, eid)) throw new Error(`aiecsjs: setComponent on dead entity ${eid}`)
+  const state = getWritableState(world)
+  if (!isAliveInternal(state, eid))
+    throw new EcsError(`aiecsjs: setComponent on dead entity ${eid}`)
   const info = getComponentInfo(component)
   const bit = tryGetComponentBit(state, info)
-  if (bit === undefined) {
+  if (bit === undefined || !testBit(readEntityMask(state, eid), bit)) {
     // Adding via set
     addComponent(world, eid, component, value as ComponentInit<C>)
     return
   }
-  const mask = readEntityMask(state, eid)
-  if (!testBit(mask, bit)) {
-    addComponent(world, eid, component, value as ComponentInit<C>)
-    return
-  }
-  writeInitial(state, eid as number, component, value)
+  writeInitial(state, (eid as number) & state.options.indexMask, info, bit, value)
   shared.hooks.observerDispatch?.fireSet(state, eid, bit, value)
 }
 
 // --- Internals ---
 
+// Write `initial` into the component storage of slot `idx` (`bit` is the
+// component's registered bit in this world).
 function writeInitial(
   state: WorldState,
-  packedEid: number,
-  component: ComponentLike,
+  idx: number,
+  info: ComponentInfo,
+  bit: number,
   initial: unknown,
 ): void {
-  const info = getComponentInfo(component)
-  const bit = state.componentBitFor.get(info.id)
-  if (bit === undefined) return
   const storage = state.componentStorageByBit[bit]
-  if (!storage) return
-  // Unpack to raw index for storage access
-  const idx = packedEid & state.options.indexMask
-  if (info.kind === 'soa' && storage.soa) {
+  if (info.kind === 'soa' && storage?.soa) {
     if (initial == null) return
     const obj = initial as Record<string, unknown>
     for (const f of info.fields) {
@@ -286,13 +315,8 @@ function writeInitial(
         for (let i = 0; i < f.vectorLen; i++) col[base + i] = Number(arr[i] ?? 0)
       }
     }
-  } else if (info.kind === 'aos' && storage.aos) {
-    const factory = info.factory ?? (() => ({}))
-    let inst = storage.aos[idx]
-    if (inst === undefined) {
-      inst = factory()
-      storage.aos[idx] = inst
-    }
+  } else if (info.kind === 'aos') {
+    const inst = aosInstance(state, idx, info, bit)
     if (initial && typeof initial === 'object') {
       // SECURITY: do NOT use `Object.assign(inst, initial)` here. When `initial`
       // comes from `JSON.parse(untrustedBytes)` — e.g. via `fromJSON`,
@@ -310,6 +334,20 @@ function writeInitial(
     }
   }
   // tag: nothing
+}
+
+// The AoS instance at slot `idx`, created by the component's factory on first
+// use. A nullish factory result is rejected: the slot would read as absent
+// and a later write of initial data would crash.
+function aosInstance(state: WorldState, idx: number, info: ComponentInfo, bit: number): unknown {
+  const aos = state.componentStorageByBit[bit]!.aos!
+  if (aos[idx] === undefined) {
+    // defineObjectComponent always stores a factory for an AoS component.
+    const inst = info.factory!()
+    if (inst == null) throw new EcsError('aiecsjs: factory result must not be null or undefined')
+    aos[idx] = inst
+  }
+  return aos[idx]
 }
 
 function clearSoAEntity(soa: SoAColumns, fields: FieldInfo[], eid: number): void {
@@ -357,27 +395,9 @@ function migrateEntity(state: WorldState, packedEid: number, newMask: Uint32Arra
   if (!destArch) return
 
   if (destArchId !== srcArchId) {
-    // Swap-pop from src (arch.entities / entityRow use packed eid as key)
-    const row = srcArch.entityRow.get(packedEid)
-    if (row !== undefined) {
-      const lastRow = srcArch.size - 1
-      if (row !== lastRow) {
-        const moved = srcArch.entities[lastRow] ?? 0
-        srcArch.entities[row] = moved
-        srcArch.entityRow.set(moved, row)
-      }
-      srcArch.entities[lastRow] = 0
-      srcArch.entityRow.delete(packedEid)
-      srcArch.size--
-    }
-
-    // Append to dest (store packed eid)
-    ensureArchetypeCapacity(destArch, destArch.size + 1)
-    const newRow = destArch.size
-    destArch.entities[newRow] = packedEid
-    destArch.entityRow.set(packedEid, newRow)
-    destArch.size++
-
+    // Swap-pop from src, append to dest (rows are keyed by packed eid)
+    removeRow(srcArch, packedEid)
+    addRow(destArch, packedEid)
     state.entityArchetype[idx] = destArchId
   }
 
@@ -456,5 +476,6 @@ export function getComponentByInternalId(id: number): ComponentInfo | undefined 
 
 export function _resetComponentRegistry_FOR_TESTS_ONLY(): void {
   componentInfoById.clear()
+  componentInfoByKey.clear()
   ids.component = 1
 }

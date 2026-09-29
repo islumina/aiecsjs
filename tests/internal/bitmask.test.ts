@@ -8,7 +8,7 @@ import {
   listBits,
   maskEquals,
   maskHash,
-  matches,
+  matchesEntityMask,
   setBit,
   testBit,
   unionMask,
@@ -181,9 +181,18 @@ describe('unionMask', () => {
   })
 })
 
-describe('matches (archetype query truth table)', () => {
+describe('matchesEntityMask (archetype query truth table, base 0)', () => {
   // Construct masks: with=[A,B], any=[C,D], none=[E]
   const words = 1
+  // The archetype / whole-mask form query.ts uses: the mask starts at word 0.
+  const matches = (
+    m: Uint32Array,
+    w: Uint32Array,
+    a: Uint32Array,
+    n: Uint32Array,
+    anyHasBits: boolean,
+    wordCount: number,
+  ) => matchesEntityMask(m, 0, wordCount, w, a, n, anyHasBits)
   const A = 0
   const B = 1
   const C = 2

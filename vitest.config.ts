@@ -22,34 +22,28 @@ export default defineConfig({
       //   on every TypedArray access. These false branches are semantically
       //   unreachable — the array is always allocated before access — but V8 still
       //   counts them. Additional sources:
-      //   • bitmask.ts bit-twiddling: `word & -word`, `clz32` edge cases — 67.18%
+      //   • bitmask.ts bit-twiddling: `word & -word`, `clz32` edge cases — ~65%
       //     branches, all structural (bit ops on known-nonzero values).
-      //   • query.ts:327-329 (buildColumnViews `bit === undefined`) and :332-334
-      //     (`!storage`) are dead defensive guards — ensureQueryRegistered always
-      //     registers the bit and allocates storage before buildColumnViews runs.
-      //   • query.ts:415-417 (ensureReactiveBuffer `!buf`) is unreachable because
+      //   • query.ts buildColumnViews `bit === undefined` and `!storage` are dead
+      //     defensive guards — ensureQueryRegistered always registers the bit and
+      //     allocates storage before buildColumnViews runs.
+      //   • query.ts ensureReactiveBuffer `!buf` is unreachable because
       //     ensureQueryRegistered creates the buffer before pushReactive calls
       //     ensureReactiveBuffer.
       //
-      // functions (98, not 100):
-      //   Fallback factories that are never reached:
-      //   • component.ts:269 `() => ({})` — fallback factory in writeInitial; only
-      //     fires when info.factory is null for an AoS component, which is
-      //     structurally impossible (defineObjectComponent always sets factory).
-      //   • serialize.ts:150 `() => ({})` — same as above inside getComponentHandle.
+      // functions (100): the 0.6.0 pass deleted the unreachable `() => ({})`
+      //   fallback factories (component.ts writeInitial, serialize.ts
+      //   getComponentHandle), so every function is exercised.
       //
       // lines (99, not 100):
       //   Genuinely unreachable lines in the Node.js test environment:
-      //   • worker.ts:27-29 — SAB-unsupported fallback; SAB is always available
-      //     in Node.js, so this branch can never be taken in the test runner.
-      //   • loop.ts:24 — `cancelAnimationFrame(handle)` inside cancelRaf; hasRAF
+      //   • loop.ts — `cancelAnimationFrame(handle)` inside cancelRaf; hasRAF
       //     is evaluated once at module load time (false in Node), so the RAF
       //     branch is permanently dead for the lifetime of this test process.
-      //   • world.ts:221 — `ensureCapacity` maxEntities throw; entity.ts:42 guards
-      //     the same condition first, so this defensive throw is never reached.
-      //   • serialize.ts:209 — "truncated before verLen" throw; the `bytes.length
-      //     < 12` check at line 184 fires first for all short inputs, making this
-      //     guard permanently unreachable.
+      //   • world.ts — `ensureCapacity` maxEntities throw; createEntity and
+      //     ensureEntityAtSlot guard the same condition first, so this defensive
+      //     throw (which also stops the doubling loop from spinning) is never
+      //     reached.
       //
       // DEFERRED STRICT FLAGS (not enabled this wave):
       //   `exactOptionalPropertyTypes` and `verbatimModuleSyntax` are now ON (0
@@ -59,7 +53,7 @@ export default defineConfig({
       //   `noImplicitReturns` and `noFallthroughCasesInSwitch` are already clean (0
       //   each). These are a proper narrowing/cleanup task, deferred to a dedicated
       //   pass rather than smuggled into this review wave.
-      thresholds: { statements: 95, branches: 81, functions: 98, lines: 99 },
+      thresholds: { statements: 95, branches: 81, functions: 100, lines: 99 },
     },
   },
 })

@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   type EntityId,
   createEntity,
   createWorld,
   destroyEntity,
   entityExists,
   getEntityGeneration,
+  getEntityIndex,
 } from '../src/index.js'
+import type { Relation } from '../src/internal/types.js'
 import {
   ChildOf,
   addRelation,
@@ -15,6 +18,7 @@ import {
   getRelationTargets,
   removeRelation,
 } from '../src/relations.js'
+import { attachWorld, transferableSnapshot } from '../src/worker.js'
 
 describe('relations', () => {
   it('defineRelation returns a handle', () => {
@@ -397,5 +401,98 @@ describe('relations', () => {
     // Destroy source a — all outgoing edges drop.
     destroyEntity(w, a)
     expect(getRelationTargets(w, a, Likes)).toEqual([])
+  })
+
+  // 0.6.0: addRelation rejects dead endpoints, mirroring addComponent. Edges are
+  // stored by slot, so an edge to/from a dead entity used to be inherited by
+  // whatever entity was later recycled into that slot.
+  describe('dead endpoints', () => {
+    it('addRelation throws EcsError for a dead source', () => {
+      const Likes = defineRelation()
+      const w = createWorld()
+      const a = createEntity(w)
+      const b = createEntity(w)
+      destroyEntity(w, a)
+      expect(() => addRelation(w, a, Likes, b)).toThrow(EcsError)
+      expect(() => addRelation(w, a, Likes, b)).toThrow(
+        `aiecsjs: addRelation on dead source entity ${a}`,
+      )
+    })
+
+    it('addRelation throws EcsError for a dead target', () => {
+      const Likes = defineRelation<{ since: number }>()
+      const w = createWorld()
+      const a = createEntity(w)
+      const b = createEntity(w)
+      destroyEntity(w, b)
+      expect(() => addRelation(w, a, Likes, b, { since: 1 })).toThrow(EcsError)
+      expect(() => addRelation(w, a, Likes, b)).toThrow(
+        `aiecsjs: addRelation on dead target entity ${b}`,
+      )
+      expect(getRelationTargets(w, a, Likes)).toEqual([])
+    })
+
+    it('a recycled slot no longer inherits an edge added to its dead predecessor', () => {
+      const Likes = defineRelation()
+      const w = createWorld()
+      const a = createEntity(w)
+      const b = createEntity(w)
+      destroyEntity(w, b)
+      expect(() => addRelation(w, a, Likes, b)).toThrow(EcsError)
+      const c = createEntity(w) // recycles b's slot
+      expect(getEntityIndex(c)).toBe(getEntityIndex(b))
+      expect(getRelationTargets(w, a, Likes)).toEqual([])
+
+      destroyEntity(w, a)
+      expect(() => addRelation(w, a, Likes, c)).toThrow(EcsError)
+      const d = createEntity(w) // recycles a's slot
+      expect(getEntityIndex(d)).toBe(getEntityIndex(a))
+      expect(getRelationTargets(w, d, Likes)).toEqual([])
+    })
+
+    it('ChildOf: parenting to a destroyed entity throws and stores nothing', () => {
+      const w = createWorld()
+      const parent = createEntity(w)
+      const child = createEntity(w)
+      destroyEntity(w, parent)
+      expect(() => addRelation(w, child, ChildOf, parent)).toThrow(/dead target entity/)
+      const heir = createEntity(w) // recycles the parent's slot
+      expect(getRelationTargets(w, child, ChildOf)).toEqual([])
+      expect(() => addRelation(w, child, ChildOf, heir)).not.toThrow()
+      expect(getRelationTargets(w, child, ChildOf)).toEqual([heir])
+    })
+
+    it('removeRelation stays lenient for dead endpoints', () => {
+      const Likes = defineRelation()
+      const w = createWorld()
+      const a = createEntity(w)
+      const b = createEntity(w)
+      addRelation(w, a, Likes, b)
+      destroyEntity(w, b)
+      expect(() => removeRelation(w, a, Likes, b)).not.toThrow()
+    })
+  })
+
+  it('relation helpers reject a value that is not a relation handle', () => {
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    const bogus = {} as Relation
+    expect(() => addRelation(w, a, bogus, b)).toThrow(EcsError)
+    expect(() => removeRelation(w, a, bogus, b)).toThrow('aiecsjs: rel must be a relation')
+    expect(() => getRelationTargets(w, a, undefined as unknown as Relation)).toThrow(EcsError)
+    expect(() => getRelationData(w, a, bogus, b)).toThrow(EcsError)
+  })
+
+  it('addRelation / removeRelation throw EcsError on a read-only world', () => {
+    const Likes = defineRelation()
+    const w = createWorld()
+    const a = createEntity(w)
+    const b = createEntity(w)
+    const view = attachWorld(transferableSnapshot(w).buffer, { readOnly: true })
+    expect(() => addRelation(view, a, Likes, b)).toThrow(EcsError)
+    expect(() => removeRelation(view, a, Likes, b)).toThrow(
+      'aiecsjs: cannot mutate a read-only world',
+    )
   })
 })

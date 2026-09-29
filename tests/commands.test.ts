@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createCommandBuffer, flush, withCommandBuffer } from '../src/commands.js'
 import {
+  EcsError,
   Types,
   addComponent,
   createEntity,
@@ -141,5 +142,14 @@ describe('command buffer', () => {
     cb.add(e, A)
     flush(cb)
     expect(getWorldSize(w)).toBe(2)
+  })
+})
+
+describe('withCommandBuffer argument validation', () => {
+  it('rejects a non-function callback with EcsError before creating a buffer', () => {
+    const w = createWorld()
+    const bad = null as unknown as Parameters<typeof withCommandBuffer>[1]
+    expect(() => withCommandBuffer(w, bad)).toThrow(EcsError)
+    expect(() => withCommandBuffer(w, bad)).toThrow('aiecsjs: fn must be a function')
   })
 })

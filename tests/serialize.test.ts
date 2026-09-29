@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
+  EcsError,
+  type SoAColumns,
   Types,
   addComponent,
   createEntity,
@@ -53,16 +55,30 @@ describe('serialize', () => {
     expect(bytes).toBeInstanceOf(Uint8Array)
     expect(bytes.byteLength).toBeGreaterThan(12)
     const w2 = deserializeWorld(bytes)
-    expect(hasComponent(w2, e1 as any, Position)).toBe(true)
-    expect(hasComponent(w2, e2 as any, Player)).toBe(true)
-    const inv = getComponent(w2, e3 as any, Inventory) as any
+    expect(hasComponent(w2, e1, Position)).toBe(true)
+    expect(hasComponent(w2, e2, Player)).toBe(true)
+    const inv = getComponent(w2, e3, Inventory) as { items: string[] } | undefined
     expect(inv?.items).toEqual(['sword', 'shield'])
   })
 
   it('binary magic byte check rejects bad bytes', () => {
     const badBytes = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    expect(() => deserializeWorld(badBytes)).toThrow(EcsError)
     expect(() => deserializeWorld(badBytes)).toThrow(/magic/)
   })
+
+  // Format 2 component-table entry for the suite's Position (keyless).
+  function positionEntry(): WorldSnapshot['components'][number] {
+    return {
+      id: Position.__id,
+      key: null,
+      kind: 'soa',
+      fields: [
+        { name: 'x', type: 'f32', vectorLen: 1 },
+        { name: 'y', type: 'f32', vectorLen: 1 },
+      ],
+    }
+  }
 
   it('toJSON / fromJSON round-trip', () => {
     const { w, e1 } = setupWorld()
@@ -70,7 +86,7 @@ describe('serialize', () => {
     expect(snap.version).toBe(pkg.version)
     expect(snap.entities.length).toBe(3)
     const w2 = fromJSON(snap)
-    expect(hasComponent(w2, e1 as any, Position)).toBe(true)
+    expect(hasComponent(w2, e1, Position)).toBe(true)
   })
 
   it('delta serializer: first capture is full', () => {
@@ -228,8 +244,8 @@ describe('serialize', () => {
     // Serialise only Position; Velocity and Player should not survive
     const bytes = serializeWorld(w, { components: [Position] })
     const w2 = deserializeWorld(bytes)
-    expect(hasComponent(w2, e1 as any, Position)).toBe(true)
-    expect(hasComponent(w2, e1 as any, Velocity)).toBe(false)
+    expect(hasComponent(w2, e1, Position)).toBe(true)
+    expect(hasComponent(w2, e1, Velocity)).toBe(false)
   })
 
   it('onUnknownVersion=throw rejects a format version mismatch', () => {
@@ -240,6 +256,7 @@ describe('serialize', () => {
     bytes[5] = 0xff
     bytes[6] = 0xff
     bytes[7] = 0xfe
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'throw' })).toThrow(EcsError)
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'throw' })).toThrow(/format version/)
   })
 
@@ -280,9 +297,9 @@ describe('serialize', () => {
     expect(results).toHaveLength(1)
     const eInW2 = results[0]!
     // SoA getComponent returns column views; index by the entity id
-    const cols = getComponent(w2, eInW2, HighGen) as any
+    const cols = getComponent(w2, eInW2, HighGen) as SoAColumns
     expect(cols).not.toBeNull()
-    expect(cols.hp[eInW2]).toBe(42)
+    expect(cols.hp?.[eInW2]).toBe(42)
   })
 
   // unpackBinary best-effort: a corrupt JSON body must surface a namespaced
@@ -294,6 +311,7 @@ describe('serialize', () => {
     // The JSON body is the trailing region; flip its final byte (the closing
     // `}`) to a non-structural character so JSON.parse throws.
     bytes[bytes.length - 1] = 0x21 // '!'
+    expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).toThrow(EcsError)
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).toThrow(/aiecsjs:/)
     expect(() => deserializeWorld(bytes, { onUnknownVersion: 'best-effort' })).not.toThrow(
       /SyntaxError/,
@@ -312,14 +330,14 @@ describe('serialize', () => {
 
     // SoA columns are indexed by raw slot; the fresh world re-creates the same
     // slot indices (1..3) so the original packed eids address the same rows.
-    expect(hasComponent(fresh, e1 as any, Position)).toBe(true)
-    expect(hasComponent(fresh, e1 as any, Velocity)).toBe(true)
-    const p1 = getComponent(fresh, e1 as any, Position) as any
-    expect(p1.x[e1 as number]).toBeCloseTo(1.5)
-    expect(p1.y[e1 as number]).toBeCloseTo(-2.25)
+    expect(hasComponent(fresh, e1, Position)).toBe(true)
+    expect(hasComponent(fresh, e1, Velocity)).toBe(true)
+    const p1 = getComponent(fresh, e1, Position) as SoAColumns
+    expect(p1.x?.[e1]).toBeCloseTo(1.5)
+    expect(p1.y?.[e1]).toBeCloseTo(-2.25)
 
-    expect(hasComponent(fresh, e2 as any, Player)).toBe(true)
-    const inv = getComponent(fresh, e3 as any, Inventory) as any
+    expect(hasComponent(fresh, e2, Player)).toBe(true)
+    const inv = getComponent(fresh, e3, Inventory) as { items: string[] } | undefined
     expect(inv?.items).toEqual(['sword', 'shield'])
   })
 
@@ -338,9 +356,9 @@ describe('serialize', () => {
 
     rx.apply(replica, delta)
 
-    const p = getComponent(replica, e1 as any, Position) as any
-    expect(p.x[e1 as number]).toBeCloseTo(99)
-    expect(p.y[e1 as number]).toBeCloseTo(100)
+    const p = getComponent(replica, e1, Position) as SoAColumns
+    expect(p.x?.[e1]).toBeCloseTo(99)
+    expect(p.y?.[e1]).toBeCloseTo(100)
   })
 
   // DeltaSerializer.apply() is now sound on a non-pristine target: it
@@ -383,8 +401,10 @@ describe('serialize', () => {
   it('apply(): a non-integer eid is rejected instead of corrupting slot allocation', () => {
     const w = createWorld()
     const bytes = serializeBinaryFromSnapshot({
+      formatVersion: 2,
       version: pkg.version,
       capacity: 8,
+      components: [positionEntry()],
       entities: [
         { eid: 2.5, components: [{ kind: 'soa', id: Position.__id, data: { x: 7, y: 8 } }] },
       ],
@@ -414,8 +434,10 @@ describe('serialize', () => {
       // wildly inflated capacity. Position's internal id is what the source world
       // assigned it (1-based registration order in this test module).
       return {
+        formatVersion: 2,
         version: pkg.version,
         capacity,
+        components: [positionEntry()],
         entities: [
           { eid: 1, components: [{ kind: 'soa', id: Position.__id, data: { x: 1, y: 2 } }] },
         ],
@@ -444,6 +466,12 @@ describe('serialize', () => {
       expect(getWorldCapacity(w)).toBeLessThanOrEqual(4096)
     })
 
+    it('a missing or non-numeric capacity falls back to the entity-count floor', () => {
+      const snap = makeHostileSnapshot(1)
+      const garbage = { ...snap, capacity: 'huge' as unknown as number }
+      expect(getWorldCapacity(fromJSON(garbage))).toBe(1024)
+    })
+
     it('a legitimate large capacity still round-trips (clamp tracks entity count, not a fixed ceiling)', () => {
       // 2,000 real entities → restored capacity must be able to hold them all.
       const w = createWorld()
@@ -464,7 +492,7 @@ describe('serialize', () => {
 // through the binary entry point.
 function serializeBinaryFromSnapshot(snapshot: WorldSnapshot): Uint8Array {
   const MAGIC = 'AIEC'
-  const FORMAT_VERSION = 1
+  const FORMAT_VERSION = 2
   const json = JSON.stringify(snapshot)
   const jsonBytes = new TextEncoder().encode(json)
   const versionBytes = new TextEncoder().encode(pkg.version)

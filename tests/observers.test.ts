@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   Types,
   addComponent,
   createEntity,
@@ -560,5 +561,42 @@ describe('observe() with a reactive (enter/exit) query', () => {
     const e2 = createEntity(w)
     addComponent(w, e2, A)
     expect(seen).toEqual([e1, e2])
+  })
+})
+
+// 0.6.0 argument validation: a non-function handler used to be accepted and
+// then throw from inside every later structural change, after the change was
+// committed but before reactive queries were notified.
+describe('observer argument validation', () => {
+  const A = defineTag()
+
+  it('onAdd / onRemove / onSet / observe reject a non-function handler with EcsError', () => {
+    const w = createWorld()
+    const bad = 'nope' as unknown as () => void
+    expect(() => onAdd(w, A, bad)).toThrow(EcsError)
+    expect(() => onRemove(w, A, bad)).toThrow('aiecsjs: handler must be a function')
+    expect(() => onSet(w, A, bad)).toThrow(EcsError)
+    expect(() => observe(w, defineQuery([A]), 'add', bad)).toThrow(EcsError)
+    // Nothing was registered, so structural changes stay healthy.
+    const e = createEntity(w)
+    const entered = enterQuery(defineQuery([A]))
+    expect(() => addComponent(w, e, A)).not.toThrow()
+    expect(runQuery(w, entered)).toEqual([e])
+  })
+
+  it('observe accepts a raw component array like runQuery', () => {
+    const w = createWorld()
+    const seen: number[] = []
+    observe(w, [A] as unknown as Parameters<typeof observe>[1], 'add', (eid) => seen.push(eid))
+    const e = createEntity(w)
+    addComponent(w, e, A)
+    expect(seen).toEqual([e])
+  })
+
+  it('observe rejects a non-Query value with the documented TypeError', () => {
+    const w = createWorld()
+    const bogus = { all: [] } as unknown as Parameters<typeof observe>[1]
+    expect(() => observe(w, bogus, 'add', () => {})).toThrow(TypeError)
+    expect(() => observe(w, bogus, 'add', () => {})).toThrow('aiecsjs: expected a Query')
   })
 })

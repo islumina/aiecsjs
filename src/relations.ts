@@ -1,9 +1,10 @@
 // aiecsjs/relations — entity-to-entity relations (experimental in 0.1).
 
-import { packEid, registerRelationsCleanup } from './internal/entity.js'
+import { isAliveInternal, packEid, registerRelationsCleanup } from './internal/entity.js'
+import { EcsError } from './internal/errors.js'
 import { ids, shared } from './internal/registry.js'
 import type { EntityId, Relation, RelationStorage, World, WorldState } from './internal/types.js'
-import { getWorldState } from './internal/world.js'
+import { getWorldState, getWritableState } from './internal/world.js'
 
 export function defineRelation<T = void>(options?: { exclusive?: boolean }): Relation<T> {
   const id = ids.relation++
@@ -20,8 +21,15 @@ export function defineRelation<T = void>(options?: { exclusive?: boolean }): Rel
 shared.childOf ??= defineRelation({ exclusive: true })
 export const ChildOf: Relation = shared.childOf
 
+// The relation's storage in this world (undefined until its first edge).
+// Rejects a value that is not a `defineRelation` handle.
+function storageOf(state: WorldState, rel: Relation<unknown>): RelationStorage | undefined {
+  if (rel?.__kind !== 'relation') throw new EcsError('aiecsjs: rel must be a relation')
+  return state.relationStorage.get(rel.__id)
+}
+
 function getOrCreateStorage(state: WorldState, rel: Relation<unknown>): RelationStorage {
-  let storage = state.relationStorage.get(rel.__id)
+  let storage = storageOf(state, rel)
   if (storage) return storage
   storage = {
     rel,
@@ -61,6 +69,16 @@ function unlinkIncoming(storage: RelationStorage, src: number, tgt: number): voi
   if (set.size === 0) incoming.delete(tgt)
 }
 
+/**
+ * Add a relation edge from `source` to `target` (replacing `source`'s current
+ * target for an exclusive relation such as `ChildOf`), optionally with a data
+ * payload read back by {@link getRelationData}.
+ *
+ * Throws `EcsError` when `source` or `target` is not alive, mirroring
+ * `addComponent`: edges are stored by slot, so an edge to a dead entity would
+ * otherwise be inherited by whatever entity is later recycled into that slot.
+ * Check `entityExists` first when an endpoint may be stale.
+ */
 export function addRelation<T>(
   world: World,
   source: EntityId,
@@ -68,8 +86,13 @@ export function addRelation<T>(
   target: EntityId,
   data?: T,
 ): void {
-  const state = getWorldState(world)
-  if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
+  const state = getWritableState(world)
+  if (!isAliveInternal(state, source)) {
+    throw new EcsError(`aiecsjs: addRelation on dead source entity ${source}`)
+  }
+  if (!isAliveInternal(state, target)) {
+    throw new EcsError(`aiecsjs: addRelation on dead target entity ${target}`)
+  }
   const storage = getOrCreateStorage(state, rel as Relation<unknown>)
   // Use raw idx as keys in relation storage so slot reuse invalidation is consistent
   const src = (source as number) & state.options.indexMask
@@ -118,9 +141,8 @@ export function removeRelation(
   rel: Relation,
   target: EntityId,
 ): void {
-  const state = getWorldState(world)
-  if (state.readOnly) throw new Error('aiecsjs: cannot mutate a read-only world')
-  const storage = state.relationStorage.get(rel.__id)
+  const state = getWritableState(world)
+  const storage = storageOf(state, rel as Relation<unknown>)
   if (!storage) return
   const src = (source as number) & state.options.indexMask
   const tgt = (target as number) & state.options.indexMask
@@ -150,7 +172,7 @@ export function getRelationTargets(
   rel: Relation,
 ): readonly EntityId[] {
   const state = getWorldState(world)
-  const storage = state.relationStorage.get(rel.__id)
+  const storage = storageOf(state, rel as Relation<unknown>)
   if (!storage) return []
   const src = (source as number) & state.options.indexMask
   if (storage.exclusive) {
@@ -180,14 +202,13 @@ export function getRelationTargets(
  * - no edge from `source` to `target` via `rel` exists, or
  * - the edge was added without a data argument.
  *
- * **Slot-keying semantic (ABA caveat):** relation storage keys edges by raw
- * entity slot index (`entityId & indexMask`), not by the full packed EntityId
- * that includes the generation counter. This means that if entity A is
- * destroyed and a *different* entity B is later created in the same slot, B
- * will inherit any edges that A had — unless the destroy cleanup hook ran
- * (which it does when `destroyEntity` is called). Callers that cache a
- * source/target EntityId should validate liveness with `entityExists` before
- * calling `getRelationData` if slot recycling is a concern.
+ * **Slot keying:** relation storage keys edges by raw entity slot index
+ * (`entityId & indexMask`), not by the full packed EntityId. `addRelation`
+ * rejects dead endpoints and `destroyEntity` / `resetWorld` drop every edge of
+ * the entities they remove, so storage never holds an edge for a dead entity.
+ * A *stale* EntityId whose slot was recycled still addresses the slot's
+ * current occupant here, so validate cached ids with `entityExists` (or use
+ * `EntityRef`) before reading.
  */
 export function getRelationData<T>(
   world: World,
@@ -196,7 +217,7 @@ export function getRelationData<T>(
   target: EntityId,
 ): T | undefined {
   const state = getWorldState(world)
-  const storage = state.relationStorage.get(rel.__id)
+  const storage = storageOf(state, rel as Relation<unknown>)
   if (!storage) return undefined
   const src = (source as number) & state.options.indexMask
   const tgt = (target as number) & state.options.indexMask

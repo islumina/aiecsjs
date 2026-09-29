@@ -286,3 +286,40 @@ describe('FAM-C-04: world invariant failures throw EcsError', () => {
     expect(() => getWorldSize(w)).toThrow(EcsError)
   })
 })
+
+// 0.6.0: resolveOptions rejects non-integer numeric options before its range
+// checks and clamps; a fractional / NaN value used to truncate typed arrays.
+describe('world options must be integers', () => {
+  const names = ['initialCapacity', 'maxEntities', 'indexBits', 'generationBits'] as const
+  const bad: unknown[] = [1.5, Number.NaN, Number.POSITIVE_INFINITY, '8']
+
+  for (const name of names) {
+    it(`${name}: 1.5, NaN, Infinity and '8' throw EcsError`, () => {
+      for (const value of bad) {
+        const opts = { [name]: value } as Parameters<typeof createWorld>[0]
+        expect(() => createWorld(opts)).toThrow(EcsError)
+        expect(() => createWorld(opts)).toThrow(`aiecsjs: ${name} must be an integer`)
+      }
+    })
+  }
+
+  it('integer values keep the existing range checks and clamps', () => {
+    expect(getWorldCapacity(createWorld({ initialCapacity: 0 }))).toBe(1)
+    expect(getWorldCapacity(createWorld({ indexBits: 4, initialCapacity: 1000 }))).toBe(16)
+    const w = createWorld({ initialCapacity: 8, maxEntities: 2 })
+    expect(getWorldState(w).options.maxEntities).toBe(8)
+    expect(getWorldState(createWorld({ indexBits: 4, maxEntities: 99 })).options.maxEntities).toBe(
+      16,
+    )
+    expect(() => createWorld({ indexBits: 0 })).toThrow(/indexBits must be in \[1, 24\]/)
+  })
+})
+
+describe('missing handles take the EcsError path', () => {
+  it('a missing world handle throws EcsError, not a TypeError', () => {
+    const missing = undefined as unknown as Parameters<typeof getWorldState>[0]
+    expect(() => getWorldSize(missing)).toThrow(EcsError)
+    expect(() => getWorldSize(missing)).toThrow('aiecsjs: world undefined is destroyed or unknown')
+    expect(() => disposeWorld(missing)).not.toThrow()
+  })
+})

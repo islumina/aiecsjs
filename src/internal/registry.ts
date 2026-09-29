@@ -27,6 +27,9 @@ interface IdCounters {
 
 interface SharedRegistry {
   componentInfoById: Map<number, ComponentInfo>
+  // stable component key (defineComponent/defineTag/defineObjectComponent
+  // `options.key`) → component
+  componentInfoByKey: Map<string, ComponentInfo>
   queryCache: Map<string, QueryInternal>
   // source query id → its enter/exit variants
   reactiveBySource: Map<number, QueryInternal[]>
@@ -51,6 +54,7 @@ export const ids = g[IDS_KEY] as IdCounters
 const SHARED_KEY = Symbol.for(`aiecsjs.registry@${VERSION}`)
 g[SHARED_KEY] ??= {
   componentInfoById: new Map(),
+  componentInfoByKey: new Map(),
   queryCache: new Map(),
   reactiveBySource: new Map(),
   reactiveSourcesByComponent: new Map(),

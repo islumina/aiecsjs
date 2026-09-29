@@ -188,3 +188,39 @@ describe('loop (fake-timer driven)', () => {
     expect(alphas.every((a) => a >= 0)).toBe(true)
   })
 })
+
+// createLoop validates before scheduling anything. aiecsjs/loop exports no error
+// class, so misuse throws built-in TypeError / RangeError with the prefix.
+describe('createLoop argument validation', () => {
+  type Opts = Parameters<typeof createLoop>[0]
+  const onUpdate = () => {}
+
+  it('a missing or non-object options argument throws TypeError', () => {
+    expect(() => createLoop(undefined as unknown as Opts)).toThrow(TypeError)
+    expect(() => createLoop(null as unknown as Opts)).toThrow('aiecsjs: options must be an object')
+  })
+
+  it('a non-function onUpdate / onRender throws TypeError', () => {
+    expect(() => createLoop({} as Opts)).toThrow('aiecsjs: onUpdate must be a function')
+    expect(() => createLoop({ onUpdate, onRender: 1 } as unknown as Opts)).toThrow(
+      'aiecsjs: onRender must be a function',
+    )
+    expect(() => createLoop({ onUpdate, onRender: undefined } as unknown as Opts)).not.toThrow()
+  })
+
+  it('fixed must be a finite number > 0', () => {
+    for (const fixed of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1' as unknown as number]) {
+      expect(() => createLoop({ onUpdate, fixed })).toThrow(RangeError)
+      expect(() => createLoop({ onUpdate, fixed })).toThrow(
+        'aiecsjs: fixed must be a finite number > 0',
+      )
+    }
+  })
+
+  it('maxSubSteps must be a finite number >= 1', () => {
+    for (const maxSubSteps of [0, 0.5, -3, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => createLoop({ onUpdate, maxSubSteps })).toThrow(RangeError)
+    }
+    expect(() => createLoop({ onUpdate, maxSubSteps: 1 })).not.toThrow()
+  })
+})

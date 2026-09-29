@@ -3,14 +3,14 @@
 import { forEachSetBit, matchesEntityMask } from './internal/bitmask.js'
 import { getComponentInfo, registerObserverDispatch } from './internal/component.js'
 import { registerObserversAPI } from './internal/entity.js'
-import { ensureQueryRegistered } from './internal/query.js'
+import { EcsError } from './internal/errors.js'
+import { asQueryInternal, ensureQueryRegistered } from './internal/query.js'
 import type {
   ComponentLike,
   EntityId,
   ObserverEntry,
   ObserverEvent,
   Query,
-  QueryInternal,
   QueryMaskBundle,
   World,
   WorldState,
@@ -50,7 +50,7 @@ export function onAdd(
   handler: (eid: EntityId) => void,
   opts?: ObserverOptions,
 ): () => void {
-  return bindAbortSignal(registerComponentObserver(world, component, 'add', handler), opts?.signal)
+  return registerComponentObserver(world, component, 'add', handler, opts)
 }
 
 export function onRemove(
@@ -59,10 +59,7 @@ export function onRemove(
   handler: (eid: EntityId) => void,
   opts?: ObserverOptions,
 ): () => void {
-  return bindAbortSignal(
-    registerComponentObserver(world, component, 'remove', handler),
-    opts?.signal,
-  )
+  return registerComponentObserver(world, component, 'remove', handler, opts)
 }
 
 /**
@@ -94,9 +91,15 @@ export function onSet<C extends ComponentLike>(
   handler: (eid: EntityId, value: unknown) => void,
   opts?: ObserverOptions,
 ): () => void {
-  return bindAbortSignal(registerComponentObserver(world, component, 'set', handler), opts?.signal)
+  return registerComponentObserver(world, component, 'set', handler, opts)
 }
 
+/**
+ * Observe a query: `'add'` fires when an entity starts matching, `'remove'`
+ * when it stops matching (including on destroy), `'set'` after `setComponent`
+ * writes one of the query's `all`/`any` components on a matching entity.
+ * `query` may be a raw component array, as for `runQuery`.
+ */
 export function observe(
   world: World,
   query: Query,
@@ -105,12 +108,20 @@ export function observe(
   opts?: ObserverOptions,
 ): () => void {
   const state = getWorldState(world)
+  assertHandler(handler)
   // Register the query (and, for enter/exit queries, its source query and
   // reactive buffer) into this world so dispatch can find it. Unlike
   // `runQuery`, this never drains a reactive buffer as a side effect.
-  ensureQueryRegistered(state, query as QueryInternal)
-  const queryId = (query as QueryInternal).id
-  return bindAbortSignal(addObserver(state, event, -1, queryId, handler), opts?.signal)
+  const q = asQueryInternal(query)
+  ensureQueryRegistered(state, q)
+  return addObserver(state, event, -1, q.id, handler, opts)
+}
+
+// A non-function handler would be accepted here and then throw from inside
+// every later structural change — after the change was committed but before
+// reactive queries were notified — so it is rejected before any side effect.
+function assertHandler(handler: unknown): void {
+  if (typeof handler !== 'function') throw new EcsError('aiecsjs: handler must be a function')
 }
 
 function registerComponentObserver(
@@ -118,26 +129,29 @@ function registerComponentObserver(
   component: ComponentLike,
   event: ObserverEvent,
   handler: (eid: EntityId, value?: unknown) => void,
+  opts: ObserverOptions | undefined,
 ): () => void {
   const state = getWorldState(world)
+  assertHandler(handler)
   const bit = getOrRegisterComponentBit(state, getComponentInfo(component))
-  return addObserver(state, event, bit, -1, handler)
+  return addObserver(state, event, bit, -1, handler, opts)
 }
 
-// Push an observer entry; returns its unsubscribe.
+// Push an observer entry; returns its unsubscribe, bound to `opts.signal`.
 function addObserver(
   state: WorldState,
   event: ObserverEvent,
   componentBit: number,
   queryId: number,
   handler: (eid: EntityId, value?: unknown) => void,
+  opts: ObserverOptions | undefined,
 ): () => void {
   const entry: ObserverEntry = { event, componentBit, queryId, handler }
   state.observers.push(entry)
-  return () => {
+  return bindAbortSignal(() => {
     const idx = state.observers.indexOf(entry)
     if (idx >= 0) state.observers.splice(idx, 1)
-  }
+  }, opts?.signal)
 }
 
 // --- Dispatch impls (wired into component.ts) ---
