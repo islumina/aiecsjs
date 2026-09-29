@@ -2,7 +2,7 @@ import { clearAllEntityStorages, dispatchDestroyMaskChange } from './component.j
 import { EcsError } from './errors.js'
 import { shared } from './registry.js'
 import type { EntityId, ResolvedWorldOptions, World, WorldState } from './types.js'
-import { ensureArchetypeCapacity, ensureCapacity, getWorldState, readEntityMask } from './world.js'
+import { addRow, ensureCapacity, getWorldState, readEntityMask, removeRow } from './world.js'
 
 // --- Default bit layout constants (used by public getEntityIndex / getEntityGeneration / packEntity) ---
 // These use the default 24/8 split. See §4.4 limitation: callers using non-default
@@ -34,7 +34,7 @@ export function unpackGen(eid: number, opts: ResolvedWorldOptions): number {
 export function createEntity(world: World): EntityId {
   const state = getWorldState(world)
   if (state.readOnly) {
-    throw new Error('aiecsjs: cannot createEntity on a read-only world (worker-attached)')
+    throw new EcsError('aiecsjs: cannot createEntity on a read-only world (worker-attached)')
   }
 
   let idx: number
@@ -50,24 +50,22 @@ export function createEntity(world: World): EntityId {
     idx = state.nextFreshIndex++
   }
 
-  const gen = state.generations[idx] ?? 0
-  const eid = packEid(idx, gen, state.options)
+  return placeEntity(state, idx)
+}
 
-  // Move into the empty archetype (0)
+// Make the free slot `idx` a live, component-less entity in the empty
+// archetype (0) at the slot's current generation; returns its packed id.
+function placeEntity(state: WorldState, idx: number): EntityId {
+  const eid = packEid(idx, state.generations[idx] ?? 0, state.options)
   const arch = state.archetypes[0]
-  if (!arch) throw new Error('aiecsjs: missing empty archetype')
-  ensureArchetypeCapacity(arch, arch.size + 1)
-  const row = arch.size
-  arch.entities[row] = eid
-  arch.entityRow.set(eid, row)
-  arch.size++
-
+  if (!arch) throw new EcsError('aiecsjs: missing empty archetype')
+  addRow(arch, eid)
   state.entityArchetype[idx] = 0
-  // Reset entityMask row for this idx
-  const w = state.options.maskWordCount
-  const base = idx * w
-  for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
-
+  state.entityMask.fill(
+    0,
+    idx * state.options.maskWordCount,
+    (idx + 1) * state.options.maskWordCount,
+  )
   state.size++
   return eid
 }
@@ -86,8 +84,7 @@ export function createEntity(world: World): EntityId {
 // generation has advanced is handled without a dead-entity throw.
 export function ensureEntityAtSlot(state: WorldState, idx: number): EntityId {
   if (state.readOnly) {
-    /* v8 ignore next — defensive: apply() only writes to writable worlds */
-    throw new Error('aiecsjs: cannot create entities on a read-only world (worker-attached)')
+    throw new EcsError('aiecsjs: cannot create entities on a read-only world (worker-attached)')
   }
   if (idx <= 0 || idx >= state.options.maxEntities) {
     /* v8 ignore next — defensive: apply() pre-guards the eid range */
@@ -114,28 +111,13 @@ export function ensureEntityAtSlot(state: WorldState, idx: number): EntityId {
     }
   }
 
-  // Place into the empty archetype (0) — identical to createEntity's tail.
-  const arch = state.archetypes[0]
-  if (!arch) throw new Error('aiecsjs: missing empty archetype')
-  ensureArchetypeCapacity(arch, arch.size + 1)
-  const row = arch.size
-  arch.entities[row] = eid
-  arch.entityRow.set(eid, row)
-  arch.size++
-
-  state.entityArchetype[idx] = 0
-  const w = state.options.maskWordCount
-  const base = idx * w
-  for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
-
-  state.size++
-  return eid
+  return placeEntity(state, idx)
 }
 
 export function destroyEntity(world: World, eid: EntityId): void {
   const state = getWorldState(world)
   if (state.readOnly) {
-    throw new Error('aiecsjs: cannot destroyEntity on a read-only world')
+    throw new EcsError('aiecsjs: cannot destroyEntity on a read-only world')
   }
   if (!isAliveInternal(state, eid)) return
   // Reentrancy guard: a teardown handler (onRemove / observe / relation cleanup)
@@ -173,23 +155,8 @@ export function destroyEntity(world: World, eid: EntityId): void {
   // visible to snapshots and serialisation.
   clearAllEntityStorages(state, eid)
 
-  // Swap-pop from its archetype
-  const archId = state.entityArchetype[idx] ?? 0
-  const arch = state.archetypes[archId]
-  if (arch) {
-    const row = arch.entityRow.get(eid)
-    if (row !== undefined) {
-      const lastRow = arch.size - 1
-      if (row !== lastRow) {
-        const moved = arch.entities[lastRow] ?? 0
-        arch.entities[row] = moved
-        arch.entityRow.set(moved, row)
-      }
-      arch.entities[lastRow] = 0
-      arch.entityRow.delete(eid)
-      arch.size--
-    }
-  }
+  // Swap-pop from its archetype (isAliveInternal above proved it exists)
+  removeRow(state.archetypes[state.entityArchetype[idx] ?? 0]!, eid)
 
   // Notify the REACTIVE enter/exit surface that the entity is leaving every
   // query it was matching. destroyEntity clears the mask wholesale rather than
@@ -201,9 +168,11 @@ export function destroyEntity(world: World, eid: EntityId): void {
 
   // Wipe state
   state.entityArchetype[idx] = 0
-  const w = state.options.maskWordCount
-  const base = idx * w
-  for (let i = 0; i < w; i++) state.entityMask[base + i] = 0
+  state.entityMask.fill(
+    0,
+    idx * state.options.maskWordCount,
+    (idx + 1) * state.options.maskWordCount,
+  )
   // Bump generation — use generationMask so non-default generationBits wraps correctly
   state.generations[idx] = ((state.generations[idx] ?? 0) + 1) & state.options.generationMask
 

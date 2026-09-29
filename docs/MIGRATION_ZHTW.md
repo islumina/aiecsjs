@@ -2,7 +2,7 @@
 
 [English](MIGRATION.md) | [繁體中文](MIGRATION_ZHTW.md)
 
-從其他 JavaScript ECS 函式庫切換到 `aiecsjs` 的具體名稱對照與心態調整筆記。
+從其他 JavaScript ECS 函式庫切換到 `aiecsjs` 的具體名稱對照與心態調整筆記，以及 [aiecsjs 版本之間的升級說明](#升級-aiecsjs)。
 
 ## 從 bitECS 0.4 移轉
 
@@ -252,3 +252,38 @@ tick(world, 1/60)
 4. **對 `runQuery` 結果用 `for...of` 迭代** — `runQuery` 每次呼叫都分配陣列。熱路徑請改用 `forEachEntityIndexed`（只需要 `EntityId` 時用 `forEachEntity`）。
    - **以封裝後的 `EntityId` 索引欄位** — `pos.x[e]` 在 slot 被回收後會損毀。`forEachEntityIndexed` 的 `(e, i, ...cols)` callback 直接提供安全索引 `i`；使用 `forEachEntity` 時請用 `getEntityIndex(e)`。
 5. **嘗試跨 Worker 共享 AoS 元件** — 僅 SoA 元件能存於 SharedArrayBuffer。多執行緒前請先把 AoS 換成 SoA。
+
+## 升級 aiecsjs
+
+### 0.5.x -> 0.6.0 snapshots
+
+0.6.0 寫出 snapshot format 2。format 2 snapshot 帶有一張它所用到的 component 表，載入端透過這張表把資料對應到 component，不再信任建立順序 id。在 0.5.x，若載入端以不同順序定義 component，資料會在沒有任何錯誤的情況下被寫進錯的 component。
+
+1. **為每個要存檔的 component 指定穩定的 key。** key 必須是非空字串，且在同一行程中不可重複：
+
+   ```ts
+   const Position = defineComponent({ x: Types.f32, y: Types.f32 }, { key: "position" })
+   const Player = defineTag({ key: "player" })
+   const Inventory = defineObjectComponent(() => ({ items: [] }), { key: "inventory" })
+   ```
+
+   有 key 的 component 依 key 對應，因此定義順序不再重要。沒有 key 的 component 仍依建立順序 id 對應，但現在會檢查 kind 與 SoA 欄位。
+
+2. **處理新的載入錯誤。** `fromJSON`、`deserializeWorld`、delta `apply()`、`adoptSnapshot` 與 `attachWorld` 會在建立或寫入任何東西之前檢查所有 component，並在下列情況丟出 `EcsError`：
+   - 載入端的行程沒有定義某個 component。傳入 `{ onUnknownComponent: "skip" }` 可略過它的資料並載入其餘部分；
+   - component 的 kind 或 SoA 欄位（名稱、型別、向量長度、宣告順序）與 snapshot 不符。這種情況一律丟出錯誤；
+   - snapshot 不是 format 2（見第 3 步）。
+
+3. **將 0.5.x snapshot 轉換一次。** 0.5.x 的 JSON snapshot 沒有 `formatVersion`，0.5.x 的二進位 snapshot 或 worker meta 的 format version 為 1。兩者都會被拒絕，並丟出 `EcsError: aiecsjs: format version 1 not supported`。要轉換時，以 best-effort 模式載入（依 id 對應並檢查 kind，與 0.5.x 相同），再重新存檔：
+
+   ```ts
+   const world = deserializeWorld(oldBytes, { onUnknownVersion: "best-effort" })
+   const newBytes = serializeWorld(world) // format 2
+   ```
+
+   best-effort 模式仍有舊的 id 順序風險，請在與寫出該 snapshot 時相同 component 定義順序的環境中執行。
+
+4. **更新手寫的 snapshot。** 自行組出 `WorldSnapshot` 物件的程式碼，必須加上 `formatVersion: 2`，並為 entity 用到的每個 component id 加入 `components` 表項目（`id`、`key`、`kind`、`fields`）。
+
+其他 0.6.0 破壞性變更（relation 存活檢查、整數 world 選項、唯讀 world 的 `resetWorld`、callback 驗證），請見 [CHANGELOG](../CHANGELOG.md) 的「Breaking」清單。
+

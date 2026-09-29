@@ -14,7 +14,7 @@ The short index lives at `llms.txt` (see https://llmstxt.org/).
 
 TypeScript-first archetype ECS with TypedArray SoA components, command buffers, relations, serialization, and SAB-ready snapshot transport.
 
-> **Status: 0.5.9 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent.
+> **Status: 0.6.0 - stable 1.0-track core.** Root ECS APIs are stable; worker transport remains adapter-shaped and environment-dependent. 0.6.0 has breaking changes (snapshot format 2, stricter validation): see the [CHANGELOG](CHANGELOG.md).
 
 ## Install
 
@@ -29,8 +29,8 @@ import {
   createEntity,
   createWorld,
   defineComponent,
-  forEachEntity,
-  getComponent,
+  defineQuery,
+  forEachEntityIndexed,
 } from "aiecsjs";
 ```
 
@@ -45,15 +45,15 @@ const e = createEntity(world);
 addComponent(world, e, Position, { x: 0, y: 0 });
 addComponent(world, e, Velocity, { x: 1, y: 0 });
 
-forEachEntity(world, [Position, Velocity], (entity) => {
-  const pos = getComponent(world, entity, Position);
-  const vel = getComponent(world, entity, Velocity);
-  pos.x += vel.x;
-  pos.y += vel.y;
+// SoA columns are TypedArrays; index them with `i`, the entity's slot index.
+const movers = defineQuery([Position, Velocity]);
+forEachEntityIndexed(world, movers, (entity, i, pos, vel) => {
+  pos.x[i] += vel.x[i];
+  pos.y[i] += vel.y[i];
 });
 ```
 
-Use `defineTag()` for marker components and `defineObjectComponent()` when you need object references instead of TypedArray storage.
+Use `defineTag()` for marker components and `defineObjectComponent()` when you need object references instead of TypedArray storage. Do not index columns with the packed `entity` id: it stops matching the slot once a slot is recycled.
 
 ## Public Surface
 
@@ -67,15 +67,49 @@ Use `defineTag()` for marker components and `defineObjectComponent()` when you n
 | `aiecsjs/worker` | Transfer/adopt/attach helpers for worker snapshots. |
 | `aiecsjs/relations` | `defineRelation`, `ChildOf`, relation add/remove/read helpers. |
 
+## Snapshots
+
+`toJSON` / `serializeWorld` write snapshot format 2: entity data plus a table of the components it uses (stable key, kind, SoA fields). Give every component you save a `key`, so a loading session can define its components in any order:
+
+```ts
+const Position = defineComponent({ x: Types.f32, y: Types.f32 }, { key: "position" });
+const Player = defineTag({ key: "player" });
+
+const bytes = serializeWorld(world); // aiecsjs/serialize
+const restored = deserializeWorld(bytes); // or fromJSON(toJSON(world))
+```
+
+- Loading resolves every component before it creates the world: by key, or by creation-order id for keyless components. It throws `EcsError` when a component is not defined in this process (pass `onUnknownComponent: "skip"` to drop its data) or when its kind or SoA fields differ.
+- 0.5.x snapshots are rejected with `EcsError` by default; `{ onUnknownVersion: "best-effort" }` loads them by id with a kind check. See [0.5.x -> 0.6.0 snapshots](docs/MIGRATION.md#05x---060-snapshots).
+- Restored entities get fresh ids in snapshot order (holes in the slot range close up), so EntityIds stored inside component data are not remapped. Delta `apply()` keeps slot indices.
+
+## Relations
+
+```ts
+import { ChildOf, addRelation, getRelationTargets } from "aiecsjs/relations";
+
+addRelation(world, child, ChildOf, parent);
+getRelationTargets(world, child, ChildOf); // [parent]
+```
+
+- `addRelation` throws `EcsError` for a dead source or target, mirroring `addComponent`. Check `entityExists` first when an endpoint may be stale.
+- `destroyEntity` and `resetWorld` drop every edge of the entities they remove; `removeRelation` is a no-op for dead endpoints.
+
+## Errors
+
+- Misuse and invariant failures throw `EcsError` (message `aiecsjs: ...`) before any change is made: non-integer world options, dead entities, unknown components, invalid component keys, non-function callbacks (observer handlers, `forEachEntity`, `withCommandBuffer`, `pipe` systems, AoS factories) and snapshot errors.
+- A world from `attachWorld(buffer, { readOnly: true })` rejects every mutator with `EcsError`: `createEntity`, `destroyEntity`, `addComponent`, `removeComponent`, `setComponent`, `resetWorld`, `addRelation`, `removeRelation` and delta `apply()`.
+- `defineComponent` field-declaration errors and non-Query input to query functions throw `TypeError`. `createLoop` (`aiecsjs/loop` has no error class) throws `TypeError` / `RangeError`.
+
 ## Sharp Edges
 
 - Structural mutation during a query loop is allowed by the library, but app systems should prefer `withCommandBuffer()` when adding/removing/destroying entities from inside iteration.
 - Reactive query buffers are unbounded until drained. Poll and clear them every frame or event tick.
-- Query registration currently uses a global module cache; many worlds/components can make structural changes scan more query metadata than expected.
+- Queries are cached process-wide, and a structural change visits every reactive (enter/exit) source query that references the changed component, whichever world registered it.
 - Exclusive relation cleanup is `O(incoming)` on destroy for the exclusive-slot reverse index, but every destroy also walks all relation `data` payload sources and all `outgoing` (non-exclusive) edge lists — cost is `O(incoming + data sources + outgoing sources)` across all relations, even for entities with no relations at all.
 - Serialization restores capacity with safety clamps, but snapshots from untrusted sources should still be treated as hostile input.
 - Worker/SAB helpers depend on the runtime environment. Feature-detect `SharedArrayBuffer` and cross-origin isolation in browsers.
-- `pnpm lint` currently reports many `noExplicitAny` warnings. They are not release-blocking, but they add AI-review noise.
+- `pnpm lint` reports 84 `noExplicitAny` warnings, mostly casts in tests plus the public query callback types. They are not release-blocking.
 
 ## AI Context
 
@@ -98,8 +132,25 @@ MIT
 
 All notable changes to aiecsjs are summarized here. Detailed historical review notes live in Git history; this file keeps current release context compact.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-29
 
+### Breaking
+
+- `toJSON` / `serializeWorld` / `createDeltaSerializer` / `fromJSON` / `deserializeWorld` / `adoptSnapshot` / `attachWorld`: snapshots are now format 2 with a component table, and every loader resolves each component by its stable key (by creation-order id when keyless) and throws `EcsError` for a component the process has not defined or a kind / SoA-field mismatch, because 0.5.x id-only matching silently put data into the wrong components when definition order differed; 0.5.x snapshots (no `formatVersion`, binary or worker meta format 1) are rejected with `EcsError: aiecsjs: format version 1 not supported`. Migration: give every serialized component a key (`defineComponent(schema, { key })`, `defineTag({ key })`, `defineObjectComponent(factory, { key })`), re-export existing 0.5.x snapshots with 0.6.0 or load them once with `{ onUnknownVersion: 'best-effort' }` and save again, pass `{ onUnknownComponent: 'skip' }` where dropping unknown components is intended, and add `formatVersion: 2` plus a `components` table to hand-built snapshots (see docs/MIGRATION.md).
+- `addRelation`: a dead source or target now throws `EcsError` (mirroring `addComponent`), because edges are stored by slot and an edge to a dead entity was inherited by whatever entity was later recycled into that slot. Migration: check `entityExists` before `addRelation` when an endpoint may be stale.
+- `createWorld`: a non-integer `initialCapacity`, `maxEntities`, `indexBits` or `generationBits` (such as `1.5`, `NaN`, `Infinity` or `'8'`) now throws `EcsError` before the range checks and clamps, because fractional and `NaN` values silently truncated typed arrays and dropped entities. Migration: pass integers for these options (for example `Math.floor(n)`).
+- `resetWorld`: a read-only (worker-attached) world now throws `EcsError`, as every other mutator already did, instead of being wiped. Migration: reset a writable world instead (`adoptSnapshot`, or `attachWorld` without `readOnly`).
+- `onAdd` / `onRemove` / `onSet` / `observe`, `forEachEntity` / `forEachEntityIndexed`, `withCommandBuffer`, `pipe`, `defineObjectComponent` and the relation helpers: a non-function handler, callback, system or factory, an AoS factory that returns `null` or `undefined`, or a relation argument that is not a `defineRelation` handle now throws `EcsError` at the call, instead of being accepted and failing later (for observers, after the structural change was already committed) or doing nothing. Migration: pass functions, a factory that returns a value and real relation handles; catch `EcsError` where these come from dynamic input.
+- `createLoop` (`aiecsjs/loop`): a missing options object or a non-function `onUpdate` / `onRender` now throws `TypeError`, and a `fixed` that is not a finite number > 0 or a `maxSubSteps` that is not a finite number >= 1 throws `RangeError`, instead of failing in the first tick or silently stalling. Migration: pass an options object with a function `onUpdate`, and a positive finite `fixed` and a `maxSubSteps` of at least 1 when you set them.
+
+### Changes
+
+- Added: stable component keys: `defineComponent(schema, { key })`, `defineTag({ key })` and `defineObjectComponent(factory, { key })`; a key must be a non-empty string (`EcsError` otherwise); defining a key again with the same kind and field layout (HMR, editor script reload) returns the existing component, and a different layout throws `EcsError`.
+- Added: `DeserializeOptions.onUnknownComponent` (`'throw'` by default, or `'skip'`); `fromJSON(snapshot, options?)` takes `DeserializeOptions` (including the `components` allowlist), and `adoptSnapshot(snap, options?)` and `attachWorld(buffer, { readOnly?, ...DeserializeOptions })` pass them through.
+- Added: the `EcsError` constructor accepts an optional `{ cause }`.
+- Changed: every plain `Error` misuse throw (read-only guards, the dead-entity guards of `addComponent` / `setComponent`, unregistered components, the missing empty archetype guard, binary snapshot header and body errors, worker meta errors, command-buffer errors) is now `EcsError` with the same message, so callers can branch on the class; `instanceof Error` checks and message matches keep working.
+- Changed: `noExplicitAny` lint warnings are down from 133 to 84 (`src` 11 to 4, tests 122 to 80), with the emitted public `.d.ts` signatures unchanged; the 4 left in `src` are the public query callback and `ComponentLike` types.
+- Changed: internal refactors keep every entry inside its existing size budget: shared archetype-row and slot-placement helpers, one loop for `forEachEntity` / `forEachEntityIndexed`, one reactive-buffer drain, one mask matcher, and removal of the never-read per-archetype edge tables (two `Int32Array(256)` per archetype) and of unreachable fallback factories; the coverage `functions` threshold is raised to 100.
 - Fixed: `destroyEntity` no longer recurses (or corrupts world size/freeList/exit-query state) when an onRemove/observe handler destroys, resets, or otherwise re-enters teardown for the same entity.
 - Fixed: the package's `sideEffects: false` no longer lets bundlers drop `dist/index.js`'s component-lookup and mask-change registration, which broke queries (and left reactive enter/exit queries empty) for consumers who imported only chunk-owned bindings.
 - Fixed: query observers (`observe(world, query, 'add'|'remove')`) now track match transitions, so queries with `none` terms fire enter/exit correctly and `'remove'` no longer fires for entities that never matched.
@@ -122,8 +173,17 @@ All notable changes to aiecsjs are summarized here. Detailed historical review n
 - Fixed: the delta serializer's `apply()` rejects a non-integer `eid` instead of corrupting entity-slot allocation (a live slot pushed onto the freeList, a non-integer allocation frontier).
 - Fixed: the fixed-timestep loop clamps `dtMs` to non-negative, so a first tick timestamp earlier than `start()`'s sample can no longer drive the accumulator (and `onRender`'s alpha) negative.
 - Fixed: `createEntity`'s `maxEntities` guard now throws `EcsError` (matching the documented behaviour) instead of a plain `Error`.
+- Fixed: `enterQuery` / `exitQuery` / `observe` now check their query argument like `runQuery`: a raw component array works, and other non-Query input throws the documented `TypeError` instead of an internal `TypeError` (`enterQuery` / `exitQuery` also cached a broken reactive query that later calls returned silently).
+- Fixed: `addComponent` builds a new AoS instance before it moves the entity to its new archetype, so a factory that throws leaves the entity unchanged instead of half-added (moved, but never announced to observers or reactive queries).
+- Fixed: a missing world handle, component handle, snapshot, worker meta or delta byte array now throws `EcsError` instead of a bare `TypeError` from property access.
+- Fixed: `deserializeWorld` applied the `components` allowlist to the snapshot's source-process component ids; `fromJSON` / `deserializeWorld` now apply it to the resolved local components.
+- Fixed: package.json `exports` now nest `types` under `import` and `require` for every subpath, with `require.types` pointing at the `.d.cts` file, so CommonJS consumers on `node16`/`nodenext` module resolution get the CommonJS declarations; `verify-exports` walks nested conditions.
 - Docs: relation-destroy cost is documented as `O(incoming + data sources + outgoing sources)` (was understated as `O(incoming)` alone).
 - Docs: `deref`/`aliveRef` are documented as "never throws for a live world" (was an unqualified "never throws") — both throw `EcsError` once the world has been disposed.
+- Docs: the README / README_ZHTW Quick Start no longer corrupts the world: it did `pos.x += vel.x` on the column objects returned by `getComponent`, which replaced the `Position.x` column with a string; it now indexes the columns with `forEachEntityIndexed`'s `i` over a `defineQuery` query (the TypeScript signature does not accept a raw array).
+- Docs: README / README_ZHTW gain Snapshots, Relations and Errors sections; STABILITY gains a Behavioral Contract section (the ai*js re-entrancy clause for observer dispatch, argument validation, read-only mutators, relation liveness, snapshot format 2); `docs/MIGRATION.md` / `MIGRATION_ZHTW.md` gain "0.5.x -> 0.6.0 snapshots".
+- Docs: README / STABILITY no longer describe reactive-query tracking as a module-level cache scan; it is a per-component index.
+- Docs: `api.json` is updated for 0.6.0 signatures and throws, documents that the `defineObjectComponent` factory runs once per entity on first add (not once at definition), and lists `DeserializeOptions.components`.
 
 ## [0.5.9] - 2026-06-29
 
@@ -169,10 +229,20 @@ aiecsjs keeps the root ECS surface stable and treats subpaths as explicit public
 | `aiecsjs/loop` | Stable utility | Loop helper only; scheduler policy remains app-owned. |
 | `aiecsjs/commands` | Stable utility | Command buffers for deferred structural mutations. |
 | `aiecsjs/observers` | Stable utility | Add/remove/set observer helpers. |
-| `aiecsjs/serialize` | Stable utility | Binary and JSON snapshots with capacity clamps. |
+| `aiecsjs/serialize` | Stable utility | Binary and JSON snapshots with capacity clamps; format 2; keyed components; mismatch rejected. |
 | `aiecsjs/worker` | Experimental adapter | Environment-dependent SAB/transfer helpers. |
-| `aiecsjs/relations` | Stable | Relations and `ChildOf`; destroy cleanup cost remains documented. |
+| `aiecsjs/relations` | Stable | Relations and `ChildOf`; `addRelation` throws `EcsError` for a dead source or target, mirroring `addComponent`; destroy cleanup cost remains documented. |
 | `aiecsjs/internal/*` | Private | No compatibility guarantee. |
+
+## Behavioral Contract
+
+- Re-entrancy (ai*js rule for pure fan-out emitters): observer dispatch (`onAdd`, `onRemove`, `onSet`, `observe`) is synchronous and depth-first. A structural change made inside a handler, with its own notifications, runs to completion before the outer dispatch resumes; the outer dispatch keeps iterating its pre-taken snapshot and skips observers removed meanwhile; nested dispatch is never rejected or queued. aiecsjs has no `once` observers.
+- Structural changes are applied at once, never queued. A handler that destroys the entity being destroyed, or removes the component being removed, makes the nested call a no-op and the outer call finishes. `flush()` on a buffer that is already flushing returns immediately; ops queued during a flush run in later rounds of that flush, in queue order.
+- Misuse throws `EcsError` (message `aiecsjs: <subject> must be <constraint>` or `aiecsjs: <operation> on dead entity <eid>`) before any change is made: a non-integer `initialCapacity` / `maxEntities` / `indexBits` / `generationBits`; an empty, non-string or duplicate component `key`; a non-function observer handler, `forEachEntity` / `forEachEntityIndexed` / `withCommandBuffer` callback, `pipe` system or AoS factory; an AoS factory that returns `null` / `undefined`; a value that is not a relation handle; a missing world or component handle.
+- `defineComponent` field-declaration errors and non-Query input to the query functions throw `TypeError`. `aiecsjs/loop` exports no error class: `createLoop` throws `TypeError` for a missing options object or a non-function `onUpdate` / `onRender` and `RangeError` for a `fixed` that is not a finite number > 0 or a `maxSubSteps` that is not a finite number >= 1.
+- A read-only world (`attachWorld(buffer, { readOnly: true })`) rejects every mutator with `EcsError`: `createEntity`, `destroyEntity`, `addComponent`, `removeComponent`, `setComponent`, `resetWorld`, `addRelation`, `removeRelation` and delta `apply()`.
+- `addRelation` throws `EcsError` for a dead source or target; `removeRelation` is lenient. `destroyEntity` and `resetWorld` drop the edges of the entities they remove, so relation storage never holds an edge for a dead entity.
+- Snapshots are format 2: `toJSON`, `serializeWorld` and delta `capture()` write `formatVersion: 2` and a table of every referenced component (`id`, `key`, `kind`, SoA `fields`). `fromJSON`, `deserializeWorld`, delta `apply()`, `adoptSnapshot` and `attachWorld` resolve every component (by `key`, by `id` when keyless) before they create or write anything. An undefined component throws `EcsError` unless `onUnknownComponent: 'skip'`; a kind or SoA-field mismatch always throws. A snapshot of another format version (every 0.5.x snapshot) throws unless `onUnknownVersion: 'best-effort'`, which resolves by `id` with a kind check only.
 
 ## Behavioral Boundaries
 
@@ -180,14 +250,15 @@ aiecsjs keeps the root ECS surface stable and treats subpaths as explicit public
 - Query iteration is synchronous and direct. Use command buffers for structural changes inside systems.
 - Reactive query buffers must be drained by the caller.
 - Serialization accepts trusted snapshots; hostile input is bounded but not a sandbox.
+- `fromJSON` / `deserializeWorld` re-create entities in snapshot order with fresh ids; EntityIds stored inside component data are not remapped.
 - No build-mode-gated runtime validation policy is promised.
 - Worker support depends on `SharedArrayBuffer`, transfer support, and browser isolation policy.
 
 ## Current Caveats
 
-- Reactive query registration scans a module-level query cache on structural changes.
+- Queries are cached process-wide, and reactive (enter/exit) source queries are indexed process-wide by component: a structural change visits every such source that references the changed component, whichever world registered it.
 - Exclusive relation cleanup avoids a full relation-capacity scan (via a reverse index it touches only `O(incoming)` exclusive edges), but it still walks every relation's `data` payload sources and `outgoing` (non-exclusive) edge lists on every destroy: `O(incoming + data sources + outgoing sources)` across all relations, even for entities with no relations.
-- Lint has many `noExplicitAny` warnings pending cleanup.
+- Lint reports `noExplicitAny` warnings, mostly test casts plus the public query callback types (typed per arity only in a future design).
 
 ---
 

@@ -2,6 +2,7 @@
 
 import { addComponent, removeComponent } from './internal/component.js'
 import { createEntity, destroyEntity } from './internal/entity.js'
+import { EcsError } from './internal/errors.js'
 import type {
   CommandBuffer,
   CommandBufferState,
@@ -35,7 +36,10 @@ export function flush(cb: CommandBuffer): void {
   if (state.flushing) return
   state.flushing = true
   try {
-    const world = lookupWorld(state.worldId)
+    // Every op resolves the world by id; resolving it up front makes a flush
+    // on a disposed world throw EcsError even when the queue is empty.
+    const world = { id: state.worldId } as World
+    getWorldState(world)
     // Flush-wide: placeholders keep counting down across rounds, so an id
     // minted mid-flush never collides with one from an earlier round.
     const placeholders = new Map<number, EntityId>()
@@ -44,7 +48,7 @@ export function flush(cb: CommandBuffer): void {
       const num = eid as number
       if (num < 0) {
         const real = placeholders.get(num)
-        if (real === undefined) throw new Error(`aiecsjs: unresolved placeholder ${num}`)
+        if (real === undefined) throw new EcsError(`aiecsjs: unresolved placeholder ${num}`)
         return real
       }
       return eid
@@ -91,6 +95,7 @@ export function flush(cb: CommandBuffer): void {
 }
 
 export function withCommandBuffer<R>(world: World, fn: (cb: CommandBuffer) => R): R {
+  if (typeof fn !== 'function') throw new EcsError('aiecsjs: fn must be a function')
   const cb = createCommandBuffer(world)
   const result = fn(cb)
   flush(cb)
@@ -124,20 +129,6 @@ function makeApi(state: CommandBufferState): CommandBuffer {
 
 function stateOf(cb: CommandBuffer): CommandBufferState {
   const s = cbStateMap.get(cb)
-  if (!s) throw new Error('aiecsjs: unknown CommandBuffer')
+  if (!s) throw new EcsError('aiecsjs: unknown CommandBuffer')
   return s
-}
-
-// Look up a public World from its state id. We need a registry — re-import lazily.
-function lookupWorld(worldId: number): World {
-  // The world registry is in internal/world.ts. We need to construct a public reference.
-  // Since destroy clears state, we look up afresh by id via the worldRegistry.
-  const state = lookupState(worldId)
-  return { id: state.id, capacity: state.capacity, version: state.version } as World
-}
-
-function lookupState(worldId: number): import('./internal/types.js').WorldState {
-  // Access worldRegistry indirectly via getWorldState requires a World object.
-  // Use a small workaround: construct a minimal World-like and call getWorldState.
-  return getWorldState({ id: worldId, capacity: 0, version: '0.0.0' } as World)
 }

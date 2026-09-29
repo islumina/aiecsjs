@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   EcsError,
+  type EntityId,
   Types,
   addComponent,
   createEntity,
@@ -174,10 +175,10 @@ describe('entity', () => {
 
   it('entityExists returns false for garbage numbers (large, negative, float)', () => {
     const w = createWorld()
-    expect(entityExists(w, 999999999 as any)).toBe(false)
-    expect(entityExists(w, -1 as any)).toBe(false)
-    expect(entityExists(w, 1.5 as any)).toBe(false)
-    expect(entityExists(w, 0 as any)).toBe(false)
+    expect(entityExists(w, 999999999 as EntityId)).toBe(false)
+    expect(entityExists(w, -1 as EntityId)).toBe(false)
+    expect(entityExists(w, 1.5 as EntityId)).toBe(false)
+    expect(entityExists(w, 0 as EntityId)).toBe(false)
   })
 
   // P0 regression: signed-overflow for generation >= 128

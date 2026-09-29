@@ -1,5 +1,5 @@
 import { VERSION } from '../version.js'
-import { cloneMask, copyMask, createMask, maskHash } from './bitmask.js'
+import { cloneMask, createMask, maskHash } from './bitmask.js'
 import { EcsError } from './errors.js'
 import { ids, shared } from './registry.js'
 import type {
@@ -28,10 +28,20 @@ const DEFAULT_MAX_COMPONENTS = 256
 // Shared across every loaded copy of the package (see registry.ts).
 const worldRegistry = shared.worlds
 
+// destroyWorld unregisters a world in the same call that marks it destroyed,
+// so a registered state is always live. `world?.id` keeps a missing handle on
+// the EcsError path instead of leaking a TypeError.
 export function getWorldState(world: World): WorldState {
-  const state = worldRegistry.get(world.id)
-  if (!state) throw new EcsError(`aiecsjs: world ${world.id} is destroyed or unknown`)
-  if (state.destroyed) throw new EcsError(`aiecsjs: world ${world.id} is destroyed`)
+  const id = world?.id
+  const state = worldRegistry.get(id)
+  if (!state) throw new EcsError(`aiecsjs: world ${id} is destroyed or unknown`)
+  return state
+}
+
+// getWorldState for a mutator: rejects a read-only (worker-attached) world.
+export function getWritableState(world: World): WorldState {
+  const state = getWorldState(world)
+  if (state.readOnly) throw new EcsError('aiecsjs: cannot mutate a read-only world')
   return state
 }
 
@@ -49,6 +59,14 @@ export function isWorldRegistered(id: number): boolean {
 
 function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
   const o = opts ?? {}
+  // Integer check first: a fractional / NaN / non-number value would otherwise
+  // slip through the range checks below and silently truncate typed arrays.
+  for (const name of Object.keys(DEFAULT_OPTIONS) as (keyof typeof DEFAULT_OPTIONS)[]) {
+    const v = o[name]
+    if (v !== undefined && !Number.isInteger(v)) {
+      throw new EcsError(`aiecsjs: ${name} must be an integer`)
+    }
+  }
   const indexBits = o.indexBits ?? DEFAULT_OPTIONS.indexBits
   const generationBits = o.generationBits ?? DEFAULT_OPTIONS.generationBits
   const maxComponents = DEFAULT_MAX_COMPONENTS
@@ -86,20 +104,13 @@ function resolveOptions(opts: WorldOptions | undefined): ResolvedWorldOptions {
   }
 }
 
-export function createEmptyArchetype(maskWordCount: number, maxComponents: number): ArchetypeState {
-  return {
-    id: 0,
-    mask: createMask(maskWordCount),
-    size: 0,
-    capacity: 16,
-    entities: new Uint32Array(16),
-    entityRow: new Map<number, number>(),
-    componentBits: [],
-    edgeAdd: new Int32Array(maxComponents).fill(-1),
-    edgeRemove: new Int32Array(maxComponents).fill(-1),
-  }
-}
-
+/**
+ * Create an ECS world. `initialCapacity`, `maxEntities`, `indexBits` and
+ * `generationBits` must be integers when given (`EcsError` otherwise); they are
+ * then range-checked (`indexBits` 1–24, `generationBits` 0–16, sum <= 32) and
+ * clamped (`initialCapacity` to [1, 2^indexBits], `maxEntities` to
+ * [initialCapacity, 2^indexBits]).
+ */
 export function createWorld(options?: WorldOptions): World {
   const resolved = resolveOptions(options)
   const id = ids.world++
@@ -143,10 +154,7 @@ export function createWorld(options?: WorldOptions): World {
   }
 
   // Seed archetype 0 (the empty mask)
-  const empty = createEmptyArchetype(resolved.maskWordCount, resolved.maxComponents)
-  empty.id = 0
-  state.archetypes.push(empty)
-  state.archetypeByMaskHash.set(maskHash(empty.mask), 0)
+  findOrCreateArchetype(state, createMask(resolved.maskWordCount))
 
   registerWorld(state)
   return makePublicWorld(state)
@@ -163,7 +171,7 @@ export function makePublicWorld(state: WorldState): World {
 }
 
 export function destroyWorld(world: World): void {
-  const state = worldRegistry.get(world.id)
+  const state = worldRegistry.get(world?.id)
   if (!state || state.destroyed) return
   state.destroyed = true
   // Clear large buffers to help GC. Post-dispose ops already throw via
@@ -194,11 +202,17 @@ export function destroyWorld(world: World): void {
   state.bitToQueries.clear()
   state.queryArchetypeStamp = []
   state.sab = null
-  unregisterWorld(world.id)
+  unregisterWorld(state.id)
 }
 
+/**
+ * Wipe every entity, its component data and relation edges while keeping the
+ * world's capacity and registered components (e.g. for hot module reload).
+ * Throws `EcsError` on a read-only (worker-attached) world, like every other
+ * mutator.
+ */
 export function resetWorld(world: World): void {
-  const state = getWorldState(world)
+  const state = getWritableState(world)
   // Keep capacity and registered components; clear entities and per-entity state.
   state.size = 0
   state.nextFreshIndex = 1
@@ -329,9 +343,6 @@ export function findOrCreateArchetype(
     capacity: 16,
     entities: new Uint32Array(16),
     entityRow: new Map<number, number>(),
-    componentBits: collectBits(mask),
-    edgeAdd: new Int32Array(state.options.maxComponents).fill(-1),
-    edgeRemove: new Int32Array(state.options.maxComponents).fill(-1),
   }
   state.archetypes.push(arch)
   state.archetypeByMaskHash.set(key, id)
@@ -339,28 +350,29 @@ export function findOrCreateArchetype(
   return { archId: id, created: true }
 }
 
-export function ensureArchetypeCapacity(arch: ArchetypeState, needed: number): void {
-  if (needed <= arch.capacity) return
-  let newCap = arch.capacity
-  while (newCap < needed) newCap *= 2
-  const next = new Uint32Array(newCap)
-  next.set(arch.entities)
-  arch.entities = next
-  arch.capacity = newCap
+// Append `eid` as the last row of `arch`, doubling its row storage when full.
+export function addRow(arch: ArchetypeState, eid: number): void {
+  if (arch.size === arch.capacity) {
+    arch.capacity *= 2
+    const next = new Uint32Array(arch.capacity)
+    next.set(arch.entities)
+    arch.entities = next
+  }
+  arch.entities[arch.size] = eid
+  arch.entityRow.set(eid, arch.size++)
 }
 
-function collectBits(mask: Uint32Array): number[] {
-  const bits: number[] = []
-  for (let w = 0; w < mask.length; w++) {
-    let word = mask[w] ?? 0
-    while (word !== 0) {
-      const lsb = word & -word
-      const bit = (w << 5) + (31 - Math.clz32(lsb))
-      bits.push(bit)
-      word &= word - 1
-    }
-  }
-  return bits
+// Swap-pop `eid`'s row out of `arch`: the last row moves into the freed one
+// and the vacated tail slot is zeroed. No-op when `eid` has no row here.
+export function removeRow(arch: ArchetypeState, eid: number): void {
+  const row = arch.entityRow.get(eid)
+  if (row === undefined) return
+  const last = --arch.size
+  const moved = arch.entities[last] ?? 0
+  arch.entities[row] = moved
+  arch.entityRow.set(moved, row)
+  arch.entities[last] = 0
+  arch.entityRow.delete(eid)
 }
 
 // --- Component registration in a world ---

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Verify that every entry declared in package.json#exports has a real file in dist/.
-// Run after `npm run build`; fails the publish if entries are missing.
-// Handles both object-condition form ({ types, import, require }) and string form
-// (e.g. "./package.json": "./package.json").
+// Run after `pnpm build`; fails the publish if entries are missing.
+// Condition entries may nest (e.g. "import": { "types": ..., "default": ... }),
+// so each subpath's conditions are walked recursively rather than assuming one
+// level; the string shorthand ("./package.json": "./package.json") is a leaf.
 
 import { access, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
@@ -15,31 +16,27 @@ const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 const failures = []
 let entryCount = 0
 
-for (const [subpath, value] of Object.entries(pkg.exports)) {
-  entryCount += 1
-  if (typeof value === 'string') {
-    // String shorthand: "./package.json": "./package.json"
-    const abs = resolve(root, value)
+async function walk(subpath, node, trail) {
+  if (typeof node === 'string') {
+    entryCount += 1
     try {
-      await access(abs)
+      await access(resolve(root, node))
     } catch {
-      failures.push(`${subpath} → ${value} (missing)`)
+      failures.push(`${[subpath, ...trail].join(' → ')} → ${node} (missing)`)
     }
-    continue
+    return
   }
-  if (value && typeof value === 'object') {
-    for (const [condition, relPath] of Object.entries(value)) {
-      if (typeof relPath !== 'string') continue
-      const abs = resolve(root, relPath)
-      try {
-        await access(abs)
-      } catch {
-        failures.push(`${subpath} → ${condition} → ${relPath} (missing)`)
-      }
-    }
-    continue
+  if (!node || typeof node !== 'object') {
+    failures.push(`${[subpath, ...trail].join(' → ')}: unsupported exports value (${typeof node})`)
+    return
   }
-  failures.push(`${subpath}: unsupported exports value (${typeof value})`)
+  for (const [condition, value] of Object.entries(node)) {
+    await walk(subpath, value, [...trail, condition])
+  }
+}
+
+for (const [subpath, conditions] of Object.entries(pkg.exports)) {
+  await walk(subpath, conditions, [])
 }
 
 if (failures.length > 0) {
@@ -48,4 +45,6 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log(`verify-exports: all ${entryCount} subpaths resolved.`)
+console.log(
+  `verify-exports: all ${entryCount} condition entries across ${Object.keys(pkg.exports).length} subpaths resolved.`,
+)

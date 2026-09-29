@@ -142,7 +142,6 @@ export interface FieldInfo {
   type: SoAFieldType
   vectorLen: number // 1 for scalar
   ctor: TypedArrayConstructor
-  bytesPerElement: number
 }
 
 export type TypedArrayConstructor =
@@ -157,6 +156,8 @@ export type TypedArrayConstructor =
 
 export interface ComponentInfo {
   id: number
+  // Stable serialization key from `defineComponent(..., { key })`; null when keyless.
+  key: string | null
   kind: 'soa' | 'aos' | 'tag'
   schema: SoASchema | null
   fields: FieldInfo[]
@@ -181,9 +182,6 @@ export interface ArchetypeState {
   capacity: number
   entities: Uint32Array // packed eids in row order
   entityRow: Map<number, number> // eid → row (small archetype-local lookup)
-  componentBits: number[] // sorted
-  edgeAdd: Int32Array // [bit] → archetype id; -1 unknown
-  edgeRemove: Int32Array // [bit] → archetype id; -1 unknown
 }
 
 export interface QueryInternal extends Query {
@@ -271,10 +269,24 @@ export interface SerializeOptions {
 
 export interface DeserializeOptions {
   components?: ComponentLike[]
+  /**
+   * `'throw'` (default) rejects a snapshot whose format version is not 2 —
+   * including every 0.5.x snapshot — with `EcsError`. `'best-effort'` loads it
+   * anyway; a snapshot without a format 2 component table is then resolved by
+   * creation-order id with a `kind` check only (0.5.x behaviour).
+   */
   onUnknownVersion?: 'throw' | 'best-effort'
+  /**
+   * `'throw'` (default) rejects a snapshot that references a component this
+   * process has not defined with `EcsError`; `'skip'` drops that component's
+   * data and loads the rest.
+   */
+  onUnknownComponent?: 'throw' | 'skip'
 }
 
 export interface WorldSnapshot {
+  /** Snapshot format; 0.6.0 writes 2. 0.5.x snapshots have no `formatVersion`. */
+  formatVersion: 2
   version: string
   capacity: number
   // Source world layout / limits. Absent in snapshots from older versions, in
@@ -282,6 +294,18 @@ export interface WorldSnapshot {
   maxEntities?: number
   indexBits?: number
   generationBits?: number
+  /**
+   * One entry per component referenced by `entities`: the source process's
+   * component `id`, its stable `key` (null when keyless), its `kind`, and for
+   * SoA its fields in declaration order. A loader resolves each entry by `key`
+   * (by `id` when keyless) and rejects a kind or field mismatch.
+   */
+  components: Array<{
+    id: number
+    key: string | null
+    kind: 'soa' | 'aos' | 'tag'
+    fields: Array<{ name: string; type: SoAFieldType; vectorLen: number }> | null
+  }>
   entities: Array<{
     eid: number
     components: Array<{

@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
+  EcsError,
   IS_SAB_SUPPORTED,
   Types,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
+  destroyEntity,
+  getWorldSize,
   hasComponent,
+  removeComponent,
+  resetWorld,
+  setComponent,
 } from '../src/index.js'
+import type { TransferableSnapshot } from '../src/internal/types.js'
 import { adoptSnapshot, attachWorld, detachWorld, transferableSnapshot } from '../src/worker.js'
 
 describe('worker / SAB', () => {
@@ -49,6 +56,32 @@ describe('worker / SAB', () => {
     expect(() => addComponent(view, e as any, Position, { x: 1, y: 1 })).toThrow(/read-only/)
     expect(() => removeComponent(view, e as any, Position)).toThrow(/read-only/)
     expect(() => destroyEntity(view, e as any)).toThrow(/read-only/)
+  })
+
+  // 0.6.0: resetWorld joins the other mutators in rejecting a read-only world;
+  // every read-only guard throws EcsError.
+  it.skipIf(!IS_SAB_SUPPORTED)(
+    'read-only world: every mutator, resetWorld included, throws EcsError',
+    () => {
+      const w = createWorld()
+      const e = createEntity(w)
+      addComponent(w, e, Position, { x: 0, y: 0 })
+      const view = attachWorld(transferableSnapshot(w).buffer, { readOnly: true })
+      expect(() => resetWorld(view)).toThrow(EcsError)
+      expect(() => resetWorld(view)).toThrow('aiecsjs: cannot mutate a read-only world')
+      expect(getWorldSize(view)).toBe(1)
+      expect(hasComponent(view, e, Position)).toBe(true)
+      expect(() => createEntity(view)).toThrow(EcsError)
+      expect(() => destroyEntity(view, e)).toThrow(EcsError)
+      expect(() => addComponent(view, e, Position, { x: 1, y: 1 })).toThrow(EcsError)
+      expect(() => removeComponent(view, e, Position)).toThrow(EcsError)
+      expect(() => setComponent(view, e, Position, { x: 1 })).toThrow(EcsError)
+    },
+  )
+
+  it('adoptSnapshot rejects a missing snapshot / meta with EcsError', () => {
+    expect(() => adoptSnapshot(undefined as unknown as TransferableSnapshot)).toThrow(EcsError)
+    expect(() => adoptSnapshot({} as TransferableSnapshot)).toThrow(/wrong magic/)
   })
 
   it.skipIf(!IS_SAB_SUPPORTED)('detachWorld removes the world from the registry', () => {

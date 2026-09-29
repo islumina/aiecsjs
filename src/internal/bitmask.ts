@@ -57,43 +57,9 @@ export function unionMask(a: Uint32Array, b: Uint32Array): Uint32Array {
   return out
 }
 
-/**
- * Test whether an archetype's mask matches a query.
- *   - withMask: all of these bits must be present
- *   - anyMask:  if anyHasBits, at least one of these bits must be present
- *   - noneMask: none of these bits may be present
- */
-export function matches(
-  mask: Uint32Array,
-  withMask: Uint32Array,
-  anyMask: Uint32Array,
-  noneMask: Uint32Array,
-  anyHasBits: boolean,
-  words: number,
-): boolean {
-  let anyHit = !anyHasBits
-  for (let w = 0; w < words; w++) {
-    const m = mask[w] ?? 0
-    const wm = withMask[w] ?? 0
-    const am = anyMask[w] ?? 0
-    const nm = noneMask[w] ?? 0
-    if ((m & wm) !== wm) return false
-    if ((m & nm) !== 0) return false
-    if (!anyHit && (m & am) !== 0) anyHit = true
-  }
-  return anyHit
-}
-
 export function listBits(mask: Uint32Array): number[] {
   const out: number[] = []
-  for (let w = 0; w < mask.length; w++) {
-    let word = mask[w] ?? 0
-    while (word !== 0) {
-      const bit = (w << 5) + ctz32(word)
-      out.push(bit)
-      word &= word - 1
-    }
-  }
+  forEachSetBit(mask, 0, mask.length, (bit) => out.push(bit))
   return out
 }
 
@@ -116,9 +82,14 @@ export function forEachSetBit(
   }
 }
 
-// Match a query against an entity's mask stored as a slice inside a larger
-// Uint32Array. Reading directly from the parent array avoids the temporary
-// Uint32Array allocation on every observer dispatch.
+/**
+ * Match a query against a mask stored at word offset `base` of `entityMask`
+ * (base 0 for a standalone archetype / entity mask). Reading directly from the
+ * parent array avoids a temporary Uint32Array on every observer dispatch.
+ *   - withMask: all of these bits must be present
+ *   - anyMask:  if anyHasBits, at least one of these bits must be present
+ *   - noneMask: none of these bits may be present
+ */
 export function matchesEntityMask(
   entityMask: Uint32Array,
   base: number,

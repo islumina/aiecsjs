@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   type EntityId,
   Types,
   addComponent,
@@ -887,6 +888,61 @@ describe('query argument validation', () => {
     expect(() => forEachEntity(world, bogus, () => {})).toThrow(TypeError)
     expect(() => forEachEntityIndexed(world, bogus, () => {})).toThrow(TypeError)
     expect(() => runQuery(world, bogus)).toThrow(TypeError)
+  })
+
+  it('enterQuery / exitQuery accept a raw component array', () => {
+    const A = defineTag()
+    const world = createWorld()
+    const entered = enterQuery([A] as unknown as Parameters<typeof enterQuery>[0])
+    const exited = exitQuery([A] as unknown as Parameters<typeof exitQuery>[0])
+    expect(entered).toBe(enterQuery(defineQuery([A])))
+    const e = createEntity(world)
+    addComponent(world, e, A)
+    expect(runQuery(world, entered)).toEqual([e])
+    removeComponent(world, e, A)
+    expect(runQuery(world, exited)).toEqual([e])
+  })
+
+  it('enterQuery / exitQuery reject a non-Query value without caching a broken variant', () => {
+    const bogus = { all: [] } as unknown as Parameters<typeof enterQuery>[0]
+    expect(() => enterQuery(bogus)).toThrow(TypeError)
+    // Used to succeed silently on the second call with the cached broken query.
+    expect(() => enterQuery(bogus)).toThrow('aiecsjs: expected a Query')
+    expect(() => exitQuery(bogus)).toThrow(TypeError)
+  })
+
+  it('forEachEntity / forEachEntityIndexed reject a non-function callback before draining', () => {
+    const A = defineTag()
+    const world = createWorld()
+    const entered = enterQuery(defineQuery([A]))
+    const e = createEntity(world)
+    addComponent(world, e, A)
+    const bad = 42 as unknown as () => void
+    expect(() => forEachEntity(world, entered, bad)).toThrow(EcsError)
+    expect(() => forEachEntityIndexed(world, entered, bad)).toThrow(
+      'aiecsjs: fn must be a function',
+    )
+    // The enter buffer was not drained by the rejected calls.
+    expect(runQuery(world, entered)).toEqual([e])
+  })
+
+  it('forEachEntityIndexed passes the column index before six column views', () => {
+    const cs = Array.from({ length: 6 }, () => defineComponent({ v: Types.f32 }))
+    const world = createWorld()
+    createEntity(world)
+    const e = createEntity(world)
+    for (const c of cs) addComponent(world, e, c, { v: 1 })
+    const seen: unknown[][] = []
+    forEachEntityIndexed(world, defineQuery(cs), (eid, i, ...cols) => {
+      seen.push([eid, i, cols.length])
+    })
+    forEachEntity(world, defineQuery(cs), (eid, ...cols) => {
+      seen.push([eid, cols.length])
+    })
+    expect(seen).toEqual([
+      [e, getEntityIndex(e), 6],
+      [e, 6],
+    ])
   })
 })
 

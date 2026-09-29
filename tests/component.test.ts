@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EcsError,
   Types,
   addComponent,
   createEntity,
@@ -13,6 +14,7 @@ import {
   removeComponent,
   setComponent,
 } from '../src/index.js'
+import { onAdd } from '../src/observers.js'
 
 describe('component definition', () => {
   it('defineComponent SoA with scalars', () => {
@@ -235,5 +237,30 @@ describe('component boundary errors', () => {
     const overflow = defineComponent({ v: Types.i32 })
     const eo = createEntity(w)
     expect(() => addComponent(w, eo, overflow, { v: 0 })).toThrow(/maxComponents/)
+  })
+})
+
+describe('AoS factory validation', () => {
+  it('defineObjectComponent rejects a non-function factory with EcsError', () => {
+    expect(() => defineObjectComponent(5 as unknown as () => object)).toThrow(EcsError)
+    expect(() => defineObjectComponent({} as unknown as () => object)).toThrow(
+      'aiecsjs: factory must be a function',
+    )
+  })
+
+  // A nullish instance used to be stored and then crash the initial-data copy
+  // after the entity had already moved archetype (observers never notified).
+  it('a nullish factory result throws before the entity changes', () => {
+    const Broken = defineObjectComponent(() => undefined as unknown as { a: number })
+    const w = createWorld()
+    const e = createEntity(w)
+    let added = 0
+    onAdd(w, Broken, () => added++)
+    expect(() => addComponent(w, e, Broken, { a: 1 })).toThrow(EcsError)
+    expect(() => addComponent(w, e, Broken)).toThrow(
+      'aiecsjs: factory result must not be null or undefined',
+    )
+    expect(hasComponent(w, e, Broken)).toBe(false)
+    expect(added).toBe(0)
   })
 })

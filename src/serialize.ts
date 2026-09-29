@@ -1,15 +1,10 @@
 // aiecsjs/serialize — binary, JSON, and delta serializers.
 
-import { testBit } from './internal/bitmask.js'
-import {
-  addComponent,
-  defineComponent,
-  defineObjectComponent,
-  defineTag,
-  getComponentByInternalId,
-  getComponentInfo,
-} from './internal/component.js'
-import { createEntity, destroyEntity, ensureEntityAtSlot, packEid } from './internal/entity.js'
+import { forEachSetBit } from './internal/bitmask.js'
+import { addComponent, getComponentByInternalId } from './internal/component.js'
+import { createEntity, ensureEntityAtSlot, isAliveInternal, packEid } from './internal/entity.js'
+import { EcsError } from './internal/errors.js'
+import { shared } from './internal/registry.js'
 import type {
   ComponentInfo,
   ComponentInit,
@@ -26,22 +21,23 @@ import { createWorld, getWorldState } from './internal/world.js'
 import { VERSION } from './version.js'
 
 const MAGIC = 'AIEC'
-const FORMAT_VERSION = 1
+// Snapshot format 2 (0.6.0): a component table resolved by stable key.
+const FORMAT_VERSION = 2
+
+type SnapshotComponent = WorldSnapshot['components'][number]
+type SnapshotEntity = WorldSnapshot['entities'][number]
 
 export function serializeWorld(world: World, options?: SerializeOptions): Uint8Array {
   return packBinary(snapshotWorld(world, allowlistOf(options?.components)))
 }
 
+/**
+ * Restore a world from `serializeWorld` bytes. Same resolution rules and
+ * options as {@link fromJSON}; the binary header's format version is checked
+ * against `onUnknownVersion` first.
+ */
 export function deserializeWorld(bytes: Uint8Array, options?: DeserializeOptions): World {
-  const snapshot = unpackBinary(bytes, options)
-  const allow = allowlistOf(options?.components)
-  if (allow) {
-    snapshot.entities = snapshot.entities.map((e) => ({
-      eid: e.eid,
-      components: e.components.filter((c) => allow.has(c.id)),
-    }))
-  }
-  return fromJSON(snapshot)
+  return fromJSON(unpackBinary(bytes, options), options)
 }
 
 // `options.components` allowlist as a set of component ids; null = everything.
@@ -50,14 +46,19 @@ function allowlistOf(components: ComponentLike[] | undefined): Set<number> | nul
 }
 
 /**
- * Serialize a world snapshot to a plain JSON-compatible object.
+ * Serialize a world snapshot to a plain JSON-compatible object (format 2).
+ *
+ * `components` lists every component the entities reference with its stable
+ * `key` (from `defineComponent(..., { key })`), kind and SoA fields, so a
+ * loader can match data to components by key rather than by creation order.
  *
  * AoS component data is deep-copied (`structuredClone`), so the snapshot never
  * aliases live component instances; AoS values must therefore be cloneable.
  *
  * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
- * Generation counters reset on world load. Stale refs from before serialization
- * will deref to null after loading the snapshot into a new world.
+ * `fromJSON` / `deserializeWorld` re-create entities in snapshot order with
+ * fresh ids (generation 0, holes in the slot range closed up), so stale refs
+ * deref to null and EntityIds stored inside component data are not remapped.
  */
 export function toJSON(world: World): WorldSnapshot {
   return snapshotWorld(world, null)
@@ -67,72 +68,145 @@ export function toJSON(world: World): WorldSnapshot {
 // outside the allowlist are skipped before their data is read or cloned.
 function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
   const state = getWorldState(world)
-  const entities: WorldSnapshot['entities'] = []
-  // Iterate by raw slot index; snapshot stores raw idx in the `eid` field
-  // (wire format unchanged — idx is used for load-side entity re-creation).
+  const w = state.options.maskWordCount
+  const table = new Map<number, SnapshotComponent>()
+  const entities: SnapshotEntity[] = []
+  // Iterate by raw slot index; the snapshot stores the raw idx in `eid`.
   for (let idx = 1; idx < state.capacity; idx++) {
-    // Archetype 0 is the empty mask, which also holds live component-less
-    // entities, so liveness is decided by the row lookup below, not the id.
-    const archId = state.entityArchetype[idx] ?? 0
-    const arch = state.archetypes[archId]
-    if (!arch) continue
-
-    // Build the packed eid from idx + current generation to do alive check
-    const gen = state.generations[idx] ?? 0
-    const packedEid = packEid(idx, gen, state.options)
-    if (!arch.entityRow.has(packedEid)) continue
-
-    const w = state.options.maskWordCount
-    const base = idx * w
-    const components: WorldSnapshot['entities'][0]['components'] = []
-    for (let wi = 0; wi < w; wi++) {
-      let word = state.entityMask[base + wi] ?? 0
-      while (word !== 0) {
-        const lsb = word & -word
-        const bit = (wi << 5) + (31 - Math.clz32(lsb))
-        const info = state.componentInfoByBit[bit]
-        if (info && (!allow || allow.has(info.id))) {
-          const storage = state.componentStorageByBit[bit]
-          let data: unknown = null
-          if (info.kind === 'soa' && storage?.soa) {
-            const obj: Record<string, unknown> = {}
-            for (const f of info.fields) {
-              const col = storage.soa[f.name]
-              if (!col) continue
-              if (f.vectorLen === 1) {
-                obj[f.name] = col[idx]
-              } else {
-                const arr: number[] = []
-                const baseI = idx * f.vectorLen
-                for (let i = 0; i < f.vectorLen; i++) arr.push(col[baseI + i] ?? 0)
-                obj[f.name] = arr
-              }
-            }
-            data = obj
-          } else if (info.kind === 'aos' && storage?.aos) {
-            // Deep copy: handing out the live instance would let a snapshot
-            // (or a world restored from it) share nested objects with the
-            // source world, and mutating the snapshot would mutate the world.
-            const inst = storage.aos[idx]
-            data = inst == null ? null : structuredClone(inst)
-          } else {
-            data = true
-          }
-          components.push({ kind: info.kind, id: info.id, data })
+    // Archetype 0 also holds live component-less entities, so liveness is the
+    // slot's current packed id, not its archetype.
+    if (!isAliveInternal(state, packEid(idx, state.generations[idx] ?? 0, state.options))) continue
+    const components: SnapshotEntity['components'] = []
+    forEachSetBit(state.entityMask, idx * w, w, (bit) => {
+      const info = state.componentInfoByBit[bit]
+      if (!info || (allow && !allow.has(info.id))) return
+      const storage = state.componentStorageByBit[bit]
+      let data: unknown = true
+      if (info.kind === 'soa' && storage?.soa) {
+        const obj: Record<string, unknown> = {}
+        for (const f of info.fields) {
+          const col = storage.soa[f.name]
+          if (!col) continue
+          obj[f.name] =
+            f.vectorLen === 1
+              ? col[idx]
+              : Array.from(col.subarray(idx * f.vectorLen, (idx + 1) * f.vectorLen))
         }
-        word &= word - 1
+        data = obj
+      } else if (info.kind === 'aos' && storage?.aos) {
+        // Deep copy: handing out the live instance would let a snapshot
+        // (or a world restored from it) share nested objects with the
+        // source world, and mutating the snapshot would mutate the world.
+        const inst = storage.aos[idx]
+        data = inst == null ? null : structuredClone(inst)
       }
-    }
-    // Wire format stores raw idx (not packed) for cross-session portability
+      components.push({ kind: info.kind, id: info.id, data })
+      if (!table.has(info.id)) {
+        table.set(info.id, {
+          id: info.id,
+          key: info.key,
+          kind: info.kind,
+          fields:
+            info.kind === 'soa'
+              ? info.fields.map(({ name, type, vectorLen }) => ({ name, type, vectorLen }))
+              : null,
+        })
+      }
+    })
     entities.push({ eid: idx, components })
   }
   return {
+    formatVersion: FORMAT_VERSION,
     version: state.version,
     capacity: state.capacity,
     maxEntities: state.options.maxEntities,
     indexBits: state.options.indexBits,
     generationBits: state.options.generationBits,
+    components: [...table.values()],
     entities,
+  }
+}
+
+// `kind` plus, for SoA, the fields in declaration order — compared as a whole
+// and quoted in the mismatch message.
+function describeComponent(
+  kind: string,
+  fields: readonly { name: string; type: string; vectorLen: number }[] | null,
+): string {
+  if (kind !== 'soa') return kind
+  const list = Array.isArray(fields) ? fields : []
+  return `soa(${list.map((f) => `${f.name}:${f.type}${f.vectorLen === 1 ? '' : `*${f.vectorLen}`}`).join(',')})`
+}
+
+// Resolve every component a snapshot references to a component of this
+// process — before the caller creates or writes anything. Returns snapshot
+// component id → component (null = skipped).
+//   - Format 2: each table entry resolves by `key` (by `id` when keyless) and
+//     must match in kind and, for SoA, in fields; an entity component missing
+//     from the table counts as unknown.
+//   - Legacy (0.5.x, only with onUnknownVersion: 'best-effort'): resolve by
+//     `id` with a kind check only; unknown ids are skipped (0.5.x behaviour).
+function resolveComponents(
+  snapshot: WorldSnapshot,
+  options: DeserializeOptions | undefined,
+): Map<number, ComponentInfo | null> {
+  if (!snapshot || !Array.isArray(snapshot.entities)) {
+    throw new EcsError('aiecsjs: snapshot must be an object with an entities array')
+  }
+  const version = snapshot.formatVersion ?? 1
+  const legacy = version !== FORMAT_VERSION
+  if (legacy && options?.onUnknownVersion !== 'best-effort') {
+    throw new EcsError(`aiecsjs: format version ${version} not supported`)
+  }
+  const skip = legacy || options?.onUnknownComponent === 'skip'
+  const resolved = new Map<number, ComponentInfo | null>()
+  const resolve = (entry: SnapshotComponent, lookup: boolean): void => {
+    const name = entry.key ?? `#${entry.id}`
+    const info = !lookup
+      ? undefined
+      : entry.key == null
+        ? getComponentByInternalId(entry.id)
+        : shared.componentInfoByKey.get(entry.key)
+    if (!info) {
+      if (!skip) {
+        throw new EcsError(`aiecsjs: snapshot component "${name}" is not defined in this process`)
+      }
+      resolved.set(entry.id, null)
+      return
+    }
+    const expected = describeComponent(info.kind, legacy ? null : info.fields)
+    const actual = describeComponent(entry.kind, entry.fields)
+    if (expected !== actual) {
+      throw new EcsError(
+        `aiecsjs: snapshot component "${name}" does not match the registered component: ${expected} vs ${actual}`,
+      )
+    }
+    resolved.set(entry.id, info)
+  }
+  if (!legacy) for (const entry of snapshot.components ?? []) resolve(entry, true)
+  for (const e of snapshot.entities) {
+    for (const c of e.components) {
+      if (!resolved.has(c.id)) resolve({ id: c.id, key: null, kind: c.kind, fields: null }, legacy)
+    }
+  }
+  return resolved
+}
+
+// Write one snapshot entity's resolved components onto `eid`.
+function loadComponents(
+  world: World,
+  eid: EntityId,
+  components: SnapshotEntity['components'],
+  resolved: Map<number, ComponentInfo | null>,
+  allow: Set<number> | null,
+): void {
+  for (const c of components) {
+    const info = resolved.get(c.id)
+    if (info && (!allow || allow.has(info.id))) {
+      // addComponent resolves a handle by `__id` alone.
+      const handle = { __id: info.id } as ComponentLike
+      addComponent(world, eid, handle, c.data as ComponentInit<ComponentLike>)
+    }
   }
 }
 
@@ -169,124 +243,88 @@ function restoredWorldOptions(snapshot: WorldSnapshot): WorldOptions {
   return opts
 }
 
-export function fromJSON(snapshot: WorldSnapshot): World {
+/**
+ * Restore a world from a `toJSON` snapshot.
+ *
+ * Every component the snapshot references is resolved before the world is
+ * created: by `key` for keyed components, by creation-order id otherwise. A
+ * component this process has not defined throws `EcsError` unless
+ * `onUnknownComponent: 'skip'`; a kind or SoA-field mismatch always throws
+ * `EcsError`. A snapshot without `formatVersion: 2` (every 0.5.x snapshot)
+ * throws `EcsError` unless `onUnknownVersion: 'best-effort'`, which loads it by
+ * id with a kind check only. `options.components` restricts which components
+ * are loaded.
+ */
+export function fromJSON(snapshot: WorldSnapshot, options?: DeserializeOptions): World {
+  const resolved = resolveComponents(snapshot, options)
+  const allow = allowlistOf(options?.components)
   const initialCapacity = clampRestoreCapacity(snapshot.capacity, snapshot.entities.length)
   const world = createWorld({ ...restoredWorldOptions(snapshot), initialCapacity })
-  const eidMap = new Map<number, EntityId>()
   for (const e of snapshot.entities) {
-    const eid = createEntity(world)
-    eidMap.set(e.eid, eid)
-  }
-  for (const e of snapshot.entities) {
-    const eid = eidMap.get(e.eid)!
-    for (const comp of e.components) {
-      const info = getComponentByInternalId(comp.id)
-      if (!info) {
-        // Component missing — silently skip; future version may throw based on options
-        continue
-      }
-      const handle = getComponentHandle(info)
-      if (handle) {
-        addComponent(world, eid, handle, comp.data as ComponentInit<ComponentLike>)
-      }
-    }
+    loadComponents(world, createEntity(world), e.components, resolved, allow)
   }
   return world
 }
 
-// Reconstruct a component handle from its ComponentInfo. Since defineComponent
-// returns plain handles { __kind, __id, __schema }, we can synthesize them.
-function getComponentHandle(info: ComponentInfo): ComponentLike | null {
-  if (info.kind === 'soa') {
-    return { __kind: 'soa', __id: info.id, __schema: info.schema ?? {} } as ComponentLike
-  }
-  if (info.kind === 'aos') {
-    const factory = info.factory ?? (() => ({}))
-    return { __kind: 'aos', __id: info.id, __factory: factory } as ComponentLike
-  }
-  return { __kind: 'tag', __id: info.id } as ComponentLike
-}
-
-// --- Binary packing (wrapped JSON for 0.1) ---
+// --- Binary packing (magic + format version + VERSION + JSON body) ---
 
 function packBinary(snapshot: WorldSnapshot): Uint8Array {
-  const json = JSON.stringify(snapshot)
-  const jsonBytes = new TextEncoder().encode(json)
-  const versionBytes = new TextEncoder().encode(VERSION)
-  const headerSize = 4 + 4 + 4 + versionBytes.length + 4
-  const total = headerSize + jsonBytes.length
-  const out = new Uint8Array(total)
+  const enc = new TextEncoder()
+  const versionBytes = enc.encode(VERSION)
+  const jsonBytes = enc.encode(JSON.stringify(snapshot))
+  const bodyOffset = 16 + versionBytes.length
+  const out = new Uint8Array(bodyOffset + jsonBytes.length)
   const view = new DataView(out.buffer)
-  let off = 0
-  out[off++] = MAGIC.charCodeAt(0)
-  out[off++] = MAGIC.charCodeAt(1)
-  out[off++] = MAGIC.charCodeAt(2)
-  out[off++] = MAGIC.charCodeAt(3)
-  view.setUint32(off, FORMAT_VERSION, true)
-  off += 4
-  view.setUint32(off, versionBytes.length, true)
-  off += 4
-  out.set(versionBytes, off)
-  off += versionBytes.length
-  view.setUint32(off, jsonBytes.length, true)
-  off += 4
-  out.set(jsonBytes, off)
+  out.set(enc.encode(MAGIC))
+  view.setUint32(4, FORMAT_VERSION, true)
+  view.setUint32(8, versionBytes.length, true)
+  out.set(versionBytes, 12)
+  view.setUint32(bodyOffset - 4, jsonBytes.length, true)
+  out.set(jsonBytes, bodyOffset)
   return out
 }
 
 function unpackBinary(bytes: Uint8Array, options?: DeserializeOptions): WorldSnapshot {
-  if (bytes.length < 12) throw new Error('aiecsjs: bytes too short to be a valid snapshot')
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-  if (
-    bytes[0] !== MAGIC.charCodeAt(0) ||
-    bytes[1] !== MAGIC.charCodeAt(1) ||
-    bytes[2] !== MAGIC.charCodeAt(2) ||
-    bytes[3] !== MAGIC.charCodeAt(3)
-  ) {
-    throw new Error('aiecsjs: invalid magic bytes')
+  if (!bytes || bytes.length < 12) {
+    throw new EcsError('aiecsjs: bytes too short to be a valid snapshot')
   }
-  let off = 4
-  const formatVersion = view.getUint32(off, true)
-  off += 4
-  const onUnknown = options?.onUnknownVersion ?? 'throw'
-  if (formatVersion !== FORMAT_VERSION && onUnknown === 'throw') {
-    throw new Error(`aiecsjs: format version ${formatVersion} not supported`)
+  const dec = new TextDecoder()
+  if (dec.decode(bytes.subarray(0, 4)) !== MAGIC) throw new EcsError('aiecsjs: invalid magic bytes')
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const formatVersion = view.getUint32(4, true)
+  if (formatVersion !== FORMAT_VERSION && options?.onUnknownVersion !== 'best-effort') {
+    throw new EcsError(`aiecsjs: format version ${formatVersion} not supported`)
   }
 
   // SECURITY: explicit bounds checks on every length field. DataView itself
   // throws on out-of-range reads, but an attacker who controls the bytes can
   // still craft a `verLen` that skips past data of their choosing — we make
   // each step's invariant explicit and impose a sane cap to short-circuit
-  // pathological payloads early.
+  // pathological payloads early. (`bytes.length >= 12` covers verLen itself.)
   const MAX_FIELD_LEN = 64 * 1024 * 1024 // 64 MiB
-  if (off + 4 > bytes.length) {
-    throw new Error('aiecsjs: snapshot truncated before verLen')
-  }
-  const verLen = view.getUint32(off, true)
-  off += 4
+  const verLen = view.getUint32(8, true)
+  let off = 12
   if (verLen > MAX_FIELD_LEN || off + verLen > bytes.length) {
-    throw new Error(`aiecsjs: snapshot verLen=${verLen} out of bounds`)
+    throw new EcsError(`aiecsjs: snapshot verLen=${verLen} out of bounds`)
   }
   off += verLen // skip the aiecsjs version string
 
   if (off + 4 > bytes.length) {
-    throw new Error('aiecsjs: snapshot truncated before jsonLen')
+    throw new EcsError('aiecsjs: snapshot truncated before jsonLen')
   }
   const jsonLen = view.getUint32(off, true)
   off += 4
   if (jsonLen > MAX_FIELD_LEN || off + jsonLen > bytes.length) {
-    throw new Error(`aiecsjs: snapshot jsonLen=${jsonLen} out of bounds`)
+    throw new EcsError(`aiecsjs: snapshot jsonLen=${jsonLen} out of bounds`)
   }
-  const jsonBytes = bytes.subarray(off, off + jsonLen)
-  const json = new TextDecoder().decode(jsonBytes)
   // Wrap the parse so a malformed body (e.g. a truncated/garbled payload reached
   // under onUnknownVersion:'best-effort') surfaces a namespaced `aiecsjs:` error
   // instead of leaking a raw SyntaxError — consistent with the rest of the module.
-  // Bounds checks above already guarantee `json` covers exactly the declared body.
+  // Bounds checks above already guarantee the slice covers exactly the declared body.
   try {
-    return JSON.parse(json) as WorldSnapshot
+    return JSON.parse(dec.decode(bytes.subarray(off, off + jsonLen))) as WorldSnapshot
   } catch (cause) {
-    throw new Error('aiecsjs: snapshot body is not valid JSON', { cause })
+    throw new EcsError('aiecsjs: snapshot body is not valid JSON', { cause })
   }
 }
 
@@ -326,6 +364,8 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
     },
     apply(targetWorld: World, deltaBytes: Uint8Array): void {
       const snapshot = unpackBinary(deltaBytes)
+      // Resolve (and reject) the component table before touching the target.
+      const resolved = resolveComponents(snapshot, undefined)
       // Materialise each snapshot entity at the SAME slot index the source used
       // (the wire stores raw slot indices in `eid`). ensureEntityAtSlot reuses a
       // live slot, reclaims a freed one, or advances the frontier — so apply() is
@@ -342,14 +382,7 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
         if (!Number.isInteger(e.eid) || e.eid <= 0 || e.eid >= targetState.options.maxEntities)
           continue
         const eid = ensureEntityAtSlot(targetState, e.eid)
-        for (const comp of e.components) {
-          if (state.allow && !state.allow.has(comp.id)) continue
-          const info = getComponentByInternalId(comp.id)
-          if (!info) continue
-          const handle = getComponentHandle(info)
-          if (handle)
-            addComponent(targetWorld, eid, handle, comp.data as ComponentInit<ComponentLike>)
-        }
+        loadComponents(targetWorld, eid, e.components, resolved, state.allow)
       }
     },
     reset(): void {
@@ -358,14 +391,15 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
   }
 }
 
+// The changed entities of `curr`, keeping its format version and component
+// table so apply() resolves a delta exactly like a full snapshot.
 function computeDelta(
   prevSigs: Map<number, string>,
   curr: WorldSnapshot,
   currSigs: Map<number, string>,
 ): WorldSnapshot {
-  const changed: WorldSnapshot['entities'] = []
-  for (const e of curr.entities) {
-    if (prevSigs.get(e.eid) !== currSigs.get(e.eid)) changed.push(e)
+  return {
+    ...curr,
+    entities: curr.entities.filter((e) => prevSigs.get(e.eid) !== currSigs.get(e.eid)),
   }
-  return { version: curr.version, capacity: curr.capacity, entities: changed }
 }

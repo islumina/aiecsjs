@@ -1,6 +1,6 @@
 {
   "name": "aiecsjs",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "TypeScript-first archetype ECS with TypedArray SoA, SAB-ready snapshot transport, and AI-readable docs.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -8,39 +8,74 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./loop": {
-      "types": "./dist/loop.d.ts",
-      "import": "./dist/loop.js",
-      "require": "./dist/loop.cjs"
+      "import": {
+        "types": "./dist/loop.d.ts",
+        "default": "./dist/loop.js"
+      },
+      "require": {
+        "types": "./dist/loop.d.cts",
+        "default": "./dist/loop.cjs"
+      }
     },
     "./commands": {
-      "types": "./dist/commands.d.ts",
-      "import": "./dist/commands.js",
-      "require": "./dist/commands.cjs"
+      "import": {
+        "types": "./dist/commands.d.ts",
+        "default": "./dist/commands.js"
+      },
+      "require": {
+        "types": "./dist/commands.d.cts",
+        "default": "./dist/commands.cjs"
+      }
     },
     "./observers": {
-      "types": "./dist/observers.d.ts",
-      "import": "./dist/observers.js",
-      "require": "./dist/observers.cjs"
+      "import": {
+        "types": "./dist/observers.d.ts",
+        "default": "./dist/observers.js"
+      },
+      "require": {
+        "types": "./dist/observers.d.cts",
+        "default": "./dist/observers.cjs"
+      }
     },
     "./serialize": {
-      "types": "./dist/serialize.d.ts",
-      "import": "./dist/serialize.js",
-      "require": "./dist/serialize.cjs"
+      "import": {
+        "types": "./dist/serialize.d.ts",
+        "default": "./dist/serialize.js"
+      },
+      "require": {
+        "types": "./dist/serialize.d.cts",
+        "default": "./dist/serialize.cjs"
+      }
     },
     "./worker": {
-      "types": "./dist/worker.d.ts",
-      "import": "./dist/worker.js",
-      "require": "./dist/worker.cjs"
+      "import": {
+        "types": "./dist/worker.d.ts",
+        "default": "./dist/worker.js"
+      },
+      "require": {
+        "types": "./dist/worker.d.cts",
+        "default": "./dist/worker.cjs"
+      }
     },
     "./relations": {
-      "types": "./dist/relations.d.ts",
-      "import": "./dist/relations.js",
-      "require": "./dist/relations.cjs"
+      "import": {
+        "types": "./dist/relations.d.ts",
+        "default": "./dist/relations.js"
+      },
+      "require": {
+        "types": "./dist/relations.d.cts",
+        "default": "./dist/relations.cjs"
+      }
     },
     "./package.json": "./package.json"
   },

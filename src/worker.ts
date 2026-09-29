@@ -11,7 +11,14 @@
 // (the packed EntityId) across the worker boundary only if you understand that
 // the generation portion will be stale after a round-trip snapshot.
 
-import type { TransferableSnapshot, World, WorldMeta, WorldState } from './internal/types.js'
+import { EcsError } from './internal/errors.js'
+import type {
+  DeserializeOptions,
+  TransferableSnapshot,
+  World,
+  WorldMeta,
+  WorldState,
+} from './internal/types.js'
 import { destroyWorld, getWorldState, isWorldRegistered } from './internal/world.js'
 import { deserializeWorld, serializeWorld } from './serialize.js'
 import { VERSION } from './version.js'
@@ -21,26 +28,24 @@ const MAGIC = 0x41494543 // 'AIEC' little-endian as uint32
 export function transferableSnapshot(world: World): TransferableSnapshot {
   const state = getWorldState(world)
   const bytes = serializeWorld(world)
-
-  if (typeof SharedArrayBuffer === 'undefined') {
-    // Fallback: a plain ArrayBuffer. TransferableSnapshot.buffer is typed
-    // `SharedArrayBuffer | ArrayBuffer`, so this needs no cast — the type tells
-    // the truth instead of pretending the fallback is a SAB.
-    const ab = new ArrayBuffer(bytes.byteLength)
-    new Uint8Array(ab).set(bytes)
-    return {
-      buffer: ab,
-      meta: buildMeta(state),
-    }
-  }
-
-  const sab = new SharedArrayBuffer(bytes.byteLength)
-  new Uint8Array(sab).set(bytes)
-  return { buffer: sab, meta: buildMeta(state) }
+  // Fallback: a plain ArrayBuffer where SharedArrayBuffer is unavailable (no
+  // cross-origin isolation). TransferableSnapshot.buffer is typed
+  // `SharedArrayBuffer | ArrayBuffer`, so the type tells the truth instead of
+  // pretending the fallback is a SAB.
+  const buffer =
+    typeof SharedArrayBuffer === 'undefined'
+      ? new ArrayBuffer(bytes.byteLength)
+      : new SharedArrayBuffer(bytes.byteLength)
+  new Uint8Array(buffer).set(bytes)
+  return { buffer, meta: buildMeta(state) }
 }
 
 /**
  * Adopt a snapshot previously produced by `transferableSnapshot`.
+ *
+ * `options` are the `deserializeWorld` options: component resolution by key,
+ * `onUnknownComponent`, and `onUnknownVersion` (which also governs the meta's
+ * format version).
  *
  * SECURITY: same trust expectation as `attachWorld` — the sender of the
  * `TransferableSnapshot` (typically a Web Worker) must be trusted. The
@@ -50,14 +55,16 @@ export function transferableSnapshot(world: World): TransferableSnapshot {
  * components. For untrusted senders, use `aibridgejs` + `toJSON(world)` at
  * the application boundary instead.
  */
-export function adoptSnapshot(snap: TransferableSnapshot): World {
-  validateMeta(snap.meta)
-  const bytes = new Uint8Array(snap.buffer)
-  return deserializeWorld(bytes)
+export function adoptSnapshot(snap: TransferableSnapshot, options?: DeserializeOptions): World {
+  validateMeta(snap?.meta, options)
+  return deserializeWorld(new Uint8Array(snap.buffer), options)
 }
 
 /**
  * Adopt a SharedArrayBuffer-backed snapshot produced by `transferableSnapshot`.
+ *
+ * `options` takes the `deserializeWorld` options plus `readOnly`, which makes
+ * every mutator (including `resetWorld`) throw `EcsError` on the result.
  *
  * SECURITY: the SAB sender must be trusted. `attachWorld` performs the same
  * magic + version + length-bounds checks as `deserializeWorld`, but the JSON
@@ -69,14 +76,10 @@ export function adoptSnapshot(snap: TransferableSnapshot): World {
  */
 export function attachWorld(
   buffer: SharedArrayBuffer | ArrayBuffer,
-  options?: { readOnly?: boolean },
+  options?: DeserializeOptions & { readOnly?: boolean },
 ): World {
-  const bytes = new Uint8Array(buffer)
-  const world = deserializeWorld(bytes)
-  if (options?.readOnly) {
-    const state = getWorldState(world)
-    state.readOnly = true
-  }
+  const world = deserializeWorld(new Uint8Array(buffer), options)
+  if (options?.readOnly) getWorldState(world).readOnly = true
   return world
 }
 
@@ -94,7 +97,7 @@ function buildMeta(state: WorldState): WorldMeta {
   }
   return {
     magic: MAGIC,
-    formatVersion: 1,
+    formatVersion: 2,
     aiecsjsVersion: VERSION,
     indexBits: state.options.indexBits,
     generationBits: state.options.generationBits,
@@ -105,11 +108,11 @@ function buildMeta(state: WorldState): WorldMeta {
   }
 }
 
-function validateMeta(meta: WorldMeta): void {
-  if (meta.magic !== MAGIC) {
-    throw new Error('aiecsjs: invalid snapshot meta (wrong magic)')
+function validateMeta(meta: WorldMeta, options: DeserializeOptions | undefined): void {
+  if (meta?.magic !== MAGIC) {
+    throw new EcsError('aiecsjs: invalid snapshot meta (wrong magic)')
   }
-  if (meta.formatVersion !== 1) {
-    throw new Error(`aiecsjs: unsupported snapshot format version ${meta.formatVersion}`)
+  if (meta.formatVersion !== 2 && options?.onUnknownVersion !== 'best-effort') {
+    throw new EcsError(`aiecsjs: format version ${meta.formatVersion} not supported`)
   }
 }
