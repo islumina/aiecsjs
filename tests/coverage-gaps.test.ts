@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import { createCommandBuffer, flush, withCommandBuffer } from '../src/commands.js'
 import {
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -13,7 +12,10 @@ import {
   defineObjectComponent,
   defineQuery,
   defineTag,
+  deref,
   destroyEntity,
+  disposeWorld,
+  EcsError,
   enterQuery,
   exitQuery,
   forEachEntity,
@@ -21,17 +23,18 @@ import {
   hasComponent,
   isWorld,
   iterQuery,
+  refOf,
   removeComponent,
   resetWorld,
   runQuery,
   setComponent,
+  Types,
 } from '../src/index.js'
-import { EcsError, deref, disposeWorld, refOf } from '../src/index.js'
 import { createLoop } from '../src/loop.js'
 import { observe, onAdd, onSet } from '../src/observers.js'
 import {
-  ChildOf,
   addRelation,
+  ChildOf,
   defineRelation,
   getRelationTargets,
   removeRelation,

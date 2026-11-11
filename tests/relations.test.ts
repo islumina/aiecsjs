@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EcsError,
-  type EntityId,
   createEntity,
   createWorld,
   destroyEntity,
+  EcsError,
+  type EntityId,
   entityExists,
   getEntityGeneration,
   getEntityIndex,
 } from '../src/index.js'
 import type { Relation } from '../src/internal/types.js'
 import {
-  ChildOf,
   addRelation,
+  ChildOf,
   defineRelation,
   getRelationData,
   getRelationTargets,

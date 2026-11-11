@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
-  EcsError,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -11,13 +9,15 @@ import {
   destroyEntity,
   destroyWorld,
   disposeWorld,
+  EcsError,
   getWorldCapacity,
   getWorldSize,
   isWorld,
   resetWorld,
+  Types,
 } from '../src/index.js'
 import { getWorldState } from '../src/internal/world.js'
-import { ChildOf, addRelation, defineRelation, getRelationTargets } from '../src/relations.js'
+import { addRelation, ChildOf, defineRelation, getRelationTargets } from '../src/relations.js'
 
 describe('world', () => {
   it('creates a world with default options', () => {

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EcsError,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -9,10 +7,12 @@ import {
   defineObjectComponent,
   defineTag,
   destroyEntity,
+  EcsError,
   getComponent,
   hasComponent,
   removeComponent,
   setComponent,
+  Types,
 } from '../src/index.js'
 import { onAdd } from '../src/observers.js'
 

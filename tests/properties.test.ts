@@ -5,8 +5,7 @@
 
 import * as fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { createEntity, createWorld, destroyEntity } from '../src/index.js'
-import { deref, refOf } from '../src/index.js'
+import { createEntity, createWorld, deref, destroyEntity, refOf } from '../src/index.js'
 import { packEid, unpackGen, unpackIdx } from '../src/internal/entity.js'
 import type { ResolvedWorldOptions } from '../src/internal/types.js'
 

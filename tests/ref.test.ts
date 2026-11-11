@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
+import type { EntityRef } from '../src/index.js'
 import {
-  EcsError,
+  aliveRef,
   createEntity,
   createWorld,
+  deref,
   destroyEntity,
   disposeWorld,
+  EcsError,
+  EntityNotAliveError,
   entityExists,
   getEntityGeneration,
   getEntityIndex,
   packEntity,
+  refOf,
   resetWorld,
 } from '../src/index.js'
-import { EntityNotAliveError, aliveRef, deref, refOf } from '../src/index.js'
-import type { EntityRef } from '../src/index.js'
 import { deserializeWorld, serializeWorld } from '../src/serialize.js'
 import { adoptSnapshot, transferableSnapshot } from '../src/worker.js'
 

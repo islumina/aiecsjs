@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -8,6 +7,7 @@ import {
   defineQuery,
   hasComponent,
   runQuery,
+  Types,
 } from '../src/index.js'
 
 const Position = defineComponent({ x: Types.f32, y: Types.f32 })

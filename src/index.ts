@@ -13,84 +13,78 @@ import type { EntityId, WorldState } from './internal/types.js'
 // Observer dispatch is registered lazily by observers.ts on first import.
 // Relations cleanup is registered lazily by relations.ts on first import.
 
+// --- Component ---
+export {
+  addComponent,
+  defineComponent,
+  defineObjectComponent,
+  defineTag,
+  getComponent,
+  hasComponent,
+  removeComponent,
+  setComponent,
+} from './internal/component.js'
+// --- Entity ---
+export {
+  createEntity,
+  destroyEntity,
+  entityExists,
+  getEntityGeneration,
+  getEntityIndex,
+  isEntity,
+  packEntity,
+} from './internal/entity.js'
+// --- System ---
+export { pipe } from './internal/pipe.js'
+// --- Query ---
+export {
+  defineQuery,
+  enterQuery,
+  exitQuery,
+  forEachEntity,
+  forEachEntityIndexed,
+  iterQuery,
+  queryArchetypes,
+  runQuery,
+} from './internal/query.js'
 // --- Type re-exports ---
 export type {
-  EntityId,
-  World,
-  WorldOptions,
-  System,
-  SoAComponent,
   AoSComponent,
-  TagComponent,
-  ComponentLike,
+  Archetype,
   ComponentInit,
+  ComponentLike,
   ComponentView,
-  SoAColumns,
-  SoASchema,
-  SoAFieldType,
-  SoAFieldDecl,
+  EntityId,
   Query,
   QueryDescriptor,
-  Archetype,
+  SoAColumns,
+  SoAComponent,
+  SoAFieldDecl,
+  SoAFieldType,
+  SoASchema,
+  System,
+  TagComponent,
+  World,
+  WorldOptions,
 } from './internal/types.js'
 
+export { Types } from './internal/types.js'
 // --- World ---
-export {
-  createWorld,
-  destroyWorld,
-  resetWorld,
-  getWorldSize,
-  getWorldCapacity,
-  isWorld,
-} from './internal/world.js'
-
 // `disposeWorld` is the new preferred name (added 0.2.0). It is the same
 // function as `destroyWorld`, exported under a name that aligns with the ai*js
 // ecosystem `dispose()` convention (aifsmjs Runtime, aibridgejs Bridge).
 //
 // `destroyWorld` is the original 0.1.x export. It is now deprecated as of 0.2.0
 // and is scheduled for removal in 1.0. New code should import `disposeWorld`.
-export { destroyWorld as disposeWorld } from './internal/world.js'
-
-// --- Entity ---
 export {
-  createEntity,
-  destroyEntity,
-  entityExists,
-  getEntityIndex,
-  getEntityGeneration,
-  packEntity,
-  isEntity,
-} from './internal/entity.js'
-
-// --- Component ---
-export {
-  defineComponent,
-  defineTag,
-  defineObjectComponent,
-  addComponent,
-  removeComponent,
-  hasComponent,
-  getComponent,
-  setComponent,
-} from './internal/component.js'
-
-export { Types } from './internal/types.js'
-
-// --- Query ---
-export {
-  defineQuery,
-  runQuery,
-  iterQuery,
-  forEachEntity,
-  forEachEntityIndexed,
-  enterQuery,
-  exitQuery,
-  queryArchetypes,
-} from './internal/query.js'
-
-// --- System ---
-export { pipe } from './internal/pipe.js'
+  createWorld,
+  destroyWorld,
+  destroyWorld as disposeWorld,
+  getWorldCapacity,
+  getWorldSize,
+  isWorld,
+  resetWorld,
+} from './internal/world.js'
 
 // --- Utility ---
 export const IS_SAB_SUPPORTED: boolean = typeof SharedArrayBuffer !== 'undefined'
@@ -100,4 +94,4 @@ export { EcsError } from './internal/errors.js'
 
 // --- EntityRef (ABA-safe references) ---
 export type { EntityRef } from './ref.js'
-export { refOf, deref, aliveRef, EntityNotAliveError } from './ref.js'
+export { aliveRef, deref, EntityNotAliveError, refOf } from './ref.js'

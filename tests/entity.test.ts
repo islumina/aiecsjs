@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EcsError,
-  type EntityId,
-  Types,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
   defineQuery,
   destroyEntity,
+  EcsError,
+  type EntityId,
   entityExists,
   exitQuery,
   forEachEntity,
@@ -17,9 +16,10 @@ import {
   getEntityIndex,
   isEntity,
   packEntity,
+  refOf,
   runQuery,
+  Types,
 } from '../src/index.js'
-import { refOf } from '../src/index.js'
 
 describe('entity', () => {
   it('createEntity never returns 0', () => {

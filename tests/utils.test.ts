@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
-  IS_SAB_SUPPORTED,
-  VERSION,
   createEntity,
   createWorld,
+  IS_SAB_SUPPORTED,
   isEntity,
   isWorld,
+  VERSION,
 } from '../src/index.js'
 
 describe('utility', () => {

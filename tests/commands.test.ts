@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createCommandBuffer, flush, withCommandBuffer } from '../src/commands.js'
 import {
-  EcsError,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -10,10 +8,12 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  EcsError,
   entityExists,
   getWorldSize,
   hasComponent,
   runQuery,
+  Types,
 } from '../src/index.js'
 import { onAdd } from '../src/observers.js'
 
