@@ -54,6 +54,8 @@ function allowlistOf(components: ComponentLike[] | undefined): Set<number> | nul
  *
  * AoS component data is deep-copied (`structuredClone`), so the snapshot never
  * aliases live component instances; AoS values must therefore be cloneable.
+ * AoS (object component) values must also be plain JSON-like objects:
+ * `Map` / `Set` / `Date` contents are not restored by `fromJSON`.
  *
  * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
  * `fromJSON` / `deserializeWorld` re-create entities in snapshot order with
