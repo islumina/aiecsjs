@@ -46,23 +46,44 @@ export function defineQuery(arg: ComponentLike[] | QueryDescriptor): Query {
     }
   }
 
+  // Matching is order-invariant but column views follow the declaration
+  // order, so each order is cached under its own key. Invariant: every order
+  // of one descriptor is a copy of the first one defined, sharing its `id` and
+  // its `all` array; per-world registration is keyed by that pair (see
+  // isRegistered), so registering one order registers them all.
+  const cols = [...(desc.all ?? []), ...(desc.any ?? [])]
   const key = descKey(desc)
-  const cached = moduleQueryCache.get(key)
+  const orderKey = `${key}|C${colKey(cols)}`
+  const cached = moduleQueryCache.get(orderKey)
   if (cached) return cached
 
-  const q: QueryInternal = {
-    id: ids.query++,
-    mask: [],
-    all: (desc.all ?? []).map((c) => c.__id),
-    any: (desc.any ?? []).map((c) => c.__id),
-    none: (desc.none ?? []).map((c) => c.__id),
-    columnViewCache: [...(desc.all ?? []), ...(desc.any ?? [])],
-    reactiveKind: 'normal',
-    sourceQueryId: -1,
-    sourceQuery: null,
-  }
-  moduleQueryCache.set(key, q)
+  const first = moduleQueryCache.get(key)
+  const q: QueryInternal = first
+    ? { ...first, columnViewCache: cols }
+    : {
+        id: ids.query++,
+        mask: [],
+        all: (desc.all ?? []).map((c) => c.__id),
+        any: (desc.any ?? []).map((c) => c.__id),
+        none: (desc.none ?? []).map((c) => c.__id),
+        columnViewCache: cols,
+        reactiveKind: 'normal',
+        sourceQueryId: -1,
+        sourceQuery: null,
+      }
+  if (!first) moduleQueryCache.set(key, q)
+  moduleQueryCache.set(orderKey, q)
   return q
+}
+
+const colKey = (cs: ComponentLike[]): string => cs.map((c) => c.__id).join('-')
+
+// Whether `q` (or another declaration order of it) is registered in `state`.
+// Comparing the shared `all` array instead of the object keeps two orders from
+// re-registering each other, while a query that reuses a stale id after a
+// registry reset still has a different array.
+function isRegistered(state: WorldState, q: QueryInternal): boolean {
+  return state.queries[q.id]?.all === q.all
 }
 
 /**
@@ -101,22 +122,34 @@ export function exitQuery(query: Query): Query {
 // non-Query throws before anything is cached.
 function reactiveVariant(query: Query, kind: 'enter' | 'exit'): QueryInternal {
   const q = asQueryInternal(query)
+  // Invariant (as in defineQuery): one variant per (kind, source id) owns the
+  // id, and with it the per-world buffer and the index entry. Another column
+  // order of the source gets a copy of it with its own columns, so every order
+  // drains the same buffer; the copy is not indexed, or each event would be
+  // pushed into that buffer twice.
   const key = `${kind}:${q.id}`
-  const cached = moduleQueryCache.get(key)
+  const orderKey = `${key}:${colKey(q.columnViewCache)}`
+  const cached = moduleQueryCache.get(orderKey)
   if (cached) return cached
-  const reactive: QueryInternal = {
-    id: ids.query++,
-    mask: [],
-    all: q.all,
-    any: q.any,
-    none: q.none,
-    columnViewCache: q.columnViewCache,
-    reactiveKind: kind,
-    sourceQueryId: q.id,
-    sourceQuery: q,
+  const first = moduleQueryCache.get(key)
+  const reactive: QueryInternal = first
+    ? { ...first, columnViewCache: q.columnViewCache }
+    : {
+        id: ids.query++,
+        mask: [],
+        all: q.all,
+        any: q.any,
+        none: q.none,
+        columnViewCache: q.columnViewCache,
+        reactiveKind: kind,
+        sourceQueryId: q.id,
+        sourceQuery: q,
+      }
+  if (!first) {
+    moduleQueryCache.set(key, reactive)
+    indexReactive(q, reactive)
   }
-  moduleQueryCache.set(key, reactive)
-  indexReactive(q, reactive)
+  moduleQueryCache.set(orderKey, reactive)
   return reactive
 }
 
@@ -155,7 +188,7 @@ export function asQueryInternal(query: Query): QueryInternal {
 // --- Per-world query setup ---
 
 export function ensureQueryRegistered(state: WorldState, q: QueryInternal): void {
-  if (state.queries[q.id] === q && state.queryMasks.has(q.id)) return
+  if (isRegistered(state, q) && state.queryMasks.has(q.id)) return
 
   // Build per-world bitmasks (this may register new bits)
   const involvedBits: number[] = []
@@ -476,7 +509,7 @@ export function recordEntityMaskChange(
   const sources = changedId === undefined ? undefined : reactiveSourcesByComponent.get(changedId)
   if (sources) {
     for (const src of sources) {
-      if (state.queries[src.id] === src) continue
+      if (isRegistered(state, src)) continue
       if (canMatchIn(state, src)) ensureQueryRegistered(state, src)
     }
   }
