@@ -238,8 +238,9 @@ export function removeComponent<C extends ComponentLike>(
   clearBit(newMask, bit)
   migrateEntity(state, eid as number, newMask)
 
-  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid, prevMask, newMask)
-
+  // Clear the storage and record the reactive exit BEFORE the query observers
+  // run: a 'remove' observer that re-adds the component must keep its data
+  // and its enter. The component-level onRemove above already read the value.
   const idx = (eid as number) & state.options.indexMask
   const storage = state.componentStorageByBit[bit]
   if (storage?.kind === 'soa' && storage.soa) {
@@ -249,6 +250,7 @@ export function removeComponent<C extends ComponentLike>(
   }
 
   notifyMaskChange(state, eid, bit, prevMask, newMask)
+  shared.hooks.observerDispatch?.fireRemoveQuery(state, eid, prevMask, newMask)
 }
 
 export function hasComponent<C extends ComponentLike>(

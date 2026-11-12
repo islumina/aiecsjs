@@ -7,6 +7,7 @@ All notable changes to aiecsjs are summarized here. Detailed historical review n
 ### Changes
 
 - Fixed: `defineQuery([B, A])` after `defineQuery([A, B])` (and a raw `[B, A]` array) now passes column views in its own declaration order, because the query cache keyed only the sorted component ids and handed back the first order's columns, so `forEachEntity` silently read and wrote the wrong component when fields shared names. `enterQuery` / `exitQuery` views of a `[B, A]` query likewise hand columns in `(b, a)` order. Both orders keep one query `id` and one per-world registration, and their enter/exit views keep one buffer, as before: an entity drained through one order is not delivered again through the other.
+- Fixed: a query `observe(world, query, 'remove')` handler that re-adds the removed component now keeps the re-added data (SoA values, the AoS instance) and its reactive enter, because `removeComponent` cleared the storage and recorded the exit after the query observers ran, wiping what the handler wrote while the mask bit stayed set. The component-level `onRemove` still runs first and can read the outgoing value.
 
 ## [0.6.0] - 2026-09-29
 

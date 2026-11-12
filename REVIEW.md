@@ -13,6 +13,7 @@ Current review state after the 2026-09-29 ai*js 0.6.0 pass. Historical fixed fin
 
 ## Fixed Summary
 
+- `removeComponent` clears storage and records the reactive exit before query `remove` observers run, so a handler that re-adds the component keeps its data.
 - Query column views follow each `defineQuery` call's declaration order instead of the first order cached for the same component set, for `enterQuery` / `exitQuery` views too; orders share one id, one per-world registration and one reactive buffer.
 - `addRelation` throws `EcsError` for a dead source or target, so a recycled slot no longer inherits an edge added to its dead predecessor.
 - Snapshots are format 2 with a component table; components have optional stable keys (re-defining a key with the same kind and field layout, as HMR does, returns the existing component), and every loader (`fromJSON`, `deserializeWorld`, delta `apply()`, `adoptSnapshot`, `attachWorld`) resolves them by key (by id when keyless) and rejects unknown components (unless `onUnknownComponent: 'skip'`) and kind/SoA-field mismatches before creating or writing anything; 0.5.x snapshots load only with `onUnknownVersion: 'best-effort'`.
