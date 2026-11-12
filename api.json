@@ -1105,7 +1105,7 @@
       "stability": "stable",
       "deprecated": false,
       "signature": "function serializeWorld(world: World, options?: SerializeOptions): Uint8Array",
-      "summary": "Produce a versioned binary snapshot of the world (format 2: magic, format version, VERSION, JSON body with the component table).",
+      "summary": "Produce a versioned binary snapshot of the world (format 2: magic, format version, VERSION, JSON body with the component table). Non-finite SoA values are written as the strings \"Infinity\" / \"-Infinity\" / \"NaN\" and restored as numbers.",
       "params": [
         { "name": "world", "type": "World", "optional": false, "description": "Target world." },
         {

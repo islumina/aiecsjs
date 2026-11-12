@@ -69,6 +69,7 @@ const restored = deserializeWorld(bytes); // or fromJSON(toJSON(world))
 
 - 載入時會先解析所有 component，再建立 world：有 key 的依 key 對應，沒有 key 的依建立順序 id 對應。component 在目前行程中未定義時丟出 `EcsError`（傳入 `onUnknownComponent: "skip"` 可略過該 component 的資料）；kind 或 SoA 欄位不符時也丟出 `EcsError`。
 - 0.5.x snapshot 預設以 `EcsError` 拒絕；`{ onUnknownVersion: "best-effort" }` 會依 id 載入並檢查 kind。請見 [0.5.x -> 0.6.0 snapshots](docs/MIGRATION_ZHTW.md#05x---060-snapshots)。
+- SoA 欄位中的 `Infinity`、`-Infinity` 與 `NaN` 在兩種 round-trip 都會保留；二進位格式把它們寫成字串 `"Infinity"` / `"-Infinity"` / `"NaN"`。二進位格式中的 AoS 資料是一般 JSON，其中的非有限數會變成 `null`。
 - 還原後的 entity 依 snapshot 順序取得新 id（slot 範圍中的空洞會被補齊），因此存在 component 資料中的 EntityId 不會重新對應。Delta `apply()` 會保留 slot 索引。
 
 ## Relations

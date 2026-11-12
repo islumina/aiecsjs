@@ -13,6 +13,7 @@ Current review state after the 2026-09-29 ai*js 0.6.0 pass. Historical fixed fin
 
 ## Fixed Summary
 
+- Binary snapshots and delta signatures write non-finite SoA values as `"Infinity"` / `"-Infinity"` / `"NaN"` instead of JSON `null` (loaded as 0); snapshots without such values keep their exact bytes and format 2.
 - `destroyEntity` records one reactive exit per query that matched before the destroy and never an enter, instead of replaying intermediate masks that made `none`-term queries report a spurious enter.
 - `removeComponent` clears storage and records the reactive exit before query `remove` observers run, so a handler that re-adds the component keeps its data.
 - Query column views follow each `defineQuery` call's declaration order instead of the first order cached for the same component set, for `enterQuery` / `exitQuery` views too; orders share one id, one per-world registration and one reactive buffer.
