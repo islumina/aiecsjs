@@ -64,19 +64,21 @@ export interface SoAColumns {
   [field: string]: ColumnArray
 }
 
-export type ComponentView<C extends ComponentLike> = C extends SoAComponent<infer _S>
-  ? SoAColumns
-  : C extends AoSComponent<infer T>
-    ? T | undefined
-    : C extends TagComponent
-      ? boolean
-      : never
+export type ComponentView<C extends ComponentLike> =
+  C extends SoAComponent<infer _S>
+    ? SoAColumns
+    : C extends AoSComponent<infer T>
+      ? T | undefined
+      : C extends TagComponent
+        ? boolean
+        : never
 
-export type ComponentInit<C extends ComponentLike> = C extends SoAComponent<infer _S>
-  ? Record<string, unknown>
-  : C extends AoSComponent<infer T>
-    ? Partial<T>
-    : undefined
+export type ComponentInit<C extends ComponentLike> =
+  C extends SoAComponent<infer _S>
+    ? Record<string, unknown>
+    : C extends AoSComponent<infer T>
+      ? Partial<T>
+      : undefined
 
 export interface QueryDescriptor {
   all?: ComponentLike[]

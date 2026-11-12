@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EcsError,
-  type EntityId,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -10,6 +7,8 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  EcsError,
+  type EntityId,
   enterQuery,
   exitQuery,
   forEachEntity,
@@ -23,6 +22,7 @@ import {
   removeComponent,
   runQuery,
   setComponent,
+  Types,
 } from '../src/index.js'
 import { getWorldState } from '../src/internal/world.js'
 

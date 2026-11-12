@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EcsError, type World, createWorld, pipe } from '../src/index.js'
+import { createWorld, EcsError, pipe, type World } from '../src/index.js'
 
 describe('pipe', () => {
   it('empty pipe returns world unchanged', () => {

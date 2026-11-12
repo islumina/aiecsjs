@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
-  EcsError,
-  IS_SAB_SUPPORTED,
-  Types,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
   destroyEntity,
+  EcsError,
   getWorldSize,
   hasComponent,
+  IS_SAB_SUPPORTED,
   removeComponent,
   resetWorld,
   setComponent,
+  Types,
 } from '../src/index.js'
 import type { TransferableSnapshot } from '../src/internal/types.js'
 import { adoptSnapshot, attachWorld, detachWorld, transferableSnapshot } from '../src/worker.js'

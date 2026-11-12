@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type EntityId,
-  type SoAColumns,
-  Types,
-  type World,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
   defineQuery,
   destroyEntity,
+  type EntityId,
   entityExists,
   forEachEntityIndexed,
   getComponent,
   getEntityIndex,
   pipe,
   removeComponent,
+  type SoAColumns,
+  Types,
+  type World,
 } from '../../src/index.js'
 
 describe('integration: README Quick Start', () => {

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  EcsError,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -9,18 +7,21 @@ import {
   defineObjectComponent,
   defineQuery,
   defineTag,
+  deref,
   destroyEntity,
+  EcsError,
   enterQuery,
   exitQuery,
   getComponent,
   getWorldSize,
   hasComponent,
+  refOf,
   removeComponent,
   resetWorld,
   runQuery,
   setComponent,
+  Types,
 } from '../src/index.js'
-import { deref, refOf } from '../src/index.js'
 import { observe, onAdd, onRemove, onSet } from '../src/observers.js'
 
 describe('component observers', () => {

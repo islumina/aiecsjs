@@ -7,17 +7,17 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
-  EcsError,
-  Types,
   addComponent,
   createEntity,
   createWorld,
   defineComponent,
   defineObjectComponent,
   defineTag,
+  EcsError,
   getComponent,
   getWorldSize,
   hasComponent,
+  Types,
 } from '../src/index.js'
 import { _resetComponentRegistry_FOR_TESTS_ONLY } from '../src/internal/component.js'
 import { ids } from '../src/internal/registry.js'

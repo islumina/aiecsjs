@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import pkg from '../package.json' with { type: 'json' }
 import {
-  EcsError,
-  type SoAColumns,
-  Types,
   addComponent,
   createEntity,
   createWorld,
@@ -12,13 +9,16 @@ import {
   defineQuery,
   defineTag,
   destroyEntity,
+  EcsError,
   getComponent,
   getWorldCapacity,
   getWorldSize,
   hasComponent,
   removeComponent,
   runQuery,
+  type SoAColumns,
   setComponent,
+  Types,
 } from '../src/index.js'
 import type { WorldSnapshot } from '../src/internal/types.js'
 import { getWorldState } from '../src/internal/world.js'
