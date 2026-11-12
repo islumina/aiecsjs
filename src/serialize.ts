@@ -28,7 +28,7 @@ type SnapshotComponent = WorldSnapshot['components'][number]
 type SnapshotEntity = WorldSnapshot['entities'][number]
 
 export function serializeWorld(world: World, options?: SerializeOptions): Uint8Array {
-  return packBinary(snapshotWorld(world, allowlistOf(options?.components)))
+  return packBinary(snapshotWorld(world, allowlistOf(options?.components), true))
 }
 
 /**
@@ -54,6 +54,8 @@ function allowlistOf(components: ComponentLike[] | undefined): Set<number> | nul
  *
  * AoS component data is deep-copied (`structuredClone`), so the snapshot never
  * aliases live component instances; AoS values must therefore be cloneable.
+ * AoS (object component) values must also be plain JSON-like objects:
+ * `Map` / `Set` / `Date` contents are not restored by `fromJSON`.
  *
  * Note: `EntityRef` is in-memory only — not preserved across serialize/deserialize.
  * `fromJSON` / `deserializeWorld` re-create entities in snapshot order with
@@ -64,9 +66,19 @@ export function toJSON(world: World): WorldSnapshot {
   return snapshotWorld(world, null)
 }
 
+// SoA value for the binary form: JSON writes a non-finite number as null
+// (loaded back as 0), so it is written as "Infinity" / "-Infinity" / "NaN",
+// which the loader's Number() parses back. Finite values are unchanged, so a
+// snapshot without non-finite values keeps its exact bytes.
+const encodeNumber = (v: number): number | string => (Number.isFinite(v) ? v : String(v))
+
 // toJSON restricted to the `allow` component ids (null = all). Components
 // outside the allowlist are skipped before their data is read or cloned.
-function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
+// `binary` encodes SoA values with encodeNumber (serializeWorld and the delta
+// serializer, whose signatures then tell NaN / Infinity / -Infinity apart);
+// toJSON keeps plain numbers. AoS data is never encoded.
+function snapshotWorld(world: World, allow: Set<number> | null, binary?: boolean): WorldSnapshot {
+  const num = binary ? encodeNumber : (v: number) => v
   const state = getWorldState(world)
   const w = state.options.maskWordCount
   const table = new Map<number, SnapshotComponent>()
@@ -89,8 +101,8 @@ function snapshotWorld(world: World, allow: Set<number> | null): WorldSnapshot {
           if (!col) continue
           obj[f.name] =
             f.vectorLen === 1
-              ? col[idx]
-              : Array.from(col.subarray(idx * f.vectorLen, (idx + 1) * f.vectorLen))
+              ? num(col[idx]!)
+              : Array.from(col.subarray(idx * f.vectorLen, (idx + 1) * f.vectorLen), num)
         }
         data = obj
       } else if (info.kind === 'aos' && storage?.aos) {
@@ -349,7 +361,7 @@ export function createDeltaSerializer(world: World, options?: SerializeOptions):
   }
   return {
     capture(): Uint8Array {
-      const current = snapshotWorld(state.world, state.allow)
+      const current = snapshotWorld(state.world, state.allow, true)
       const sigs = new Map<number, string>()
       for (const e of current.entities) sigs.set(e.eid, JSON.stringify(e.components))
       let delta: WorldSnapshot

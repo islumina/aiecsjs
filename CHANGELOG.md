@@ -2,6 +2,15 @@
 
 All notable changes to aiecsjs are summarized here. Detailed historical review notes live in Git history; this file keeps current release context compact.
 
+## [Unreleased]
+
+### Changes
+
+- Fixed: `defineQuery([B, A])` after `defineQuery([A, B])` (and a raw `[B, A]` array) now passes column views in its own declaration order, because the query cache keyed only the sorted component ids and handed back the first order's columns, so `forEachEntity` silently read and wrote the wrong component when fields shared names. `enterQuery` / `exitQuery` views of a `[B, A]` query likewise hand columns in `(b, a)` order. Both orders keep one query `id` and one per-world registration, and their enter/exit views keep one buffer, as before: an entity drained through one order is not delivered again through the other.
+- Fixed: a query `observe(world, query, 'remove')` handler that re-adds the removed component now keeps the re-added data (SoA values, the AoS instance) and its reactive enter, because `removeComponent` cleared the storage and recorded the exit after the query observers ran, wiping what the handler wrote while the mask bit stayed set. The component-level `onRemove` still runs first and can read the outgoing value.
+- Fixed: `destroyEntity` no longer records an `enterQuery` entry for a query with `none` terms that the entity never matched (for example `{ all: [A], none: [B] }` on an entity holding A and B, depending on component registration order), because destroy replayed the component removals one bit at a time and an intermediate mask could match. Destroy now judges each query once against the pre-destroy mask and records one exit if it matched, never an enter; `observe(..., 'remove')` on destroy is unchanged.
+- Fixed: binary snapshots (`serializeWorld` / `deserializeWorld`, delta `capture()` / `apply()`, `transferableSnapshot` / `adoptSnapshot` / `attachWorld`) now keep `Infinity`, `-Infinity` and `NaN` in SoA fields (scalar fields and vector elements), because the JSON body wrote them as `null` and loading silently turned them into 0, unlike `fromJSON(toJSON(world))`; delta signatures also could not tell the three apart, so a change between them was never sent. They are now written as the strings `"Infinity"` / `"-Infinity"` / `"NaN"`, which changes the bytes of a snapshot that contains them; a snapshot without non-finite SoA values is byte-identical to 0.6.0, and the format stays 2. `toJSON` still returns numbers, and AoS data is not encoded (in the binary form a non-finite number inside it still becomes `null`). Compatibility: a 0.6.0 snapshot loads as before (its non-finite values were already stored as `null` and still load as 0), and a 0.6.0 reader loads a new snapshot with the right values, because its loader also converts SoA values with `Number()`; only code that parses the JSON body itself sees the strings.
+
 ## [0.6.0] - 2026-09-29
 
 ### Breaking

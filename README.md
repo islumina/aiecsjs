@@ -69,6 +69,7 @@ const restored = deserializeWorld(bytes); // or fromJSON(toJSON(world))
 
 - Loading resolves every component before it creates the world: by key, or by creation-order id for keyless components. It throws `EcsError` when a component is not defined in this process (pass `onUnknownComponent: "skip"` to drop its data) or when its kind or SoA fields differ.
 - 0.5.x snapshots are rejected with `EcsError` by default; `{ onUnknownVersion: "best-effort" }` loads them by id with a kind check. See [0.5.x -> 0.6.0 snapshots](docs/MIGRATION.md#05x---060-snapshots).
+- `Infinity`, `-Infinity` and `NaN` in SoA fields survive both round-trips; the binary form writes them as the strings `"Infinity"` / `"-Infinity"` / `"NaN"`. In the binary form AoS data is plain JSON, so non-finite numbers inside it become `null`.
 - Restored entities get fresh ids in snapshot order (holes in the slot range close up), so EntityIds stored inside component data are not remapped. Delta `apply()` keeps slot indices.
 
 ## Relations
