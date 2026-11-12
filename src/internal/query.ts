@@ -497,6 +497,9 @@ export function recordEntityMaskChange(
   changedBit: number,
   prevMask: Uint32Array,
   nextMask: Uint32Array,
+  // Set only by destroyEntity (see dispatchDestroyMaskChange): the ids of the
+  // queries already judged for this destroy. Destroy records exits only.
+  destroyed?: Set<number>,
 ): void {
   // Lazy-register the sources of reactive queries that reference the changed
   // component, so match transitions are tracked even if the user only ever
@@ -522,9 +525,13 @@ export function recordEntityMaskChange(
     if (q.reactiveKind !== 'normal') continue
     const bundle = state.queryMasks.get(qid)
     if (!bundle) continue
+    if (destroyed) {
+      if (destroyed.has(qid)) continue
+      destroyed.add(qid)
+    }
     const wasMatch = bundleMatches(state, bundle, prevMask)
     const isMatch = bundleMatches(state, bundle, nextMask)
-    if (!wasMatch && isMatch) {
+    if (!wasMatch && isMatch && !destroyed) {
       pushReactive(state, qid, 'enter', eid)
     } else if (wasMatch && !isMatch) {
       pushReactive(state, qid, 'exit', eid)

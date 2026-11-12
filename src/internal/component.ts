@@ -440,6 +440,7 @@ export type MaskChangeFn = (
   bit: number,
   prev: Uint32Array,
   next: Uint32Array,
+  destroyed?: Set<number>,
 ) => void
 export function registerMaskChangeDispatch(fn: MaskChangeFn): void {
   shared.hooks.maskChange = fn
@@ -454,36 +455,33 @@ function notifyMaskChange(
   shared.hooks.maskChange?.(state, eid as EntityId, bit, prev, next)
 }
 
-// Fire the reactive enter/exit mask-change notification for an entity being
-// destroyed. destroyEntity clears the entity's mask wholesale rather than
-// removing components one-by-one, so it never reaches removeComponent's
+// Fire the reactive exit notification for an entity being destroyed.
+// destroyEntity clears the entity's mask wholesale rather than removing
+// components one-by-one, so it never reaches removeComponent's
 // `notifyMaskChange` call — leaving exitQuery buffers empty on destroy while a
 // component-by-component teardown would have populated them (asymmetric with
-// observe(q,'remove')). We replay the removals here.
+// observe(q,'remove')). We report the destroy here.
 //
-// CORRECTNESS: transition ONE bit at a time through evolving masks, exactly as a
-// sequence of removeComponent() calls would. Passing a single (prevMask, empty)
-// pair once per set bit double-counts — a query matching on several of the
-// entity's components would see wasMatch=true,isMatch=false on every bit and push
-// the same exit N times. Clearing bits incrementally flips wasMatch=false after
-// the first component that breaks each query's match, so every query records
-// exactly one exit.
+// CORRECTNESS: every call compares the whole pre-destroy mask with the empty
+// mask, never an intermediate one, and passes one shared `destroyed` set, so
+// each query is judged once (by id) across the entity's bits: it records one
+// exit if it matched before the destroy, and never an enter. Replaying the
+// removals bit by bit made a `none`-term query match an intermediate mask and
+// record an enter for an entity that never matched it.
 //
 // SNAPSHOT DISCIPLINE: `prevMask` is a private copy captured after destroy's
 // teardown handlers ran (their own add/removeComponent calls already recorded
-// those transitions). We iterate that snapshot and mutate only our own clones.
+// those transitions). We only read it.
 export function dispatchDestroyMaskChange(
   state: WorldState,
   eid: EntityId,
   prevMask: Uint32Array,
 ): void {
   const w = state.options.maskWordCount
-  const before = cloneMask(prevMask) // current bit still set
-  const after = cloneMask(prevMask) // current bit cleared
+  const empty = new Uint32Array(w)
+  const destroyed = new Set<number>()
   forEachSetBit(prevMask, 0, w, (bit) => {
-    clearBit(after, bit)
-    notifyMaskChange(state, eid as number, bit, before, after)
-    clearBit(before, bit)
+    shared.hooks.maskChange?.(state, eid, bit, prevMask, empty, destroyed)
   })
 }
 export function registerObserverDispatch(api: ObserversDispatchAPI): void {
